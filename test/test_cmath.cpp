@@ -306,6 +306,45 @@ void test_frexp10()
     BOOST_TEST_EQ(frexp10(std::numeric_limits<Dec>::infinity(), &expval), -1);
     BOOST_TEST_EQ(expval, 0);
 
+    // Each power of ten, one below it and one above it, of both signs. The IEEE types also
+    // take the exponent of the smallest subnormal value.
+    using sig_type = typename Dec::significand_type;
+    constexpr int p {std::numeric_limits<Dec>::digits10};
+    const bool has_subnormals {std::is_same<Dec, decimal32_t>::value || std::is_same<Dec, decimal64_t>::value ||
+                               std::is_same<Dec, decimal128_t>::value};
+    const int min_sub_exp {std::numeric_limits<Dec>::min_exponent10 - p + 1};
+    sig_type power {1U};
+    for (int k {}; k <= p; ++k, power *= 10U)
+    {
+        const sig_type values[] {power - 1U, power, power + 1U};
+        for (const sig_type v : values)
+        {
+            int digits {};
+            for (sig_type r {v}; r != 0U; r /= 10U)
+            {
+                ++digits;
+            }
+            if (v == 0U || digits > p)
+            {
+                continue;
+            }
+
+            sig_type expected {v};
+            for (int i {digits}; i < p; ++i)
+            {
+                expected *= 10U;
+            }
+
+            for (const int e : {3, has_subnormals ? min_sub_exp : 3})
+            {
+                BOOST_TEST_EQ(frexp10(Dec(v, e), &expval), expected);
+                BOOST_TEST_EQ(expval, e - (p - digits));
+                BOOST_TEST_EQ(frexp10(Dec(v, e, true), &expval), expected);
+                BOOST_TEST_EQ(expval, e - (p - digits));
+            }
+        }
+    }
+
     BOOST_IF_CONSTEXPR (std::is_same<Dec, decimal32_t>::value)
     {
         BOOST_TEST_EQ(frexp10(Dec(10, 0), &expval), 1'000'000);
@@ -316,6 +355,40 @@ void test_frexp10()
 
         BOOST_TEST_EQ(frexp10(Dec(-1'000'000, 5), &expval), 1'000'000);
         BOOST_TEST_EQ(expval, 5);
+
+        // A non-canonical significand has 8 digits and rounds to 7
+        BOOST_TEST_EQ(frexp10(from_bits(UINT32_C(0x6CBFFFFF)), &expval), 1'048'576);
+        BOOST_TEST_EQ(expval, 1);
+
+        #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+        // The rounding of the magnitude in each mode, for a discarded digit below, at and above 5,
+        // with an even and an odd retained digit at the tie
+        const rounding_mode modes[] {rounding_mode::fe_dec_to_nearest, rounding_mode::fe_dec_to_nearest_from_zero,
+                                     rounding_mode::fe_dec_upward, rounding_mode::fe_dec_downward, rounding_mode::fe_dec_toward_zero};
+        const std::uint32_t sigs[] {10'000'004, 10'000'005, 10'000'015, 10'000'016};
+        const std::uint32_t results[][4] {
+            {1'000'000, 1'000'000, 1'000'002, 1'000'002},
+            {1'000'000, 1'000'001, 1'000'002, 1'000'002},
+            {1'000'001, 1'000'001, 1'000'002, 1'000'002},
+            {1'000'000, 1'000'000, 1'000'001, 1'000'001},
+            {1'000'000, 1'000'000, 1'000'001, 1'000'001}
+        };
+
+        const auto original_mode {boost::decimal::fegetround()};
+        for (std::size_t i {}; i < sizeof(modes) / sizeof(modes[0]); ++i)
+        {
+            fesetround(modes[i]);
+            for (std::size_t j {}; j < sizeof(sigs) / sizeof(sigs[0]); ++j)
+            {
+                for (const std::uint32_t sign : {UINT32_C(0), UINT32_C(0x80000000)})
+                {
+                    BOOST_TEST_EQ(frexp10(from_bits(sign | UINT32_C(0x6CA00000) | (sigs[j] - UINT32_C(0x800000))), &expval), results[i][j]);
+                    BOOST_TEST_EQ(expval, 1);
+                }
+            }
+        }
+        fesetround(original_mode);
+        #endif
     }
     else BOOST_IF_CONSTEXPR (std::is_same<Dec, decimal64_t>::value)
     {
@@ -327,6 +400,34 @@ void test_frexp10()
 
         BOOST_TEST_EQ(frexp10(Dec(-1'000'000, 5), &expval), 1000000000000000);
         BOOST_TEST_EQ(expval, -4);
+
+        // The bit length of 9 gives one digit too many, which a factor of ten fixes
+        BOOST_TEST_EQ(frexp10(Dec(9, 0), &expval), 9000000000000000);
+        BOOST_TEST_EQ(expval, -15);
+
+        // A non-canonical significand has 17 digits and rounds to 16
+        BOOST_TEST_EQ(frexp10(from_bits(UINT64_C(0x6C7FFFFFFFFFFFFF)), &expval), 1125899906842624);
+        BOOST_TEST_EQ(expval, 2);
+    }
+    else BOOST_IF_CONSTEXPR (std::is_same<Dec, decimal128_t>::value)
+    {
+        // The bit length gives the digit count or one more, below and above 2^64
+        BOOST_TEST_EQ(frexp10(Dec(9, 0), &expval), (boost::int128::uint128_t {UINT64_C(0x1BBBBF868FA2C), UINT64_C(0xFECC335A00000000)}));
+        BOOST_TEST_EQ(expval, -33);
+
+        BOOST_TEST_EQ(frexp10(Dec(10, 0), &expval), (boost::int128::uint128_t {UINT64_C(0x314DC6448D93), UINT64_C(0x38C15B0A00000000)}));
+        BOOST_TEST_EQ(expval, -32);
+
+        BOOST_TEST_EQ(frexp10(Dec(boost::int128::uint128_t {5U, 0U}, 0), &expval), (boost::int128::uint128_t {UINT64_C(0x1C6BF52634000), 0U}));
+        BOOST_TEST_EQ(expval, -14);
+
+        BOOST_TEST_EQ(frexp10(Dec(boost::int128::uint128_t {6U, 0U}, 0), &expval), (boost::int128::uint128_t {UINT64_C(0x3691D6AFC000), 0U}));
+        BOOST_TEST_EQ(expval, -13);
+
+        // A non-canonical significand has 35 digits and rounds to 34
+        BOOST_TEST_EQ(frexp10(from_bits(boost::int128::uint128_t {UINT64_C(0x6000000000000000) | (UINT64_C(6176) << 47), 0U}), &expval),
+                      (boost::int128::uint128_t {UINT64_C(0x333333333333), UINT64_C(0x3333333333333333)}));
+        BOOST_TEST_EQ(expval, 1);
     }
 }
 
@@ -1689,9 +1790,11 @@ int main()
     test_scalbn<decimal_fast64_t>();
     test_scalbln<decimal_fast64_t>();
 
+    test_frexp10<decimal128_t>();
     test_scalbn<decimal128_t>();
     test_scalbln<decimal128_t>();
 
+    test_frexp10<decimal_fast128_t>();
     test_scalbn<decimal_fast128_t>();
     test_scalbln<decimal_fast128_t>();
 
