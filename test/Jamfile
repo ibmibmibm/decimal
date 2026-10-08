@@ -173,6 +173,7 @@ run github_issue_1561_exp2.cpp ;
 run github_issue_to_float.cpp ;
 run github_issue_to_float.cpp : : : <define>BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS <pch>off : github_issue_to_float_size ;
 run github_issue_long_double.cpp ;
+run github_issue_nextafter.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
