@@ -2266,16 +2266,14 @@ constexpr decimal32_t::operator std::bfloat16_t() const noexcept
 constexpr auto samequantumd32(const decimal32_t lhs, const decimal32_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    const auto lhs_fp {fpclassify(lhs)};
-    const auto rhs_fp {fpclassify(rhs)};
-
-    if ((lhs_fp == FP_NAN && rhs_fp == FP_NAN) || (lhs_fp == FP_INFINITE && rhs_fp == FP_INFINITE))
+    // Only NaN and infinity matter here, and fpclassify also counts digits for a subnormal value
+    if (isnan(lhs) || isnan(rhs))
     {
-        return true;
+        return isnan(lhs) && isnan(rhs);
     }
-    if ((lhs_fp == FP_NAN || rhs_fp == FP_INFINITE) || (rhs_fp == FP_NAN || lhs_fp == FP_INFINITE))
+    if (isinf(lhs) || isinf(rhs))
     {
-        return false;
+        return isinf(lhs) && isinf(rhs);
     }
     #endif
 
