@@ -399,8 +399,8 @@ constexpr int ilogb(DecimalType x) noexcept;
 template <typename DecimalType>
 constexpr DecimalType logb(DecimalType x) noexcept;
 
-template <typename DecimalType>
-constexpr DecimalType nextafter(DecimalType from, DecimalType to) noexcept;
+template <typename DecimalType1, typename DecimalType2>
+constexpr auto nextafter(DecimalType1 from, DecimalType2 to) noexcept;
 
 template <typename DecimalType>
 constexpr DecimalType nexttoward(DecimalType from, long double to) noexcept;
@@ -411,6 +411,9 @@ constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
 } // namespace decimal
 } // namespace boost
 ----
+
+If `from` and `to` have different types, `nextafter` converts both to the promoted type, as mixed arithmetic does, and returns the next value of that type.
+For example, `nextafter(decimal32_t {1}, decimal64_t {2})` returns `decimal64_t` 1.000000000000001.
 
 [#cmath_classification]
 == Classification and Comparison
