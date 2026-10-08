@@ -1255,8 +1255,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR std::size_t div_to_words(const u256& x, std::uint32
         words[7] = static_cast<std::uint32_t>(x[3] >> 32U);
     }
 
+    // A zero dividend has no words. The callers then return a zero quotient and the dividend
+    // as the remainder.
     std::size_t word_count {8};
-    while (words[word_count - 1U] == 0U)
+    while (word_count > 0U && words[word_count - 1U] == 0U)
     {
         --word_count;
     }
