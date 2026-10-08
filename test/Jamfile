@@ -177,6 +177,7 @@ run github_issue_integer_comparison.cpp ;
 run github_issue_mixed_compound.cpp ;
 run github_issue_fast_mod_assign.cpp ;
 run github_issue_spaceship.cpp ;
+run github_issue_zero_mod.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
