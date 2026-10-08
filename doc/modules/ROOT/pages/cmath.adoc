@@ -412,6 +412,11 @@ constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
 } // namespace boost
 ----
 
+`modf` returns the fractional part of `x` and stores the integer part in `*iptr`.
+Both parts are exact and have the sign of `x`.
+In the IEEE types, the integer part has the exponent max(q, 0), and the fractional part keeps the exponent q of `x`.
+The fast types can normalize both parts.
+
 [#cmath_classification]
 == Classification and Comparison
 
