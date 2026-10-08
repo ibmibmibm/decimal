@@ -163,10 +163,6 @@ private:
                              detail::is_decimal_floating_point_v<Decimal2>), bool>;
 
     template <typename Decimal, typename TargetType>
-    friend constexpr auto to_integral(Decimal val) noexcept
-        BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_integral_v, TargetType, TargetType);
-
-    template <typename Decimal, typename TargetType>
     friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType);
 

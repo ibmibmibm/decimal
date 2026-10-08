@@ -147,13 +147,6 @@ private:
     BOOST_DECIMAL_CUDA_CONSTEXPR auto edit_exponent(T exp) noexcept -> void;
     BOOST_DECIMAL_CUDA_CONSTEXPR auto edit_sign(bool sign) noexcept -> void;
 
-    // Attempts conversion to integral type:
-    // If this is nan sets errno to EINVAL and returns 0
-    // If this is not representable sets errno to ERANGE and returns 0
-    template <typename Decimal, typename TargetType>
-    friend constexpr auto to_integral_128(Decimal val) noexcept
-        BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_integral_v, TargetType, TargetType);
-
     template <typename Decimal, typename TargetType>
     friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType);
@@ -1102,54 +1095,54 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator bool() const noexcept
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator int() const noexcept
 {
-    return to_integral_128<decimal128_t, int>(*this);
+    return to_integral<decimal128_t, int>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator unsigned() const noexcept
 {
-    return to_integral_128<decimal128_t, unsigned>(*this);
+    return to_integral<decimal128_t, unsigned>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator long() const noexcept
 {
-    return to_integral_128<decimal128_t, long>(*this);
+    return to_integral<decimal128_t, long>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator unsigned long() const noexcept
 {
-    return to_integral_128<decimal128_t, unsigned long>(*this);
+    return to_integral<decimal128_t, unsigned long>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator long long() const noexcept
 {
-    return to_integral_128<decimal128_t, long long>(*this);
+    return to_integral<decimal128_t, long long>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator unsigned long long() const noexcept
 {
-    return to_integral_128<decimal128_t, unsigned long long>(*this);
+    return to_integral<decimal128_t, unsigned long long>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator boost::int128::int128_t() const noexcept
 {
-    return to_integral_128<decimal128_t, boost::int128::int128_t>(*this);
+    return to_integral<decimal128_t, boost::int128::int128_t>(*this);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator boost::int128::uint128_t() const noexcept
 {
-    return to_integral_128<decimal128_t, boost::int128::uint128_t>(*this);
+    return to_integral<decimal128_t, boost::int128::uint128_t>(*this);
 }
 
 #ifdef BOOST_DECIMAL_HAS_INT128
 
 constexpr decimal128_t::operator detail::builtin_int128_t() const noexcept
 {
-    return to_integral_128<decimal128_t, detail::builtin_int128_t>(*this);
+    return to_integral<decimal128_t, detail::builtin_int128_t>(*this);
 }
 
 constexpr decimal128_t::operator detail::builtin_uint128_t() const noexcept
 {
-    return to_integral_128<decimal128_t, detail::builtin_uint128_t>(*this);
+    return to_integral<decimal128_t, detail::builtin_uint128_t>(*this);
 }
 
 #endif //BOOST_DECIMAL_HAS_INT128

@@ -138,13 +138,6 @@ private:
 
     friend constexpr auto div_impl(decimal_fast32_t lhs, decimal_fast32_t rhs, decimal_fast32_t& q) noexcept -> void;
 
-    // Attempts conversion to integral type:
-    // If this is nan sets errno to EINVAL and returns 0
-    // If this is not representable sets errno to ERANGE and returns 0
-    template <typename Decimal, typename TargetType>
-    friend constexpr auto to_integral(Decimal val) noexcept
-        BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_integral_v, TargetType, TargetType);
-
     template <typename Decimal, typename TargetType>
     friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType);

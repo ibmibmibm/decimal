@@ -197,9 +197,10 @@ explicit constexpr operator unsigned long long() const noexcept;
 
 Constructs an integer representation of the decimal value subject to:
 
-. If the decimal value is `INF` returns `std::numeric_limits<IntegerType>::max()`
-. If the decimal value is `NAN` returns `std::numeric_limits<IntegerType>::max()`
-. If the decimal value exceeds the range of the `IntegerType` returns `std::numeric_limits<IntegerType>::max()`
+. If the decimal value is `INF` returns `std::numeric_limits<IntegerType>::max()` and sets `errno` to `ERANGE`
+. If the decimal value is `NAN` returns `std::numeric_limits<IntegerType>::max()` and sets `errno` to `EINVAL`
+. Else the fractional digits are discarded first. If the resulting integer exceeds the range of the `IntegerType`, returns `std::numeric_limits<IntegerType>::max()` and sets `errno` to `ERANGE`.
+So `-0.5` converts to `0` for an unsigned `IntegerType`, without an error.
 
 === Increment and Decrement Operators
 
