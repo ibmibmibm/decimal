@@ -13,6 +13,7 @@
 #include <cstdint>
 
 using namespace boost::decimal;
+using namespace boost::decimal::literals;
 
 #if !defined(BOOST_DECIMAL_REDUCE_TEST_DEPTH)
 static constexpr auto N = static_cast<std::size_t>(1024); // Number of trials
@@ -269,6 +270,16 @@ void test_sqrt_zero()
     BOOST_TEST_EQ(sqrt(zero_cohort), pos_zero);
 }
 
+// A domain error gives 0
+void test_domain_error()
+{
+    BOOST_TEST_EQ(acos(2_DD), 0_DD);
+    BOOST_TEST_EQ(acos(-1.5_DF), 0_DF);
+    BOOST_TEST_EQ(asin(2_DL), 0_DL);
+    BOOST_TEST_EQ(acosh(0.5_DD), 0_DD);
+    BOOST_TEST_EQ(acosh(-2_DF), 0_DF);
+}
+
 template <typename T>
 void test_non_arithmetic()
 {
@@ -328,6 +339,8 @@ int main()
     test_sqrt_zero<decimal_fast32_t>();
     test_sqrt_zero<decimal_fast64_t>();
     test_sqrt_zero<decimal_fast128_t>();
+
+    test_domain_error();
 
     return boost::report_errors();
 }
