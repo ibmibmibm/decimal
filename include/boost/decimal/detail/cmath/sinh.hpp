@@ -60,6 +60,141 @@ constexpr auto sinh_cosh_lead(const boost::int128::uint128_t& sig, const int k, 
     return fx_lead_digits(m, g, 2 * a, false);
 }
 
+// (exp(|x|) +- exp(-|x|)) / 2 = 10^exp10 * 4d for |x| = whole + frac, with exp10 and d in the parts
+template <int words, bool Precise = false>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto sinh_cosh_parts(const std::uint64_t whole, const fx<words>& frac, const bool is_cosh) noexcept -> exp_parts<words>
+{
+    // exp(|x|) = 10^exp10 * 10^f and exp(-|x|) = 10^-gap * 10^exp10 * 10^(1 - f) with gap = 2 exp10 + 1.
+    // In d, each 10^f is divided by 8 so that it is below 4, and 10^(1 - f) / 8 = 10 / (8 * 2^a * m) = 5/4 * 2^-a / m.
+    const auto y {exp_log10(whole, frac, fx_table::log10_e)};
+    const auto big {exp10_frac<words, Precise>(y.f)};
+    auto d {fx_shr(big.m, 3U - big.a)};
+
+    // Where 10^-gap is below the last bit of d, exp(-|x|) has no effect
+    const int gap {2 * y.exp10 + 1};
+    if (gap < 19 * words)
+    {
+        const auto small {fx_mul_shr(fx_recip(big.m), 5U, 2U)};
+        const auto low {fx_mul(fx_shr(small, big.a), fx_from_decimal<words>(1U, gap))};
+        d = is_cosh ? fx_add(d, low) : fx_sub(d, low);
+    }
+    return {d, y.exp10};
+}
+
+// sinh_cosh_parts in one word from exp10_frac_pair with no division, and the sum of the two terms in sum
+template <std::size_t Even, std::size_t Odd>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto sinh_cosh_pair(const std::uint64_t whole, const fx<1>& frac, const bool is_cosh, fx<1>& sum) noexcept -> exp_parts<1>
+{
+    const auto y {exp_log10(whole, frac, fx_table::log10_e)};
+    fx<1> inv {};
+    const auto big {exp10_frac_pair<Even, Odd>(y.f, inv)};
+    auto d {fx_shr(big.m, 3U - big.a)};
+    sum = d;
+    const int gap {2 * y.exp10 + 1};
+    if (gap < 19)
+    {
+        const auto low {fx_mul(fx_shr(fx_mul_shr(inv, 5U, 3U), big.a), fx_from_decimal<1>(1U, gap))};
+        sum = fx_add(d, low);
+        d = is_cosh ? sum : fx_sub(d, low);
+    }
+    return {d, y.exp10};
+}
+
+// For decimal32_t and |x| >= 1/16, sinh(|x|) or cosh(x) with the series to z^3, rounded once in out where it cannot be
+// next to a rounding boundary: each term has a relative error below 2^-38, so 4d has an error below 2^-38 of 4 sum
+template <typename T>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto sinh_cosh_short_try(const std::uint64_t whole, const fx<1>& frac, const bool is_cosh, const bool neg, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+
+    fx<1> sum {};
+    const auto r {sinh_cosh_pair<2U, 2U>(whole, frac, is_cosh, sum)};
+
+    // 19 digits of 4d, where 4d > 1/16
+    int up {18};
+    auto d {fx_scale(pow10(static_cast<sig_type>(up)) * 4U, r.f)};
+    while (d < pow10(static_cast<sig_type>(18)))
+    {
+        ++up;
+        d = fx_scale(pow10(static_cast<sig_type>(up)) * 4U, r.f);
+    }
+    return fx_try_round(d.low, r.exp10 - up, neg, (fx_scale(pow10(static_cast<sig_type>(up)) * 4U, sum) >> 36U).low + 2U, out);
+}
+
+// For decimal64_t, sinh(|x|) or cosh(x) in one word, rounded once in out where it cannot be next to a rounding
+// boundary. Below 1, sinh(x) = x S(x^2) with 10 terms of S.
+template <typename T>
+constexpr auto sinh_cosh_try(const boost::int128::uint128_t& sig, const int e, const std::uint64_t whole, const bool is_cosh, const bool neg, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+
+    const auto frac {exp_frac<1>(sig, -e, whole)};
+    if (whole == 0U && (!is_cosh || exp_is_small(whole, frac)))
+    {
+        // For |x| < 10^-8 the digits are next to m. cosh takes the 5 terms below, with an error below 2^-60. Products
+        // truncate, so S has an error in (-2.1, 0], (-4, 0] or (-18.7, 0] units of 2^-62 for |x| below 1/2, 3/4 or 1
+        const bool half {frac.w[0] < (UINT64_C(1) << 61U)};
+        const bool below {half || frac.w[0] < (UINT64_C(3) << 60U)};
+        const fx<1> c {{half ? 1U : below ? 2U : 9U}};
+        return e > -24 && (is_cosh ? exp_try_round(pow10(static_cast<sig_type>(18)), sinh_cosh_series<1, 5U>(frac, true), -18, neg, 4U, out)
+                                   : exp_try_round(sig * 1000U, fx_add(sinh_cosh_series<1, 10U>(frac, false), c), e - 3, neg, half ? 2U : below ? 3U : 10U, out));
+    }
+
+    // Products truncate: d has a relative error in (-18.7, 5.7) units of 2^-62 for exp10 = 0, else (-15.1, 2.2), with
+    // |x| >= 1 for sinh, and (-3.5, 0] units for cosh or (-1, 2.5) for sinh with exp10 < 9, else (-1, 0]: c centers it
+    fx<1> sum {};
+    auto r {sinh_cosh_pair<4U, 3U>(whole, frac, is_cosh, sum)};
+    const bool two {r.exp10 < 9};
+    const fx<1> c {{two ? (is_cosh ? 2U : 1U) : 0U}};
+    r.f = is_cosh ? fx_add(r.f, c) : fx_sub(r.f, c);
+
+    // 19 digits of 4d > 1/4: 4d * 10^18 for 4d >= 1, else 4d * 10^19, and 7 units of 2^-62 more
+    const bool below {r.f.w[0] < (UINT64_C(1) << 60U)};
+    const sig_type m {pow10(static_cast<sig_type>(below ? 19 : 18)) * 4U};
+    auto d {fx_scale(m, r.f)};
+    d += (d * 7U) >> 62U;
+    const auto w {((d * (r.exp10 == 0 ? 51U : 37U)) >> 64U) + ((m * (two ? 2U : 1U)) >> 62U) + 4U};
+    return fx_try_round(d.low, r.exp10 - (below ? 19 : 18), neg, w.low, out);
+}
+
+// For decimal128_t and |x| >= 1/16, sinh(|x|) or cosh(x) in two words with the precise series of exp, rounded once in
+// out where it cannot be next to a rounding boundary. Below 1, sinh(x) = x S(x^2) with 17 terms of S.
+template <typename T>
+constexpr auto sinh_cosh_precise_try(const boost::int128::uint128_t& sig, const int e, const std::uint64_t whole, const bool is_cosh, const bool neg, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+    using digits_type = fx_digits_t<fx_words(std::numeric_limits<T>::digits10)>;
+    constexpr int scale10 {fx_scale10(2)};
+    constexpr int up {scale10 - std::numeric_limits<T>::digits10};
+
+    const auto frac {exp_frac<2>(sig, -e, whole)};
+    if (exp_is_small(whole, frac))
+    {
+        return false;
+    }
+    if (whole == 0U && !is_cosh)
+    {
+        // S has an error below 34 units of 2^-126, so the digits below d * 2^-120 + 2 units
+        const auto d {fx_scale(sig * pow10(static_cast<sig_type>(up)), sinh_cosh_series<2, 17U>(frac, false))};
+        if (fx_near_boundary(d, static_cast<std::uint64_t>(d >> 120U) + 2U))
+        {
+            return false;
+        }
+        out = fx_round<T>(static_cast<digits_type>(d), e - up, neg);
+        return true;
+    }
+
+    // 10^f has a relative error below 46 units of 2^-126, and 4d below 110 for cosh and for sinh with |x| >= 1
+    const auto r {sinh_cosh_parts<2, true>(whole, frac, is_cosh)};
+    const auto d {fx_scale(pow10(static_cast<sig_type>(scale10)) * 4U, r.f)};
+    if (fx_near_boundary(d, static_cast<std::uint64_t>(d >> 119U) + 2U))
+    {
+        return false;
+    }
+    out = fx_round<T>(static_cast<digits_type>(d), r.exp10 - scale10, neg);
+    return true;
+}
+
 // sinh(|x|) for is_cosh false and cosh(x) for is_cosh true, for a finite x != 0, rounded once in the
 // current mode with the sign neg
 template <typename T>
@@ -74,13 +209,37 @@ constexpr auto sinh_cosh_fixed(const T x, const bool is_cosh, const bool neg) no
     const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
 
     const int k {-e};
-    const auto wide_whole {exp_whole<T>(sig, k)};
+    const auto wide_whole {exp_whole(sig, k)};
     const auto whole {static_cast<std::uint64_t>(wide_whole)};
     if (wide_whole >= exp_bound<T>())
     {
         return T {1U, 2 * std::numeric_limits<T>::max_exponent10, neg};
     }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 2)
+    {
+        T r {};
+        if (sinh_cosh_try(sig, e, whole, is_cosh, neg, r))
+        {
+            return r;
+        }
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 3)
+    {
+        T r {};
+        if (sinh_cosh_precise_try(sig, e, whole, is_cosh, neg, r))
+        {
+            return r;
+        }
+    }
     const auto frac {exp_frac<words>(sig, k, whole)};
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        T r {};
+        if (!exp_is_small(whole, frac) && sinh_cosh_short_try(whole, fx_top<1>(frac), is_cosh, neg, r))
+        {
+            return r;
+        }
+    }
 
     // For |x| < 1/16, the Taylor series sinh(x) = x * (1 + x^2/3! + ...) and cosh(x) = 1 + x^2/2! + ...
     // The error is below 2^-60, 2^-100 and 2^-160 for one, two and three words.
@@ -112,23 +271,8 @@ constexpr auto sinh_cosh_fixed(const T x, const bool is_cosh, const bool neg) no
         return fx_round<T>(static_cast<digits_type>(d), exp10, neg);
     }
 
-    // exp(|x|) = 10^exp10 * 10^f and exp(-|x|) = 10^-gap * 10^exp10 * 10^(1 - f) with gap = 2 exp10 + 1.
-    // In d, each 10^f is divided by 8 so that it is below 4, and 10^(1 - f) / 8 = 10 / (8 * 2^a * m) = 5/4 * 2^-a / m.
-    const auto y {exp_log10(whole, frac)};
-    const auto big {exp10_frac(y.f)};
-    auto d {fx_shr(big.m, 3U - big.a)};
-
-    // Where 10^-gap is below the last bit of d, exp(-|x|) has no effect
-    const int gap {2 * y.exp10 + 1};
-    if (gap < 19 * words)
-    {
-        const auto small {fx_mul_shr(fx_recip(big.m), 5U, 2U)};
-        const auto low {fx_mul(fx_shr(small, big.a), fx_from_decimal<words>(1U, gap))};
-        d = is_cosh ? fx_add(d, low) : fx_sub(d, low);
-    }
-
-    // (exp(|x|) +- exp(-|x|)) / 2 = 10^exp10 * 4d
-    return fx_round<T>(static_cast<digits_type>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(scale10)) * 4U, d)), y.exp10 - scale10, neg);
+    const auto r {sinh_cosh_parts(whole, frac, is_cosh)};
+    return fx_round<T>(static_cast<digits_type>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(scale10)) * 4U, r.f)), r.exp10 - scale10, neg);
 }
 
 } // namespace exp_detail
