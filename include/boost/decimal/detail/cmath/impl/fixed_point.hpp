@@ -997,7 +997,7 @@ template <typename T>
 constexpr auto fx_wide_try_round(const fx_wide<2>& r, const bool neg, T& out, const unsigned bits = 6U) noexcept -> bool
 {
     const auto d {fx_wide_digits(r, neg)};
-    if (d.exp10 < -38 || fx_near_boundary(d.digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-d.exp10)) >> (126U - bits)) + 2U))
+    if (d.exp10 < -39 || fx_near_boundary(d.digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-d.exp10 - 1)) >> (126U - bits)) * 10U + 12U))
     {
         return false;
     }
