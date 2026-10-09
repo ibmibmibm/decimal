@@ -31,13 +31,25 @@ constexpr auto tan_impl(const T x) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(x))
     {
-        return x;
+        return issignaling(x) ? nan_conversion(x) : x;
     }
     if (isinf(x))
     {
         return std::numeric_limits<T>::quiet_NaN();
     }
     #endif
+
+    BOOST_DECIMAL_IF_CONSTEXPR (trig::trig_traits<T>::words > 1)
+    {
+        // A first try in one word less
+        constexpr int words {trig::trig_traits<T>::words > 1 ? trig::trig_traits<T>::words - 1 : 1};
+        trig::trig_arg<words> r1 {};
+        T res {};
+        if (trig::trig_prepare_try(x, r1) && trig::tan_try(r1, res))
+        {
+            return res;
+        }
+    }
 
     // x = n*pi/2 + r: tan(x) is tan(r) for an even n, else -cot(r).
     const auto r {trig::trig_prepare(x)};
