@@ -7,13 +7,7 @@
 
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/config.hpp>
-#include <boost/decimal/detail/int128.hpp>
 #include <boost/decimal/detail/cmath/impl/fixed_point.hpp>
-#include <boost/decimal/detail/cmath/impl/trig_reduce.hpp>
-
-#ifndef BOOST_DECIMAL_BUILD_MODULE
-#include <cstdint>
-#endif
 
 namespace boost {
 namespace decimal {
@@ -40,15 +34,6 @@ template <int N>
 constexpr auto sinc_fx(const fx<N>& z) noexcept -> fx<N>
 {
     return fx_clamp_below_one(fx_sub(fx_one<N>(), fx_mul(z, sin_poly(z))));
-}
-
-// sin(|r|) with the sign neg, for r != 0.
-template <typename T>
-constexpr auto sin_of(const trig_arg<trig_traits<T>::words>& r, const bool neg) noexcept -> T
-{
-    const auto rf {fixed_r(r)};
-    const auto f {sinc_fx(fx_mul(rf, rf))};
-    return fx_round<T>(fx_scale(r.sig, f), -r.k, neg);
 }
 
 } // namespace trig

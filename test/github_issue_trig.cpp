@@ -1,0 +1,52 @@
+// Copyright 2026 Shen-Ta Hsieh
+// Distributed under the Boost Software License, Version 1.0.
+// https://www.boost.org/LICENSE_1_0.txt
+//
+// See: https://github.com/boostorg/decimal/issues/NNNN
+
+#include <boost/decimal.hpp>
+#include <boost/core/lightweight_test.hpp>
+
+using namespace boost::decimal;
+using namespace boost::decimal::literals;
+
+// The expected values are sin(x), cos(x) and tan(x) rounded once, from mpmath and Python's decimal module
+void test_nearest()
+{
+    // |x| <= pi/4: no reduction
+    BOOST_TEST_EQ(sin(6.824108109971738738161997141037691e-01_DL), 6.306657757894080087699016123068339e-1_DL);
+    BOOST_TEST_EQ(tan(9.186040435569681927699147918717055e-02_DL), 9.211966239425544881603018873528669e-2_DL);
+
+    // |x| < 10^19: the reduction in binary
+    BOOST_TEST_EQ(cos(7.885042103990243198911807988293644e-01_DL), 7.049070669070514707825184701610486e-1_DL);
+    BOOST_TEST_EQ(cos(1.071126015241440004653838261529146e+04_DL), -5.083670249067169423296614073587474e-30_DL);
+    BOOST_TEST_EQ(tan(1.277144282333587805192310314414510e+00_DL), 3.306939511260400241875095153806795e+0_DL);
+    BOOST_TEST_EQ(tan(-9.537305793590876872804276295433355e+10_DL), 3.936100735101734918922338645464199e+0_DL);
+
+    // The reduction in decimal
+    BOOST_TEST_EQ(sin(-5.701712728788927995357933841156996e+5879_DL), -4.565990347796265476732945757361854e-1_DL);
+    BOOST_TEST_EQ(cos(-9.246464983940743092998069521960153e+2067_DL), 1.564728004882864171853874563553649e-1_DL);
+}
+
+void test_upward()
+{
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    // fesetround has an effect only with the detection of constant evaluation
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(tan(5.792056618670528004052681944417116e-02_DL), 5.798542370527202861717590633225899e-2_DL);
+    BOOST_TEST_EQ(sin(4.618948766205371668526340711172817e+02_DL), -8.066879421873760570477739878656002e-2_DL);
+    BOOST_TEST_EQ(sin(8.014804287421515201607723180384336e+13_DL), 9.063164340778351549755439430432617e-21_DL);
+    BOOST_TEST_EQ(cos(9.311540218536312138490858104372267e+05_DL), 9.634687136646756869115694764091029e-2_DL);
+    BOOST_TEST_EQ(tan(7.880488110646563439300105039991022e+03_DL), 5.008716172654112002643963997679707e+0_DL);
+    BOOST_TEST_EQ(cos(4.475948463855351000179310105809870e+532_DL), 8.967217740227326360445186954223630e-1_DL);
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+}
+
+int main()
+{
+    test_nearest();
+    test_upward();
+
+    return boost::report_errors();
+}

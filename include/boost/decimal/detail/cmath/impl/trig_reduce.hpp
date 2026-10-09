@@ -11,6 +11,7 @@
 #include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
+#include <boost/decimal/detail/u256.hpp>
 #include <boost/decimal/detail/cmath/frexp10.hpp>
 #include <boost/decimal/detail/cmath/impl/fixed_point.hpp>
 
@@ -18,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 #endif
 
 namespace boost {
@@ -25,30 +27,30 @@ namespace decimal {
 namespace detail {
 namespace trig {
 
-// Words of 2/pi in the product window, words of the fraction that go into r, and fixed-point words.
-// The window keeps 9 * (window - 1 - frac) = 27, 45 and 81 digits for the leading zeros of the
-// fraction: the worst cases have 9, 19 and 37.
-// bin_frac: 64-bit fraction words for |x| < 10^19, where the fraction has at most 27, 58 and 117 leading zero bits.
+// Words of 2/pi in the product window, words of the fraction that go into r, fixed-point words, and bin_frac
+// 64-bit fraction words for |x| < 10^19, where the fraction has at most 27, 58 and 117 leading zero bits.
 template <typename T>
 struct trig_traits;
 
+// The window keeps 9 * (window - 1 - frac) = 27, 45 and 63 digits for the leading zeros of the fraction: the
+// worst cases have 9, 19 and 37.
 template <>
 struct trig_traits<decimal32_t> { static constexpr int window = 6; static constexpr int frac = 2; static constexpr int words = 1; static constexpr int bin_frac = 2; };
 
 template <>
-struct trig_traits<decimal_fast32_t> { static constexpr int window = 6; static constexpr int frac = 2; static constexpr int words = 1; static constexpr int bin_frac = 2; };
+struct trig_traits<decimal_fast32_t> : trig_traits<decimal32_t> {};
 
 template <>
 struct trig_traits<decimal64_t> { static constexpr int window = 9; static constexpr int frac = 3; static constexpr int words = 2; static constexpr int bin_frac = 3; };
 
 template <>
-struct trig_traits<decimal_fast64_t> { static constexpr int window = 9; static constexpr int frac = 3; static constexpr int words = 2; static constexpr int bin_frac = 3; };
+struct trig_traits<decimal_fast64_t> : trig_traits<decimal64_t> {};
 
 template <>
-struct trig_traits<decimal128_t> { static constexpr int window = 15; static constexpr int frac = 5; static constexpr int words = 3; static constexpr int bin_frac = 5; };
+struct trig_traits<decimal128_t> { static constexpr int window = 15; static constexpr int frac = 7; static constexpr int words = 3; static constexpr int bin_frac = 5; };
 
 template <>
-struct trig_traits<decimal_fast128_t> { static constexpr int window = 15; static constexpr int frac = 5; static constexpr int words = 3; static constexpr int bin_frac = 5; };
+struct trig_traits<decimal_fast128_t> : trig_traits<decimal128_t> {};
 
 constexpr std::uint64_t word_base {UINT64_C(1000000000)};
 
@@ -58,11 +60,18 @@ constexpr std::size_t m_words_max {6};
 // The words of 2/pi in the table
 constexpr int two_over_pi_words {static_cast<int>(sizeof(fx_table::two_over_pi) / sizeof(fx_table::two_over_pi[0]))};
 
+// The digits of sig in trig_arg: one word keeps 19, which fit in 64 bits.
+constexpr auto sig_digits(const int words) noexcept -> int
+{
+    return fx_scale10(words) + 1;
+}
+
 // x = n*pi/2 + r (mod 2pi), with |r| <= pi/4.
 template <int N>
 struct trig_arg
 {
-    boost::int128::uint128_t sig; // |r| = sig * 10^-k, with sig of 38 digits
+    boost::int128::uint128_t sig; // |r| = (sig + tail / 2^64) * 10^-k, with sig of sig_digits(N) digits
+    std::uint64_t tail;
     int k;
     fx<N> rf;                     // |r| in fixed point, if fixed is set
     bool fixed;
@@ -75,7 +84,33 @@ struct trig_arg
 template <int N>
 constexpr auto fixed_r(const trig_arg<N>& r) noexcept -> fx<N>
 {
-    return r.fixed ? r.rf : fx_from<N>(r.sig, r.k);
+    return r.fixed ? r.rf : fx_from_decimal<N>(r.sig, r.k);
+}
+
+// (sig + tail / 2^64) * 10^-k in N words, with sig and k first scaled by 10^up, where tail * 10^-k * 2^(64N - 2) / 2^64
+// is below one word
+template <int N, int W>
+constexpr auto decimal_r_with_tail(const trig_arg<W>& r, const int up) noexcept -> fx<N>
+{
+    const auto scale {pow10(static_cast<boost::int128::uint128_t>(up))};
+    fx<N> t {};
+    boost::int128::detail::umul(r.tail, fx_from<N>(scale, r.k + up).w[0], t.w[0]);
+    return fx_add(fx_from<N>(r.sig * scale, r.k + up), t);
+}
+
+// The same with the tail for two or three words, or the binary reduction's |r|
+template <int N>
+constexpr auto fixed_r_with_tail(const trig_arg<N>& r) noexcept -> fx<N>
+{
+    return r.fixed ? r.rf : decimal_r_with_tail<N>(r, 0);
+}
+
+// fx_round for a sig of sig_digits digits
+template <typename T>
+constexpr auto trig_round(const boost::int128::uint128_t& sig, const int e, const bool neg) noexcept -> T
+{
+    using digits_type = fx_digits_t<trig_traits<T>::words>;
+    return fx_round<T>(static_cast<digits_type>(sig), e, neg);
 }
 
 // The significand in words of 9 digits, low word first; returns the count of words.
@@ -205,8 +240,10 @@ constexpr auto times_half_pi(const fx_span<std::uint64_t, Words> f, const int le
     }
 }
 
-// The first 38 digits of the nonzero words r, low word first, as sig * 10^exp10 with word 0 at 10^0.
-constexpr auto first_38_digits(const fx_span<const std::uint64_t> r, int& exp10) noexcept -> boost::int128::uint128_t
+// The first Digits digits of the nonzero words r, low word first, as sig * 10^exp10 with word 0 at 10^0, and
+// with Tail the digits after them as a fraction of 64 bits in tail.
+template <int Digits, bool Tail>
+constexpr auto first_digits(const fx_span<const std::uint64_t> r, int& exp10, std::uint64_t& tail) noexcept -> boost::int128::uint128_t
 {
     int top {static_cast<int>(r.size()) - 1};
     while (r[top] == 0U)
@@ -218,7 +255,7 @@ constexpr auto first_38_digits(const fx_span<const std::uint64_t> r, int& exp10)
     exp10 = 9 * top;
     for (int i {top - 1}; i >= 0; --i)
     {
-        if (digits + 9 <= 38)
+        if (digits + 9 <= Digits)
         {
             sig = sig * word_base + r[i];
             digits += 9;
@@ -226,21 +263,54 @@ constexpr auto first_38_digits(const fx_span<const std::uint64_t> r, int& exp10)
         }
         else
         {
-            const int take {38 - digits};
+            const int take {Digits - digits};
             const auto low {pow10(static_cast<std::uint64_t>(9 - take))};
             sig = sig * (word_base / low) + r[i] / low;
             exp10 -= take;
+
+            // The next 18 digits d, and tail = d * 2^64 / 10^18 = 18d + d * 0.446744073709551616
+            BOOST_DECIMAL_IF_CONSTEXPR (Tail)
+            {
+                const std::uint64_t below {(i >= 1 ? r[i - 1] : 0U) * word_base + (i >= 2 ? r[i - 2] : 0U)};
+                const std::uint64_t d {(r[i] % low) * pow10(static_cast<std::uint64_t>(9 + take)) + below / low};
+                std::uint64_t hi {};
+                boost::int128::detail::umul(d, UINT64_C(0x725DD1D243ABA0E7), hi);
+                tail = 18U * d + hi;
+            }
             break;
         }
     }
 
-    const int sig_digits {num_digits(sig)};
-    if (sig_digits < 38)
+    const int nd {num_digits(sig)};
+    if (nd < Digits)
     {
-        sig *= pow10(static_cast<boost::int128::uint128_t>(38 - sig_digits));
-        exp10 -= 38 - sig_digits;
+        sig *= pow10(static_cast<boost::int128::uint128_t>(Digits - nd));
+        exp10 -= Digits - nd;
     }
     return sig;
+}
+
+// -x = (-n)*pi/2 + (-r)
+BOOST_DECIMAL_FORCE_INLINE constexpr auto negate_arg(const bool xneg, unsigned& n, bool& rneg) noexcept -> void
+{
+    if (xneg)
+    {
+        n = (4U - n) & 3U;
+        rneg = !rneg;
+    }
+}
+
+// A sig below 10^(digits - 1) takes one more digit from the tail, and k goes up by one.
+template <int N>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto fill_digit(trig_arg<N>& out, const int digits, int& k) noexcept -> void
+{
+    if (out.sig < pow10(static_cast<boost::int128::uint128_t>(digits - 1)))
+    {
+        const auto t {static_cast<boost::int128::uint128_t>(out.tail) * 10U};
+        out.sig = out.sig * 10U + t.high;
+        out.tail = t.low;
+        ++k;
+    }
 }
 
 // Payne-Hanek reduction in words of 9 decimal digits for x = m * 10^e: multiply m by the window of
@@ -273,12 +343,7 @@ constexpr auto trig_reduce(const Significand m, const int e, const bool xneg) no
         n = (n + 1U) & 3U;
     }
 
-    // -x = (-n)*pi/2 + (-r)
-    if (xneg)
-    {
-        n = (4U - n) & 3U;
-        rneg = !rneg;
-    }
+    negate_arg(xneg, n, rneg);
 
     trig_arg<words> out {};
     out.n = n;
@@ -296,7 +361,7 @@ constexpr auto trig_reduce(const Significand m, const int e, const bool xneg) no
 
     // Word 0 of r has the weight 10^-9(lead + 2 * frac).
     int exp10 {};
-    out.sig = first_38_digits(fx_make_span(r), exp10);
+    out.sig = first_digits<sig_digits(words), words == 3>(fx_make_span(r), exp10, out.tail);
     out.k = 9 * (lead + 2 * frac) - exp10;
     return out;
 }
@@ -351,81 +416,161 @@ constexpr auto binary_words(const Significand m, const int e, const fx_span<std:
     }
 }
 
-// Payne-Hanek reduction in words of 64 bits for |x| < 10^19. The relative errors of r are below 2^-64,
-// 2^-128 and 2^-190, less than those of trig_reduce.
+// One-word Payne-Hanek reduction, where m < 10^7 and pi/4 < x < 10^19 give e >= -9: x = m * 10^e, or m * 10^(e + 9)
+// with 2/pi * 10^-9, is an integer below 2^64, and three words of the constant leave an error below 2^-128.
+template <int N, typename Significand>
+constexpr auto trig_reduce_word(const Significand m, const int e, const bool xneg) noexcept -> trig_arg<N>
+{
+    const bool scaled {e < 0};
+    const std::uint64_t x {static_cast<std::uint64_t>(m) * pow10(static_cast<std::uint64_t>(scaled ? e + 9 : e))};
+    const auto c {scaled ? fx_make_span<3>(fx_table::two_over_pi_e9_bin) : fx_make_span<3>(fx_table::two_over_pi_bin)};
+
+    // q = x * c: q[3] is the integer part, and q[2] and q[1] are the fraction f
+    std::uint64_t q[4] {};
+    std::uint64_t carry {};
+    for (int i {}; i < 3; ++i)
+    {
+        q[i] = mul_add(x, c[2 - i], 0U, carry);
+    }
+    q[3] = carry;
+
+    // Above one half, go to the next quadrant with r = -(1 - f).
+    unsigned n {static_cast<unsigned>(q[3] & 3U)};
+    boost::int128::uint128_t f {q[2], q[1]};
+    bool rneg {(q[2] >> 63U) != 0U};
+    if (rneg)
+    {
+        f = ~f + 1U;
+        n = (n + 1U) & 3U;
+    }
+    negate_arg(xneg, n, rneg);
+    trig_arg<N> out {};
+    out.n = n;
+    out.neg = rneg;
+
+    // f = g * 2^-(128 + sh) with the top bit of g set, where sh <= 27 (see trig_traits), and
+    // r = f * pi/2 = big * 2^-(255 + sh) with big = g * pi/4.
+    const auto sh {static_cast<unsigned>(countl_zero(f.high))};
+    constexpr boost::int128::uint128_t pi4 {(UINT64_C(1) << 63U) | (fx_table::pio2_bin[1] >> 1U), (fx_table::pio2_bin[1] << 63U) | (fx_table::pio2_bin[2] >> 1U)};
+    std::uint64_t big[4] {};
+    mul_words(f << sh, pi4, big);
+    out.rf.w[0] = big[3] >> (1U + sh);
+    out.fixed = true;
+
+    // r = h * 2^-(128 + z) with the top bit of h set, and sig + tail / 2^64 = r * 10^k
+    const bool top {(big[3] >> 63U) != 0U};
+    const unsigned z {top ? sh - 1U : sh};
+    const boost::int128::uint128_t high {big[3], big[2]};
+    const auto h {top ? high : (high << 1U) | (big[1] >> 63U)};
+    int k {sig_digits(1) + fx_floor_log10_2(static_cast<int>(z))};
+    std::uint64_t p[4] {};
+    mul_words(h, pow10(static_cast<boost::int128::uint128_t>(k)), p);
+    out.sig = z == 0U ? p[2] : (p[2] >> z) | (p[3] << (64U - z));
+    out.tail = z == 0U ? p[1] : (p[1] >> z) | (p[2] << (64U - z));
+    fill_digit(out, sig_digits(1), k);
+    out.k = k;
+    return out;
+}
+
+// Word j of pi/4 in pw fraction words, low word first
+constexpr auto quarter_pi_word(const int pw, const int j) noexcept -> std::uint64_t
+{
+    return (fx_table::pio2_bin[pw - j] >> 1U) | (fx_table::pio2_bin[pw - j - 1] << 63U);
+}
+
+// Cody-Waite reduction in words of 64 bits for |x| < 10^19, with pi/2 to 2^-64(bin_frac + 1). The relative errors
+// of r are below 2^-64, 2^-128 and 2^-190, less than those of trig_reduce.
 template <typename T, typename Significand>
 constexpr auto trig_reduce_binary(const Significand m, const int e, const bool xneg) noexcept -> trig_arg<trig_traits<T>::words>
 {
     constexpr int words {trig_traits<T>::words};
     constexpr int frac {trig_traits<T>::bin_frac};
-    constexpr int tw {frac + 2};
+    constexpr int pw {frac + 1};
     constexpr int rw {words + 1};
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        return trig_reduce_word<words>(m, e, xneg);
+    }
 
     std::uint64_t x[static_cast<std::size_t>(frac + 1)] {};
     binary_words<frac>(m, e, fx_make_span(x));
     trig_arg<words> out {};
 
-    // q = x * 2/pi with tw words of 2/pi: word 2 * frac + 2 is the integer part. The columns below
-    // frac only carry into words that are dropped.
-    std::uint64_t q[static_cast<std::size_t>(2 * frac + 3)] {};
-    for (int i {}; i <= frac; ++i)
+    // n = round(x * 2/pi) from the integer word and the top fraction word, with an error below 2^-61
+    std::uint64_t n {};
+    std::uint64_t f {boost::int128::detail::umul(x[frac], fx_table::two_over_pi_bin[0], n)};
+    std::uint64_t h[2] {};
+    boost::int128::detail::umul(x[frac], fx_table::two_over_pi_bin[1], h[0]);
+    boost::int128::detail::umul(x[frac - 1], fx_table::two_over_pi_bin[0], h[1]);
+    for (const auto t : h)
     {
-        std::uint64_t carry {};
-        for (int j {frac - i < 0 ? 0 : frac - i}; j < tw; ++j)
-        {
-            q[i + j] = mul_add(x[i], fx_table::two_over_pi_bin[tw - 1 - j], q[i + j], carry);
-        }
-        q[i + tw] = carry;
+        f += t;
+        n += f < t ? 1U : 0U;
     }
+    n += f >> 63U;
 
-    // The fraction, high word first. Above one half, go to the next quadrant with r = -(1 - f).
-    std::uint64_t f[static_cast<std::size_t>(frac)] {};
-    for (int i {}; i < frac; ++i)
+    // r = x - n * pi/2 in pw fraction words and an integer word, two's complement
+    std::uint64_t v[static_cast<std::size_t>(pw + 1)] {};
+    std::uint64_t carry {};
+    std::uint64_t borrow {};
+    for (int i {}; i <= pw; ++i)
     {
-        f[i] = q[2 * frac + 1 - i];
+        const std::uint64_t a {i >= 1 ? x[i - 1] : 0U};
+        const std::uint64_t t {mul_add(n, fx_table::pio2_bin[pw - i], 0U, carry)};
+        v[i] = a - t - borrow;
+        borrow = (a < t || (a == t && borrow != 0U)) ? 1U : 0U;
     }
-    unsigned n {static_cast<unsigned>(q[2 * frac + 2] & 3U)};
-    bool rneg {(f[0] >> 63U) != 0U};
+    bool rneg {(v[pw] >> 63U) != 0U};
     if (rneg)
     {
-        std::uint64_t carry {1};
-        for (int i {frac - 1}; i >= 0; --i)
+        carry = 1U;
+        for (int i {}; i <= pw; ++i)
         {
-            f[i] = ~f[i] + carry;
-            carry = (carry != 0U && f[i] == 0U) ? 1U : 0U;
+            v[i] = ~v[i] + carry;
+            carry = (carry != 0U && v[i] == 0U) ? 1U : 0U;
         }
-        n = (n + 1U) & 3U;
     }
-    if (xneg)
+
+    // Near pi/4 the estimate of n can be one off: then |r| > pi/4, and pi/2 - |r| is r on the other side.
+    int top {pw - 1};
+    while (top > 0 && v[top] == quarter_pi_word(pw, top))
     {
-        n = (4U - n) & 3U;
+        --top;
+    }
+    if (v[top] > quarter_pi_word(pw, top))
+    {
+        borrow = 0U;
+        for (int i {}; i <= pw; ++i)
+        {
+            const std::uint64_t p {fx_table::pio2_bin[pw - i]};
+            const std::uint64_t t {v[i]};
+            v[i] = p - t - borrow;
+            borrow = (p < t || (p == t && borrow != 0U)) ? 1U : 0U;
+        }
+        n += rneg ? UINT64_MAX : 1U;
         rneg = !rneg;
     }
-    out.n = n;
+    unsigned q {static_cast<unsigned>(n & 3U)};
+    negate_arg(xneg, q, rneg);
+    out.n = q;
     out.neg = rneg;
 
-    // The fraction is not zero: its worst case has 27, 58 and 117 leading zero bits (see trig_traits).
+    // r is not zero: its worst case has 27, 58 and 117 leading zero bits (see trig_traits).
     int lead {};
-    while (lead < frac && f[lead] == 0U)
+    while (lead < pw - 1 && v[pw - 1 - lead] == 0U)
     {
         ++lead;
     }
 
-    // r = (rw words of f from word lead) * pi/2 = (s from word rw) * 2^-64(lead + rw). The four spare
+    // r = s * 2^-64(lead + rw), with rw + 1 words of r from word lead. The four spare
     // words take the scale by 10^k below.
-    std::uint64_t s[static_cast<std::size_t>(2 * rw + 6)] {};
-    for (int u {}; u < rw; ++u)
+    std::uint64_t s[static_cast<std::size_t>(rw + 6)] {};
+    for (int j {}; j <= rw; ++j)
     {
-        const int i {lead + rw - 1 - u};
-        const std::uint64_t a {i < frac ? f[i] : 0U};
-        std::uint64_t carry {};
-        for (int v {}; v <= rw; ++v)
-        {
-            s[u + v] = mul_add(a, fx_table::pio2_bin[rw - v], s[u + v], carry);
-        }
-        s[u + rw + 1] = carry;
+        const int i {pw - lead - rw + j};
+        s[j] = i >= 0 ? v[i] : 0U;
     }
-    const auto r {fx_make_span<rw + 6>(s, rw)};
+    const auto r {fx_make_span(s)};
 
     // rf = r * 2^(64N - 2): drop lead + 1 words and 2 bits.
     for (int i {}; i < words; ++i)
@@ -437,40 +582,43 @@ constexpr auto trig_reduce_binary(const Significand m, const int e, const bool x
     }
     out.fixed = true;
 
-    // For r in [2^-(z + 1), 2^-z), sig = floor(r * 10^k) with k = 38 + floor(z * log10(2)) has 37 or 38 digits.
+    // For r in [2^-(z + 1), 2^-z), sig = floor(r * 10^k) with k = D + floor(z * log10(2)) has D - 1 or D digits.
     int count {rw + 1};
     while (r[count - 1] == 0U)
     {
         --count;
     }
     const int z {64 * (lead + rw - count) + countl_zero(r[count - 1])};
-    int k {38 + ((z * 78913) >> 18)};
+    constexpr int digits {sig_digits(words)};
+    int k {digits + fx_floor_log10_2(z)};
     int left {k};
     while (left >= 19)
     {
         count = times_word(r, count, pow10(static_cast<std::uint64_t>(19)));
         left -= 19;
     }
-    count = times_word(r, count, pow10(static_cast<std::uint64_t>(left)));
+    if (left != 0)
+    {
+        count = times_word(r, count, pow10(static_cast<std::uint64_t>(left)));
+    }
     const int unit {lead + rw};
     out.sig = boost::int128::uint128_t {unit + 1 < count ? r[unit + 1] : 0U, unit < count ? r[unit] : 0U};
-    if (out.sig < pow10(static_cast<boost::int128::uint128_t>(37)))
-    {
-        out.sig *= 10U;
-        ++k;
-    }
+    out.tail = r[unit - 1];
+    fill_digit(out, digits, k);
     out.k = k;
     return out;
 }
 
-// x = sig * 10^-k with sig of 38 digits; for |x| <= pi/4 this is r itself.
+// x = sig * 10^-k with sig of D = sig_digits(words) digits; for |x| <= pi/4 this is r itself.
 template <typename T>
 constexpr auto trig_prepare(const T x) noexcept -> trig_arg<trig_traits<T>::words>
 {
     constexpr int words {trig_traits<T>::words};
 
-    // floor(pi/4 * 10^38) = 78539816339744830961566084581987572104
-    constexpr boost::int128::uint128_t quarter_pi {UINT64_C(4257651975108193236), UINT64_C(12340784068543502728)};
+    // floor(pi/4 * 10^D) = 7853981633974483096 or 78539816339744830961566084581987572104
+    constexpr int sd {sig_digits(words)};
+    constexpr boost::int128::uint128_t quarter_pi {sd == 19 ? boost::int128::uint128_t {UINT64_C(0), UINT64_C(7853981633974483096)}
+                                                            : boost::int128::uint128_t {UINT64_C(4257651975108193236), UINT64_C(12340784068543502728)}};
 
     trig_arg<words> out {};
     const bool neg {signbit(x)};
@@ -484,9 +632,9 @@ constexpr auto trig_prepare(const T x) noexcept -> trig_arg<trig_traits<T>::word
     }
 
     const auto digits {num_digits(m)};
-    const auto sig {static_cast<boost::int128::uint128_t>(m) * pow10(static_cast<boost::int128::uint128_t>(38 - digits))};
-    const int k {(38 - digits) - e};
-    if (k > 38 || (k == 38 && sig <= quarter_pi))
+    const auto sig {static_cast<boost::int128::uint128_t>(m) * pow10(static_cast<boost::int128::uint128_t>(sd - digits))};
+    const int k {(sd - digits) - e};
+    if (k > sd || (k == sd && sig <= quarter_pi))
     {
         out.sig = sig;
         out.k = k;

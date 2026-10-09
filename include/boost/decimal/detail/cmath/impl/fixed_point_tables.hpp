@@ -816,13 +816,19 @@ struct fx_table_imp
     };
 
     // pi/2 = 1.570796326 794896619 ...
-    static constexpr std::uint32_t pio2[6] = { UINT32_C(1), UINT32_C(570796326), UINT32_C(794896619), UINT32_C(231321691), UINT32_C(639751442), UINT32_C(98584699) };
+    static constexpr std::uint32_t pio2[8] = { UINT32_C(1), UINT32_C(570796326), UINT32_C(794896619), UINT32_C(231321691), UINT32_C(639751442), UINT32_C(98584699),
+                                                UINT32_C(687552910), UINT32_C(487472296) };
 
     // 2/pi for |x| < 10^19 in base 2^64, high word first: word i has the weight 2^(-64(i + 1))
-    static constexpr std::uint64_t two_over_pi_bin[7] =
+    static constexpr std::uint64_t two_over_pi_bin[3] =
     {
-        UINT64_C(0xA2F9836E4E441529), UINT64_C(0xFC2757D1F534DDC0), UINT64_C(0xDB6295993C439041), UINT64_C(0xFE5163ABDEBBC561),
-        UINT64_C(0xB7246E3A424DD2E0), UINT64_C(0x06492EEA09D1921C), UINT64_C(0xFE1DEB1CB129A73E)
+        UINT64_C(0xA2F9836E4E441529), UINT64_C(0xFC2757D1F534DDC0), UINT64_C(0xDB6295993C439041)
+    };
+
+    // 2/pi * 10^-9 for one word
+    static constexpr std::uint64_t two_over_pi_e9_bin[3] =
+    {
+        UINT64_C(0x00000002BBF8891D), UINT64_C(0x20C4EDF4EEDAA41D), UINT64_C(0x1F34916370259164)
     };
 
     // ceil(10^(-9a) * 2^448) for a = 1 to 4, in the same form as two_over_pi_bin
@@ -839,10 +845,10 @@ struct fx_table_imp
     };
 
     // pi/2 in the same form as two_over_pi_bin, but word 0 is the integer part
-    static constexpr std::uint64_t pio2_bin[5] =
+    static constexpr std::uint64_t pio2_bin[7] =
     {
         UINT64_C(0x0000000000000001), UINT64_C(0x921FB54442D18469), UINT64_C(0x898CC51701B839A2), UINT64_C(0x52049C1114CF98E8),
-        UINT64_C(0x04177D4C76273644)
+        UINT64_C(0x04177D4C76273644), UINT64_C(0xA29410F31C6809BB), UINT64_C(0xDF2A33679A748636)
     };
 };
 
@@ -1005,16 +1011,19 @@ template <bool b>
 constexpr std::uint32_t fx_table_imp<b>::two_over_pi[720];
 
 template <bool b>
-constexpr std::uint32_t fx_table_imp<b>::pio2[6];
+constexpr std::uint32_t fx_table_imp<b>::pio2[8];
 
 template <bool b>
-constexpr std::uint64_t fx_table_imp<b>::two_over_pi_bin[7];
+constexpr std::uint64_t fx_table_imp<b>::two_over_pi_bin[3];
+
+template <bool b>
+constexpr std::uint64_t fx_table_imp<b>::two_over_pi_e9_bin[3];
 
 template <bool b>
 constexpr std::uint64_t fx_table_imp<b>::pow10_neg9_bin[4][7];
 
 template <bool b>
-constexpr std::uint64_t fx_table_imp<b>::pio2_bin[5];
+constexpr std::uint64_t fx_table_imp<b>::pio2_bin[7];
 
 #endif
 
