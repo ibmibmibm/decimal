@@ -12,7 +12,7 @@
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
 #include <boost/decimal/detail/cmath/frexp10.hpp>
-#include <boost/decimal/detail/cmath/impl/trig_fixed_point.hpp>
+#include <boost/decimal/detail/cmath/impl/fixed_point.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cstddef>
