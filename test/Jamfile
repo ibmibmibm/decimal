@@ -151,6 +151,7 @@ run github_issue_1487_eval_method.cpp
 run github_issue_1504.cpp ;
 run github_issue_exp.cpp ;
 run github_issue_sinh.cpp ;
+run github_issue_tanh.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
