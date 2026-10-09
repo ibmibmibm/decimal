@@ -29,8 +29,8 @@ constexpr auto tanh_small(const fx<words>& frac, const boost::int128::uint128_t&
 {
     fx<words> s[terms] {};
     fx<words> c[terms] {};
-    exp_head(s, 1U, 2U);
-    exp_head(c, 0U, 2U);
+    exp_head<1U, 2U>(s);
+    exp_head<0U, 2U>(c);
     const auto u {fx_mul(frac, frac)};
     return fx_scale(m, fx_div(fx_horner(u, s), fx_horner(u, c)));
 }

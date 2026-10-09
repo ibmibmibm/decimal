@@ -28,7 +28,14 @@ template <int words, std::size_t terms>
 constexpr auto sinh_cosh_series(const fx<words>& frac, const bool is_cosh) noexcept -> fx<words>
 {
     fx<words> c[terms] {};
-    exp_head(c, is_cosh ? 0U : 1U, 2U);
+    if (is_cosh)
+    {
+        exp_head<0U, 2U>(c);
+    }
+    else
+    {
+        exp_head<1U, 2U>(c);
+    }
     return fx_horner(fx_mul(frac, frac), c);
 }
 

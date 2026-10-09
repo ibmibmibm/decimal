@@ -24,13 +24,15 @@ namespace decimal {
 namespace detail {
 namespace exp_detail {
 
-// The coefficients 1/(first + step n)! for n < M, in N words
-template <int N, std::size_t M>
-constexpr auto exp_head(fx<N> (&c)[M], const std::size_t first = 0U, const std::size_t step = 1U) noexcept -> void
+// The coefficients 1/(First + Step n)! for n < M, in N words
+template <std::size_t First = 0U, std::size_t Step = 1U, int N, std::size_t M>
+constexpr auto exp_head(fx<N> (&c)[M]) noexcept -> void
 {
+    static_assert(First + Step * (M - 1U) < sizeof(fx_table::inv_factorial) / sizeof(fx_table::inv_factorial[0]), "1/n! is in the table");
+
     for (std::size_t n {}; n < M; ++n)
     {
-        c[n] = fx_top<N>(fx_table::inv_factorial[first + step * n]);
+        c[n] = fx_top<N>(fx_table::inv_factorial[First + Step * n]);
     }
 }
 
