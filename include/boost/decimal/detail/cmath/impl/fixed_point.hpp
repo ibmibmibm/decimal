@@ -383,6 +383,19 @@ constexpr auto fx_mul_small(const fx<N>& a, const std::uint64_t n) noexcept -> f
     return r;
 }
 
+// a / d, truncated, for d > 0
+template <int N>
+constexpr auto fx_div_small(const fx<N>& a, const std::uint64_t d) noexcept -> fx<N>
+{
+    fx<N> q {};
+    std::uint64_t rem {};
+    for (int i {N - 1}; i >= 0; --i)
+    {
+        q.w[i] = boost::int128::detail::udiv_2by1(rem, a.w[i], d, rem);
+    }
+    return q;
+}
+
 // The top N words of a, which truncates it to N words
 template <int N, int M>
 constexpr auto fx_top(const fx<M>& a) noexcept -> fx<N>
@@ -471,6 +484,41 @@ constexpr auto fx_sqrt(const fx<N>& d) noexcept -> fx<N>
     const auto k {static_cast<unsigned>(countl_zero(d.w[N - 1]) / 2)};
     const auto m {k == 0U ? d : fx_shl(d, 2U * k)};
     return fx_shr(fx_mul(m, fx_rsqrt(m)), k);
+}
+
+// a * 2^s, truncated, for any s and a * 2^s < 4
+template <int N>
+constexpr auto fx_shift(const fx<N>& a, const int s) noexcept -> fx<N>
+{
+    const int q {(s < 0 ? -s : s) / 64};
+    const auto b {static_cast<unsigned>((s < 0 ? -s : s) % 64)};
+    fx<N> r {};
+    for (int i {}; i < N; ++i)
+    {
+        const int j {s < 0 ? i + q : i - q};
+        r.w[i] = (j >= 0 && j < N) ? a.w[j] : 0U;
+    }
+    if (b == 0U)
+    {
+        return r;
+    }
+    return s < 0 ? fx_shr(r, b) : fx_shl(r, b);
+}
+
+// The count of leading zero bits, 64N for zero
+template <int N>
+constexpr auto fx_countl_zero(const fx<N>& a) noexcept -> int
+{
+    int n {};
+    for (int i {N - 1}; i >= 0; --i)
+    {
+        if (a.w[i] != 0U)
+        {
+            return n + countl_zero(a.w[i]);
+        }
+        n += 64;
+    }
+    return n;
 }
 
 // a < b
@@ -1045,7 +1093,7 @@ constexpr auto fx_wide_try_round(const fx_wide<2>& r, bool neg, T& out, const un
 {
     int exp10 {};
     const auto digits {fx_wide_digits(r, neg, exp10)};
-    if (exp10 < -38 || fx_near_boundary(digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-exp10)) >> (126U - bits)) + 2U))
+    if (exp10 < -39 || fx_near_boundary(digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-exp10 - 1)) >> (126U - bits)) * 10U + 12U))
     {
         return false;
     }
@@ -1060,6 +1108,24 @@ constexpr auto fx_wide_try_round(const fx_wide<1>& r, bool neg, T& out, const un
     int exp10 {};
     const auto digits {fx_wide_digits(r, neg, exp10)};
     return fx_try_round(digits, exp10, neg, (pow10(static_cast<std::uint64_t>(-exp10)) >> (62U - bits)) + 2U, out);
+}
+
+// The same for r >= 0.1 without a sign from its word: a wide r in memory stalls the loads after its stores
+template <typename T>
+constexpr auto fx_unsigned_try_round(const fx<1>& r, const bool neg, T& out, const unsigned bits = 6U) noexcept -> bool
+{
+    const std::uint64_t whole {r.w[0] >> 62U};
+    const int s10 {whole == 0U ? 19 : 18};
+    const auto scale {pow10(static_cast<std::uint64_t>(s10))};
+    const auto low {(static_cast<boost::int128::uint128_t>(scale) * (r.w[0] & ((UINT64_C(1) << 62U) - 1U))) >> 62U};
+    return fx_try_round(whole * scale + low.low, -s10, neg, (scale >> (62U - bits)) + 2U, out);
+}
+
+// The same in two words
+template <typename T>
+constexpr auto fx_unsigned_try_round(const fx<2>& r, const bool neg, T& out, const unsigned bits = 6U) noexcept -> bool
+{
+    return fx_wide_try_round(fx_widen(r), neg, out, bits);
 }
 
 // x = sig * 10^e with p digits is at least c * 10^(n - 2), for 10 <= c < 100

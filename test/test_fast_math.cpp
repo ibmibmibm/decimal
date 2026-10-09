@@ -13,6 +13,7 @@
 #include <cstdint>
 
 using namespace boost::decimal;
+using namespace boost::decimal::literals;
 
 #if !defined(BOOST_DECIMAL_REDUCE_TEST_DEPTH)
 static constexpr auto N = static_cast<std::size_t>(1024); // Number of trials
@@ -283,6 +284,13 @@ void test_zero_divisor()
     BOOST_TEST_EQ(remquo(five, zero, &quo), zero);
 }
 
+// atan2 keeps no variable for the non-finite cases that fast math leaves out
+void test_atan2()
+{
+    BOOST_TEST_EQ(atan2(1_DD, 1_DD), 0.7853981633974483_DD);
+    BOOST_TEST_EQ(atan2(0_DF, -1_DF), 3.141593_DF);
+}
+
 template <typename T>
 void test_non_arithmetic()
 {
@@ -343,6 +351,8 @@ int main()
     test_sqrt_zero<decimal_fast32_t>();
     test_sqrt_zero<decimal_fast64_t>();
     test_sqrt_zero<decimal_fast128_t>();
+
+    test_atan2();
 
     return boost::report_errors();
 }
