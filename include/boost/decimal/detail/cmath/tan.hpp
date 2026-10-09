@@ -9,6 +9,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/cmath/impl/trig_reduce.hpp>
@@ -31,7 +32,7 @@ constexpr auto tan_impl(const T x) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(x))
     {
-        return x;
+        return detail::check_non_finite(x);
     }
     if (isinf(x))
     {
@@ -39,11 +40,23 @@ constexpr auto tan_impl(const T x) noexcept
     }
     #endif
 
+    BOOST_DECIMAL_IF_CONSTEXPR (fx_is(trig::trig_traits<T>::words > 1))
+    {
+        // A first try in one word less
+        constexpr int words {trig::trig_traits<T>::words > 1 ? trig::trig_traits<T>::words - 1 : 1};
+        trig::trig_arg<words> r1 {};
+        T res {};
+        if (trig::trig_prepare_try(x, r1) && trig::tan_try(r1, res))
+        {
+            return res;
+        }
+    }
+
     // x = n*pi/2 + r: tan(x) is tan(r) for an even n, else -cot(r).
     const auto r {trig::trig_prepare(x)};
-    if (r.zero)
+    if (r.tiny)
     {
-        return x;
+        return r.sig == 0U ? x : trig::trig_round<T>(r.sig, -r.k, r.neg);
     }
 
     return trig::tan_of<T>(r);
