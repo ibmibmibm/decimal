@@ -139,6 +139,25 @@ constexpr auto log_wide_of(const boost::int128::uint128_t& sig, const int nd, co
     return log_wide_of(v, -static_cast<int>(s), e + nd, base);
 }
 
+// ln(v * 10^n10) for 0.1 <= v < 4
+template <int N>
+constexpr auto log_wide_of(fx<N> v, const int n10) noexcept -> fx_wide<N>
+{
+    const int s {countl_zero(v.w[N - 1]) - 1};
+    int n2 {};
+    if (s < 0)
+    {
+        v = fx_shr(v, 1U);
+        n2 = 1;
+    }
+    else if (s > 0)
+    {
+        v = fx_shl(v, static_cast<unsigned>(s));
+        n2 = -s;
+    }
+    return log_wide_of(v, n2, n10, log_base::e);
+}
+
 // log(1 + w) for w = sig * 10^e with 0 < |w| < 1/256 and the sign neg, rounded once:
 // ln(1 + w) = w * ln(1 + w) / w with the ratio from log_ratio.
 template <typename T>
