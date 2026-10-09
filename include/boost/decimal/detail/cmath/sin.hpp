@@ -9,6 +9,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/cmath/impl/trig_reduce.hpp>
@@ -32,7 +33,7 @@ constexpr auto sin_impl(const T x) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(x))
     {
-        return x;
+        return detail::check_non_finite(x);
     }
     if (isinf(x))
     {
@@ -40,16 +41,35 @@ constexpr auto sin_impl(const T x) noexcept
     }
     #endif
 
-    // x = n*pi/2 + r: sin(x) is sin(r), cos(r), -sin(r) or -cos(r) for n = 0 to 3.
-    const auto r {trig::trig_prepare(x)};
-    if (r.zero)
+    BOOST_DECIMAL_IF_CONSTEXPR (fx_is(trig::trig_traits<T>::words > 1))
     {
-        return x;
+        // A first try in one word less
+        constexpr int words {trig::trig_traits<T>::words > 1 ? trig::trig_traits<T>::words - 1 : 1};
+        trig::trig_arg<words> r1 {};
+        T res {};
+        if (trig::trig_prepare_try(x, r1, 1U) && trig::sin_cos_try(r1, (r1.n & 1U) != 0U, trig::sin_neg(r1), res))
+        {
+            return res;
+        }
     }
 
-    // The sign of sin(r) is r.neg, and cos(r) > 0.
-    return (r.n & 1U) == 0U ? trig::sin_of<T>(r, r.neg != (r.n == 2U))
-                            : trig::cos_fx_of<T>(r, r.n == 3U);
+    BOOST_DECIMAL_IF_CONSTEXPR (fx_is(trig::trig_traits<T>::words == 1))
+    {
+        T res {};
+        if (trig::sin_cos_fixed_try(x, false, res))
+        {
+            return res;
+        }
+    }
+
+    // x = n*pi/2 + r: sin(x) is sin(r), cos(r), -sin(r) or -cos(r) for n = 0 to 3.
+    const auto r {trig::trig_prepare(x)};
+    if (r.tiny)
+    {
+        return r.sig == 0U ? x : trig::trig_round<T>(r.sig - 1U, -r.k, r.neg);
+    }
+
+    return trig::sin_cos_of<T>(r, (r.n & 1U) != 0U, trig::sin_neg(r));
 }
 
 } // namespace detail

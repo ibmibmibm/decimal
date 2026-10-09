@@ -134,7 +134,7 @@ constexpr auto mul_add(const std::uint64_t a, const std::uint64_t b, const std::
 }
 
 // The four words of a * b, low word first, with mul_add: GCC keeps them in registers, but not those of umul256
-constexpr auto mul_words(const boost::int128::uint128_t& a, const boost::int128::uint128_t& b, std::uint64_t (&r)[4]) noexcept -> void
+BOOST_DECIMAL_FORCE_INLINE constexpr auto mul_words(const boost::int128::uint128_t& a, const boost::int128::uint128_t& b, std::uint64_t (&r)[4]) noexcept -> void
 {
     const std::uint64_t x[2] {a.low, a.high};
     for (int i {}; i < 2; ++i)
@@ -189,6 +189,14 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_shr_words(const fx_span<std::uint64
     }
 }
 
+// floor(z * log10(2)) for |z| <= 1650, and at most one less above: 78913 / 2^18 is just below log10(2)
+constexpr auto fx_floor_log10_2(const int z) noexcept -> int
+{
+    // In 64 bits, as z * 78913 passes 32 bits from |z| = 27214 on
+    const std::int64_t w {z};
+    return static_cast<int>(w >= 0 ? (w * 78913) >> 18 : -((-w * 78913 + 262143) >> 18));
+}
+
 // The integer n < 4 in N words
 template <int N>
 constexpr auto fx_int(const std::uint64_t n) noexcept -> fx<N>
@@ -202,19 +210,6 @@ template <int N>
 constexpr auto fx_one() noexcept -> fx<N>
 {
     return fx_int<N>(1U);
-}
-
-template <int N>
-constexpr auto fx_is_one(const fx<N>& a) noexcept -> bool
-{
-    for (int i {}; i < N - 1; ++i)
-    {
-        if (a.w[i] != 0U)
-        {
-            return false;
-        }
-    }
-    return a.w[N - 1] == (UINT64_C(1) << 62U);
 }
 
 // a * b, truncated. The products below word N - 1 are left out, which takes off less
@@ -409,6 +404,12 @@ constexpr auto fx_top(const fx<M>& a) noexcept -> fx<N>
     return r;
 }
 
+// The top word of a * 2^s for 0 < s < 64, truncated
+constexpr auto fx_top_shl(const fx<2>& a, const unsigned s) noexcept -> fx<1>
+{
+    return {{(a.w[1] << s) | (a.w[0] >> (64U - s))}};
+}
+
 // a with M words as N >= M words, with the low words zero
 template <int N, int M>
 constexpr auto fx_extend(const fx<M>& a) noexcept -> fx<N>
@@ -422,7 +423,7 @@ constexpr auto fx_extend(const fx<M>& a) noexcept -> fx<N>
     return r;
 }
 
-// 1 / d for 1 <= d < 2. The guess floor(2^124 / top word) in one word has an error below 2^-60, and a Newton
+// 1 / d for 1/2 <= d < 2. The guess floor(2^124 / top word) in one word has an error below 2^-60, and a Newton
 // step r * (2 - d * r) in N words from 1 / d in N - 1 words doubles the correct bits: the error is below 2^-60N.
 template <int N>
 constexpr auto fx_recip(const fx<N>& d) noexcept -> fx<N>
@@ -665,23 +666,29 @@ constexpr auto fx_mul_high(const boost::int128::uint128_t& a, const boost::int12
     return {hh + (sum < hl ? 1U : 0U), sum};
 }
 
+// The middle terms and the tail of fx_alternating_split for three words, for the top two words z2 of z
+template <int MidShift, int TailShift, std::size_t K, std::size_t L>
+constexpr auto fx_mid_sum(const boost::int128::uint128_t& z2, const boost::int128::uint128_t (&mid)[K], const std::uint64_t (&tail)[L]) noexcept -> boost::int128::uint128_t
+{
+    static_assert(0 < MidShift && MidShift < 64, "the middle terms must fit in the three words");
+    static_assert(0 <= 64 + MidShift - TailShift && 64 + MidShift - TailShift < 64, "the tail must fit in 128 bits");
+
+    const std::uint64_t t {fx_tail_sum(z2.high, tail)};
+    auto u {static_cast<boost::int128::uint128_t>(t) << (64 + MidShift - TailShift)};
+    for (std::size_t i {K}; i-- > 0U;)
+    {
+        u = mid[i] - (fx_mul_high(z2, u) << 2U);
+    }
+    return u;
+}
+
 // For three words: the terms from z^M on in 128 bits scaled by 2^(126 + MidShift), and the terms
 // after those in one word scaled by 2^(62 + TailShift).
 template <int MidShift, int TailShift, std::size_t M, std::size_t K, std::size_t L>
 constexpr auto fx_alternating_split(const fx<3>& z, const fx<3> (&head)[M], const boost::int128::uint128_t (&mid)[K],
                                     const std::uint64_t (&tail)[L]) noexcept -> fx<3>
 {
-    static_assert(0 < MidShift && MidShift < 64, "the middle terms must fit in the three words");
-    static_assert(0 <= 64 + MidShift - TailShift && 64 + MidShift - TailShift < 64, "the tail must fit in 128 bits");
-
-    const std::uint64_t t {fx_tail_sum(z.w[2], tail)};
-
-    const boost::int128::uint128_t z2 {z.w[2], z.w[1]};
-    auto u {static_cast<boost::int128::uint128_t>(t) << (64 + MidShift - TailShift)};
-    for (std::size_t i {K}; i-- > 0U;)
-    {
-        u = mid[i] - (fx_mul_high(z2, u) << 2U);
-    }
+    const auto u {fx_mid_sum<MidShift, TailShift>(boost::int128::uint128_t {z.w[2], z.w[1]}, mid, tail)};
 
     // u * 2^-(126 + MidShift) in three words
     constexpr int pos {64 - MidShift};
@@ -692,6 +699,20 @@ constexpr auto fx_alternating_split(const fx<3>& z, const fx<3> (&head)[M], cons
     for (std::size_t i {M}; i-- > 0U;)
     {
         s = fx_sub(head[i], fx_mul(z, s));
+    }
+    return s;
+}
+
+// fx_alternating_split for three words in two words, with the top two words of each head term
+template <int MidShift, int TailShift, std::size_t M, std::size_t K, std::size_t L>
+constexpr auto fx_alternating_top(const fx<2>& z, const fx<3> (&head)[M], const boost::int128::uint128_t (&mid)[K],
+                                  const std::uint64_t (&tail)[L]) noexcept -> fx<2>
+{
+    const auto u {fx_mid_sum<MidShift, TailShift>(boost::int128::uint128_t {z.w[1], z.w[0]}, mid, tail)};
+    fx<2> s {{(u.low >> MidShift) | (u.high << (64 - MidShift)), u.high >> MidShift}};
+    for (std::size_t i {M}; i-- > 0U;)
+    {
+        s = fx_sub(fx_top<2>(head[i]), fx_mul(z, s));
     }
     return s;
 }
@@ -790,34 +811,30 @@ constexpr auto fx_lead_t(const boost::int128::uint128_t& sig, const int k, int& 
     return fx_from_decimal<N>(sig, nd);
 }
 
-// q * 10^e with precision + 1 digits in q and more digits below them that are not all zero, rounded in the
-// current mode, for a result in the normal range
-template <typename T, typename U>
-constexpr auto fx_round_kept(const U q, int e, const bool neg) noexcept -> T
+// The same for sig + tail / 2^64
+template <int N>
+constexpr auto fx_scale(const boost::int128::uint128_t& sig, const std::uint64_t tail, const fx<N>& f) noexcept -> boost::int128::uint128_t
 {
-    // With a rest that is not zero, the nearest modes round up from a last digit of 5, and the directed modes by the
-    // sign
-    const auto d {impl::divmod10(static_cast<typename T::significand_type>(q))};
-    auto s {d.quotient};
-    // Not const, as current_rounding_mode says
-    auto mode {current_rounding_mode()};
-    if (mode == rounding_mode::fe_dec_upward ? !neg
-        : mode == rounding_mode::fe_dec_downward ? neg : mode != rounding_mode::fe_dec_toward_zero && d.remainder >= 5U)
+    std::uint64_t p[static_cast<std::size_t>(N + 3)] {};
+    const std::uint64_t g[3] {tail, sig.low, sig.high};
+    BOOST_DECIMAL_FX_UNROLL
+    for (int i {}; i < 3; ++i)
     {
-        if (s == max_significand_v<T>)
-        {
-            s = max_significand_v<T> / 10U;
-            ++e;
-        }
-        ++s;
+        const auto carry {fx_mul_add(fx_make_span<N>(p, i), fx_make_span(f.w), g[i])};
+        p[i + N] = carry;
     }
-    return pack_in_range<T>(s, e + 1, neg);
+    std::uint64_t r[2] {};
+    fx_shr_words(fx_make_span(r), fx_make_span<2>(p, N), p[N + 2], 62U);
+    return boost::int128::uint128_t {r[1], r[0]};
 }
 
-// The same for s with precision digits, where half says that the rest is one half or more of a unit of s
+// s * 10^e with precision digits in s and more digits below them that are not all zero, rounded in the current mode,
+// for a result in the normal range: half says that the rest is one half or more of a unit of s
 template <typename T>
 constexpr auto fx_round_rest(typename T::significand_type s, int e, const bool neg, const bool half) noexcept -> T
 {
+    // With a rest that is not zero, the nearest modes round up from half, and the directed modes by the sign
+    // Not const, as current_rounding_mode says
     auto mode {current_rounding_mode()};
     if (mode == rounding_mode::fe_dec_upward ? !neg
         : mode == rounding_mode::fe_dec_downward ? neg : mode != rounding_mode::fe_dec_toward_zero && half)
@@ -832,15 +849,25 @@ constexpr auto fx_round_rest(typename T::significand_type s, int e, const bool n
     return pack_in_range<T>(s, e, neg);
 }
 
+// The same for q with precision + 1 digits: its last digit gives half
+template <typename T, typename U>
+constexpr auto fx_round_kept(const U q, const int e, const bool neg) noexcept -> T
+{
+    const auto d {impl::divmod10(static_cast<typename T::significand_type>(q))};
+    return fx_round_rest<T>(d.quotient, e + 1, neg, d.remainder >= 5U);
+}
+
 // sig * 10^e rounded once, for a sig of 37 to 39 digits that truncates an inexact value: precision + 1 digits and
 // a sticky rest. Near the subnormals the constructor rounds, and sig + 1 rounds the same where sig ends in 0 or 5.
 template <typename T>
 constexpr auto fx_round(boost::int128::uint128_t sig, int e, const bool neg) noexcept -> T
 {
     constexpr int p {precision_v<T>};
-    if (p >= 16 && sig >= pow10(static_cast<boost::int128::uint128_t>(36)) && e + 37 - p >= etiny_v<T>)
+    constexpr auto p37 {pow10(static_cast<boost::int128::uint128_t>(37))};
+    if (sig >= pow10(static_cast<boost::int128::uint128_t>(36)) && e + 37 - p >= etiny_v<T>)
     {
-        const int drop {(sig >= pow10(static_cast<boost::int128::uint128_t>(38)) ? 39 : sig >= pow10(static_cast<boost::int128::uint128_t>(37)) ? 38 : 37) - p - 1};
+        const int len {sig >= p37 * 10U ? 39 : sig >= p37 ? 38 : 37};
+        const int drop {len - p - 1};
         const auto d {impl::divmod_pow10_dispatch(sig, drop + (p > 19), pow10(static_cast<boost::int128::uint128_t>(drop + (p > 19))))};
         if (p > 19)
         {
@@ -851,7 +878,7 @@ constexpr auto fx_round(boost::int128::uint128_t sig, int e, const bool neg) noe
         return fx_round_kept<T>(d.quotient, e + drop, neg);
     }
 
-    if (sig < pow10(static_cast<boost::int128::uint128_t>(37)))
+    if (sig < p37)
     {
         sig *= 10U;
         --e;
