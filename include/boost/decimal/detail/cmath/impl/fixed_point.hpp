@@ -736,17 +736,19 @@ constexpr auto fx_near_boundary(const boost::int128::uint128_t& sig, const std::
     return r < w || r > m - w;
 }
 
-// For decimal64_t, sig * 10^e with an error below w units, rounded once in out where sig has 19 digits, no
-// multiple of 500 (a rounding boundary) is next to it, and the result is not subnormal
+// For decimal32_t and decimal64_t, sig * 10^e with an error below w units, rounded once in out where sig has 19 digits,
+// no multiple of 5 * 10^k (a rounding boundary, with k = 18 - precision) is next to it, and the result is not subnormal
 template <typename T>
 constexpr auto fx_try_round(const std::uint64_t sig, const int e, const bool neg, const std::uint64_t w, T& out) noexcept -> bool
 {
-    const std::uint64_t r {sig % 500U};
-    if (r < w || r > 500U - w || e + 3 < etiny_v<T>)
+    constexpr int k {18 - precision_v<T>};
+    const auto unit {pow10(static_cast<std::uint64_t>(k))};
+    const std::uint64_t r {sig % (5U * unit)};
+    if (r < w || r > 5U * unit - w || e + k + 1 < etiny_v<T>)
     {
         return false;
     }
-    out = fx_round_kept<T>(sig / 100U, e + 2, neg);
+    out = fx_round_kept<T>(sig / unit, e + k, neg);
     return true;
 }
 

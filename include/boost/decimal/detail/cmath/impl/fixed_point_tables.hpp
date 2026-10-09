@@ -44,8 +44,10 @@ struct fx_table_imp
         {{UINT64_C(0x00000000000F07DA), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000)}},
     };
 
-    // log10(e), log2(10), ln(2), 1/n!, 2^(i/16) and 2^(j/256) in the fixed point of fx; log10(e) has one more word
+    // log10(e), log10(2), log2(10), ln(2), 1/n!, 2^(i/16) and 2^(j/256) in the fixed point of fx; log10(e),
+    // log10(2) and log2(10) have one more word
     static constexpr fx<4> log10_e {{UINT64_C(0x4747E5A89EF1D4A7), UINT64_C(0x47DC68C048B93440), UINT64_C(0xA6AB7555F5A67B86), UINT64_C(0x1BCB7B1526E50E32)}};
+    static constexpr fx<4> log10_2 {{UINT64_C(0x314BCDE4D6F98C79), UINT64_C(0x04D5A618A87A3E69), UINT64_C(0x11F12B35816F922F), UINT64_C(0x134413509F79FEF3)}};
     static constexpr fx<3> log2_10 {{UINT64_C(0xD96C55FE37B3AD4E), UINT64_C(0x492BF6FF4DAFDB4C), UINT64_C(0xD49A784BCD1B8AFE)}};
     static constexpr fx<3> ln2 {{UINT64_C(0xD03CD0C99CA62D8B), UINT64_C(0xF278ECE600FCBDAB), UINT64_C(0x2C5C85FDF473DE6A)}};
     // 1/n! for n = 0 to 23
@@ -94,6 +96,9 @@ struct fx_table_imp
     };
     // The same from z^10 to z^14 for decimal128_t, one word scaled by 2^(62 + exp_d128_tail_shift)
     static constexpr std::uint64_t exp_d128_tail[5] = { UINT64_C(0x93F27DBBC4FAE397), UINT64_C(0x0D7322B3FAA271C7), UINT64_C(0x011EED8EFF8D897B), UINT64_C(0x0016124613A86D09), UINT64_C(0x000193974A8C07C9) };
+    static constexpr int exp_d128_fast_shift {12};
+    // The same from z^7 to z^11 for the series in two words, one word scaled by 2^(62 + exp_d128_fast_shift)
+    static constexpr std::uint64_t exp_d128_fast_tail[5] = { UINT64_C(0x3403403403403403), UINT64_C(0x0680680680680680), UINT64_C(0x00B8EF1D2AB6399C), UINT64_C(0x00127E4FB7789F5C), UINT64_C(0x0001AE64567F544E) };
     // 2^(i/16) for i = 0 to 15
     static constexpr fx<3> pow2[16] =
     {
@@ -496,6 +501,9 @@ template <bool b>
 constexpr fx<4> fx_table_imp<b>::log10_e;
 
 template <bool b>
+constexpr fx<4> fx_table_imp<b>::log10_2;
+
+template <bool b>
 constexpr fx<3> fx_table_imp<b>::log2_10;
 
 template <bool b>
@@ -521,6 +529,12 @@ constexpr boost::int128::uint128_t fx_table_imp<b>::exp_d128_mid[6];
 
 template <bool b>
 constexpr std::uint64_t fx_table_imp<b>::exp_d128_tail[5];
+
+template <bool b>
+constexpr int fx_table_imp<b>::exp_d128_fast_shift;
+
+template <bool b>
+constexpr std::uint64_t fx_table_imp<b>::exp_d128_fast_tail[5];
 
 template <bool b>
 constexpr fx<3> fx_table_imp<b>::pow2[16];

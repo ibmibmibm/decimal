@@ -153,6 +153,7 @@ run github_issue_exp.cpp ;
 run github_issue_sinh.cpp ;
 run github_issue_tanh.cpp ;
 run github_issue_expm1.cpp ;
+run github_issue_exp2.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;

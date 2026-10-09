@@ -53,7 +53,7 @@ constexpr auto sinh_cosh_fixed(const T x, const bool is_cosh, const bool neg) no
     const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
 
     const int k {-e};
-    const auto wide_whole {exp_whole<T>(sig, k)};
+    const auto wide_whole {exp_whole(sig, k)};
     const auto whole {static_cast<std::uint64_t>(wide_whole)};
     if (wide_whole >= exp_bound<T>())
     {
@@ -85,7 +85,7 @@ constexpr auto sinh_cosh_fixed(const T x, const bool is_cosh, const bool neg) no
 
     // exp(|x|) = 10^exp10 * 10^f and exp(-|x|) = 10^-gap * 10^exp10 * 10^(1 - f) with gap = 2 exp10 + 1.
     // In d, each 10^f is divided by 8 so that it is below 4, and 10^(1 - f) / 8 = 10 / (8 * 2^a * m) = 5/4 * 2^-a / m.
-    const auto y {exp_log10(whole, frac)};
+    const auto y {exp_log10(whole, frac, fx_table::log10_e)};
     const auto big {exp10_frac(y.f)};
     auto d {fx_shr(big.m, 3U - big.a)};
 

@@ -48,7 +48,7 @@ constexpr auto tanh_fixed(const T x, const bool neg) noexcept -> T
     const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
 
     const int k {-e};
-    const auto wide_whole {exp_whole<T>(sig, k)};
+    const auto wide_whole {exp_whole(sig, k)};
     const auto whole {static_cast<std::uint64_t>(wide_whole)};
     // From |x| >= 22 words, 2|x| log10(e) > 19 words: t is below the bound of the test after exp_log10
     if (wide_whole >= 22U * words)
@@ -81,7 +81,7 @@ constexpr auto tanh_fixed(const T x, const bool neg) noexcept -> T
 
     // tanh(|x|) = (1 - t) / (1 + t) with t = exp(-2|x|). With 2y = n + h and 0 <= h < 1,
     // t = 10^-(n + 1) * 10^(1 - h).
-    const auto y {exp_log10(whole, frac)};
+    const auto y {exp_log10(whole, frac, fx_table::log10_e)};
     auto h {fx_add(y.f, y.f)};
     int n {2 * y.exp10};
     // h >= 1

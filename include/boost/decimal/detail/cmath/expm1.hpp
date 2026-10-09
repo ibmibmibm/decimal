@@ -53,7 +53,7 @@ constexpr auto expm1_fixed(const T x) noexcept -> T
     const bool neg {signbit(x)};
 
     const int k {-e};
-    const auto wide_whole {exp_whole<T>(sig, k)};
+    const auto wide_whole {exp_whole(sig, k)};
     const auto whole {static_cast<std::uint64_t>(wide_whole)};
     if (wide_whole >= exp_bound<T>())
     {
@@ -79,7 +79,7 @@ constexpr auto expm1_fixed(const T x) noexcept -> T
         return fx_round<T>(static_cast<digits_type>(neg && digits >= m ? m - 1U : digits), e - (scale10 - p), neg);
     }
 
-    const auto y {exp_log10(whole, frac)};
+    const auto y {exp_log10(whole, frac, fx_table::log10_e)};
     if (!neg)
     {
         // exp(x) - 1 = 10^exp10 * 8 * (10^f / 8 - 125 * 10^-(exp10 + 3)). Where 10^-exp10 is below the last bit,
