@@ -7,16 +7,13 @@
 #define BOOST_DECIMAL_DETAIL_CMATH_LOG1P_HPP
 
 #include <boost/decimal/fwd.hpp> // NOLINT(llvm-include-order)
-#include <boost/decimal/detail/cmath/abs.hpp>
-#include <boost/decimal/detail/cmath/fma.hpp>
-#include <boost/decimal/detail/cmath/impl/log1p_impl.hpp>
+#include <boost/decimal/detail/cmath/log.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
-#include <boost/decimal/numbers.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
-#include <array>
+#include <limits>
 #include <type_traits>
 #endif
 
@@ -25,47 +22,74 @@ namespace decimal {
 
 namespace detail {
 
-// log1p(x) is 2*wh + s for |x| not more than 1/2, before the last rounding. log10 and
-// log2 scale the two parts near 1, so that they round only once.
-template <typename T>
-struct log1p_parts_t
+namespace log_detail {
+
+// ln(1 + x) for |x| >= 1/256 and x > -1: 1 + x is exact with the exponent e for e < 0, and with the exponent 0
+// where it has at most 38 digits. Else ln(1 + x) = ln(x) + 1/x - ... with 1/x = (10^38 / sig) * 10^-(38 + e) below 10^-38.
+template <int N>
+constexpr auto log1p_wide(const boost::int128::uint128_t& sig, const int e, const bool neg, const int p) noexcept -> fx_wide<N>
 {
-    T wh;
-    T s;
-};
-
-template <typename T>
-constexpr auto log1p_parts(const T x) noexcept -> log1p_parts_t<T>
-{
-    // log1p(x) = 2 * atanh(w), with w = x / (2 + x). For |x| not more than
-    // 1/2 the value of |w| is not more than 1/3, which the coefficient table
-    // covers. The first branch takes every larger |x| through log(x + 1).
-    // Two corrections make the result increase at every argument. The sum
-    // 2 + x is not exact, and its error makes the quotient fall where x rises,
-    // thus e holds that error and wh + wl holds the reduction to about two
-    // times the digits of the type. The first coefficient is exactly 2, thus
-    // 2*wh stays out of the rounding of the series and only tail rounds.
-    constexpr T two { 2, 0 };
-
-    const T d  { two + x };
-    const T e  { x - (d - two) };  // 2 + x == d + e, exact
-    const T wh { x / d };
-    const T r  { detail::unchecked_fma(-wh, d, x) - wh * e };
-    const T wl { r / d };
-
-    const T w    { wh + wl };
-    const T y    { w * w };
-    const T tail { w * y * detail::log1p_series_tail(y) };
-
-    return { wh, detail::unchecked_fma(two, wl, tail) };
+    if (e < 0)
+    {
+        const auto one {pow10(static_cast<boost::int128::uint128_t>(-e))};
+        const auto y {neg ? one - sig : one + sig};
+        return log_wide_of<N>(y, num_digits(y), e, log_base::e);
+    }
+    if (e + p <= 38)
+    {
+        const auto y {sig * pow10(static_cast<boost::int128::uint128_t>(e)) + 1U};
+        return log_wide_of<N>(y, num_digits(y), 0, log_base::e);
+    }
+    const auto inv {fx_from_decimal<N>(pow10(static_cast<boost::int128::uint128_t>(38)) / sig, 38 + e)};
+    return fx_wide_add(log_wide_of<N>(sig, p, e, log_base::e), fx_widen(inv));
 }
+
+// log1p of a finite x != 0, rounded once in the current mode
+template <typename T>
+constexpr auto log1p_fixed(const T x) noexcept -> T
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int words {fx_words(p)};
+
+    int e {};
+    const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
+    const bool neg {signbit(x)};
+
+    // x <= -1 has e + p > 0: log1p(-1) = -infinity, and NaN below, also for a non-canonical x such as
+    // -10000001 * 10^-7 that frexp10 rounds to -1
+    if (neg && e + p > 0)
+    {
+        #ifndef BOOST_DECIMAL_FAST_MATH
+        return e + p == 1 && sig == pow10(static_cast<boost::int128::uint128_t>(p - 1)) && x == -T {1} ? -std::numeric_limits<T>::infinity() : std::numeric_limits<T>::quiet_NaN();
+        #else
+        return T {0};
+        #endif
+    }
+    if (decimal_tiny(sig, e))
+    {
+        return log_near<T>(sig, e, neg, log_base::e);
+    }
+
+    BOOST_DECIMAL_IF_CONSTEXPR (words > 1)
+    {
+        // A first try in one word fewer for |x| >= 0.1, and in one word for x >= 1.8 or x <= -0.64, with an
+        // error below 64 units of its last bit
+        T r {};
+        if ((words == 3 ? e + p >= 0 : decimal_at_least(sig, e, p, neg ? 64U : 18U, neg ? 0 : 1))
+            && fx_wide_try_round(log1p_wide<words == 3 ? 2 : 1>(sig, e, neg, p), false, r))
+        {
+            return r;
+        }
+    }
+    return fx_wide_round<T, words>(log1p_wide<words>(sig, e, neg, p), false);
+}
+
+} // namespace log_detail
 
 template <typename T>
 constexpr auto log1p_impl(const T x) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    constexpr T one { 1, 0 };
-
     T result { };
 
     const auto fpc = fpclassify(x);
@@ -75,7 +99,7 @@ constexpr auto log1p_impl(const T x) noexcept
         result = x;
     }
     #ifndef BOOST_DECIMAL_FAST_MATH
-    else if (fpc != FP_NORMAL)
+    else if (fpc != FP_NORMAL && fpc != FP_SUBNORMAL)
     {
         result =
         (
@@ -83,39 +107,9 @@ constexpr auto log1p_impl(const T x) noexcept
         );
     }
     #endif
-    else if (-x >= one)
-    {
-        #ifndef BOOST_DECIMAL_FAST_MATH
-        result =
-        (
-            (-x == one) ? -std::numeric_limits<T>::infinity() : std::numeric_limits<T>::quiet_NaN()
-        );
-        #else
-        result = T{0};
-        #endif
-    }
     else
     {
-        constexpr T small_argument { 1, -std::numeric_limits<T>::digits10 };
-
-        if (abs(x) < small_argument)
-        {
-            // log1p(x) = x - x^2/2 + ... For a value of |x| this small, the sum
-            // of the terms after x is less than one half of the last digit of x.
-            result = x;
-        }
-        else if (abs(x) > T { 5, -1 })
-        {
-            result = ::boost::decimal::log(x + one);
-        }
-        else
-        {
-            constexpr T two { 2, 0 };
-
-            const auto parts { detail::log1p_parts(x) };
-
-            result = detail::unchecked_fma(two, parts.wh, parts.s);
-        }
+        result = log_detail::log1p_fixed(x);
     }
 
     return result;
