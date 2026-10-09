@@ -284,6 +284,16 @@ void test_zero_divisor()
     BOOST_TEST_EQ(remquo(five, zero, &quo), zero);
 }
 
+// A domain error gives 0
+void test_domain_error()
+{
+    BOOST_TEST_EQ(acos(2_DD), 0_DD);
+    BOOST_TEST_EQ(acos(-1.5_DF), 0_DF);
+    BOOST_TEST_EQ(asin(2_DL), 0_DL);
+    BOOST_TEST_EQ(acosh(0.5_DD), 0_DD);
+    BOOST_TEST_EQ(acosh(-2_DF), 0_DF);
+}
+
 // atan2 keeps no variable for the non-finite cases that fast math leaves out
 void test_atan2()
 {
@@ -352,6 +362,7 @@ int main()
     test_sqrt_zero<decimal_fast64_t>();
     test_sqrt_zero<decimal_fast128_t>();
 
+    test_domain_error();
     test_atan2();
 
     return boost::report_errors();
