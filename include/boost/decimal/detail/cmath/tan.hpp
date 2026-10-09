@@ -39,6 +39,17 @@ constexpr auto tan_impl(const T x) noexcept
     }
     #endif
 
+    BOOST_DECIMAL_IF_CONSTEXPR (trig::trig_traits<T>::words == 2)
+    {
+        // A first try in one word
+        trig::trig_arg<1> r1 {};
+        T res {};
+        if (trig::trig_prepare_word(x, r1) && trig::tan_try(r1, res))
+        {
+            return res;
+        }
+    }
+
     // x = n*pi/2 + r: tan(x) is tan(r) for an even n, else -cot(r).
     const auto r {trig::trig_prepare(x)};
     if (r.zero)

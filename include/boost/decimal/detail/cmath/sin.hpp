@@ -40,6 +40,17 @@ constexpr auto sin_impl(const T x) noexcept
     }
     #endif
 
+    BOOST_DECIMAL_IF_CONSTEXPR (trig::trig_traits<T>::words == 2)
+    {
+        // A first try in one word
+        trig::trig_arg<1> r1 {};
+        T res {};
+        if (trig::trig_prepare_word(x, r1) && trig::sin_cos_try(r1, (r1.n & 1U) != 0U, trig::sin_neg(r1), res))
+        {
+            return res;
+        }
+    }
+
     // x = n*pi/2 + r: sin(x) is sin(r), cos(r), -sin(r) or -cos(r) for n = 0 to 3.
     const auto r {trig::trig_prepare(x)};
     if (r.zero)
@@ -47,9 +58,7 @@ constexpr auto sin_impl(const T x) noexcept
         return x;
     }
 
-    // The sign of sin(r) is r.neg, and cos(r) > 0.
-    return (r.n & 1U) == 0U ? trig::sin_of<T>(r, r.neg != (r.n == 2U))
-                            : trig::cos_of<T>(r, r.n == 3U);
+    return trig::sin_cos_of<T>(r, (r.n & 1U) != 0U, trig::sin_neg(r));
 }
 
 } // namespace detail

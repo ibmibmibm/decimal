@@ -11,6 +11,7 @@
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/cmath/impl/fixed_point.hpp>
 #include <boost/decimal/detail/cmath/impl/trig_reduce.hpp>
+#include <boost/decimal/detail/cmath/impl/sin_impl.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cstdint>
@@ -36,23 +37,90 @@ constexpr auto cos_poly(const fx<3>& z) noexcept -> fx<3>
     return fx_alternating_split<fx_table::cos_d128_mid_shift, fx_table::cos_d128_tail_shift>(z, fx_table::cos_d128_head, fx_table::cos_d128_mid, fx_table::cos_d128_tail);
 }
 
-// cos(r) for z = r^2, which is below 1 for any r != 0.
+// The polynomial of decimal64_t in one word
+constexpr auto cos_poly_top(const fx<1>& z) noexcept -> fx<1>
+{
+    return fx_alternating_top<fx_table::cos_d64_shift>(z, fx_table::cos_d64_head, fx_table::cos_d64_tail);
+}
+
+// cos(r) for z = r^2 and the polynomial p, which is below 1 for any r != 0.
 template <int N>
-constexpr auto cos_fx(const fx<N>& z) noexcept -> fx<N>
+constexpr auto cos_fx(const fx<N>& z, const fx<N>& p) noexcept -> fx<N>
 {
     fx<N> half {};
     half.w[N - 1] = UINT64_C(1) << 61U;
-    const auto inner {fx_sub(half, fx_mul(z, cos_poly(z)))};
+    const auto inner {fx_sub(half, fx_mul(z, p))};
     return fx_clamp_below_one(fx_sub(fx_one<N>(), fx_mul(z, inner)));
 }
 
-// cos(r) with the sign neg, for r != 0.
-template <typename T>
-constexpr auto cos_of(const trig_arg<trig_traits<T>::words>& r, const bool neg) noexcept -> T
+template <int N>
+constexpr auto cos_fx(const fx<N>& z) noexcept -> fx<N>
 {
+    return cos_fx(z, cos_poly(z));
+}
+
+// sin(r) / r = 1 - z/(2*3) * (1 - z/(4*5) * (1 - ...)), or with use_cos cos(r) = 1 - z/(1*2) * (1 - ...),
+// to 22 terms with an error below 2^-186 for z <= (pi/4)^2. It is slow, but it needs no table.
+template <int N>
+constexpr auto trig_taylor(const fx<N>& z, const bool use_cos) noexcept -> fx<N>
+{
+    const std::uint64_t c {use_cos ? 1U : 0U};
+    auto s {fx_one<N>()};
+    for (std::uint64_t k {22}; k > 0U; --k)
+    {
+        s = fx_sub(fx_one<N>(), fx_div_small(fx_mul(z, s), (2U * k - c) * (2U * k + 1U - c)));
+    }
+    return fx_clamp_below_one(s);
+}
+
+// The signs of sin(x) and cos(x) for x = n*pi/2 + r, where the sign of sin(r) is r.neg and cos(r) > 0
+template <int N>
+constexpr auto sin_neg(const trig_arg<N>& r) noexcept -> bool
+{
+    return (r.n & 1U) != 0U ? r.n == 3U : r.neg != (r.n == 2U);
+}
+
+template <int N>
+constexpr auto cos_neg(const trig_arg<N>& r) noexcept -> bool
+{
+    return (r.n & 1U) != 0U ? r.neg != (r.n == 1U) : r.n == 2U;
+}
+
+// sin(|r|), or with use_cos cos(r), with the sign neg, for r != 0. For three words the polynomials are good
+// to 2 units of the 38 digits, thus near a rounding boundary the Taylor series decides.
+template <typename T>
+constexpr auto sin_cos_of(const trig_arg<trig_traits<T>::words>& r, const bool use_cos, const bool neg) noexcept -> T
+{
+    constexpr int digits {sig_digits(trig_traits<T>::words)};
+    constexpr auto one {pow10(static_cast<boost::int128::uint128_t>(digits))};
     const auto rf {fixed_r(r)};
-    const auto f {cos_fx(fx_mul(rf, rf))};
-    return fx_round<T>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(38)), f), -38, neg);
+    const auto z {fx_mul(rf, rf)};
+    auto v {use_cos ? fx_scale(one, cos_fx(z)) : fx_scale(r.sig, r.tail, sinc_fx(z))};
+
+    // Below z = 2^-62 the polynomials are as good as the series.
+    BOOST_DECIMAL_IF_CONSTEXPR (trig_traits<T>::words == 3)
+    {
+        if (z.w[2] != 0U && fx_near_boundary(v))
+        {
+            const auto rt {fixed_r_with_tail(r)};
+            const auto f {trig_taylor(fx_mul(rt, rt), use_cos)};
+            v = use_cos ? fx_scale(one, f) : fx_scale(r.sig, r.tail, f);
+        }
+    }
+    return trig_round<T>(v, use_cos ? -digits : -r.k, neg);
+}
+
+// sin_cos_of in one word for decimal64_t with its polynomials: the error of v is in (-3.3, 5.9) units for sin(r) and in
+// (-4.2, 6.2) for cos(r), thus w = 7. It rounds once in out where v cannot be next to a rounding boundary.
+template <typename T>
+constexpr auto sin_cos_try(const trig_arg<1>& r, const bool use_cos, const bool neg, T& out) noexcept -> bool
+{
+    constexpr int digits {sig_digits(1)};
+    constexpr auto one {pow10(static_cast<boost::int128::uint128_t>(digits))};
+    const auto rf {fixed_r(r)};
+    const auto z {fx_mul(rf, rf)};
+    const auto v {use_cos ? fx_scale(one, cos_fx(z, cos_poly_top(z))) : fx_scale(r.sig, r.tail, sinc_fx(z, sin_poly_top(z)))};
+    return trig_try_round(v.low, use_cos ? -digits : -r.k, neg, 7U, out);
 }
 
 } // namespace trig

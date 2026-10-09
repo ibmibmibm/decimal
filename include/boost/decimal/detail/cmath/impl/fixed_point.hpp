@@ -182,6 +182,14 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_shr_words(const fx_span<std::uint64
     }
 }
 
+// floor(z * log10(2)) for |z| <= 1650, and at most one less above: 78913 / 2^18 is just below log10(2)
+constexpr auto fx_floor_log10_2(const int z) noexcept -> int
+{
+    // In 64 bits, as z * 78913 passes 32 bits from |z| = 27214 on
+    const std::int64_t w {z};
+    return static_cast<int>(w >= 0 ? (w * 78913) >> 18 : -((-w * 78913 + 262143) >> 18));
+}
+
 // The integer n < 4 in N words
 template <int N>
 constexpr auto fx_int(const std::uint64_t n) noexcept -> fx<N>
@@ -195,19 +203,6 @@ template <int N>
 constexpr auto fx_one() noexcept -> fx<N>
 {
     return fx_int<N>(1U);
-}
-
-template <int N>
-constexpr auto fx_is_one(const fx<N>& a) noexcept -> bool
-{
-    for (int i {}; i < N - 1; ++i)
-    {
-        if (a.w[i] != 0U)
-        {
-            return false;
-        }
-    }
-    return a.w[N - 1] == (UINT64_C(1) << 62U);
 }
 
 // a * b, truncated. The products below word N - 1 are left out, which takes off less
@@ -374,6 +369,21 @@ constexpr auto fx_mul_small(const fx<N>& a, const std::uint64_t n) noexcept -> f
     return r;
 }
 
+// a / d, truncated, for d > 0
+template <int N>
+constexpr auto fx_div_small(const fx<N>& a, const std::uint64_t d) noexcept -> fx<N>
+{
+    fx<N> q {};
+    std::uint64_t rem {};
+    for (int i {N - 1}; i >= 0; --i)
+    {
+        const boost::int128::uint128_t cur {rem, a.w[i]};
+        q.w[i] = static_cast<std::uint64_t>(cur / d);
+        rem = a.w[i] - q.w[i] * d;
+    }
+    return q;
+}
+
 // The top N words of a, which truncates it to N words
 template <int N, int M>
 constexpr auto fx_top(const fx<M>& a) noexcept -> fx<N>
@@ -400,7 +410,7 @@ constexpr auto fx_extend(const fx<M>& a) noexcept -> fx<N>
     return r;
 }
 
-// 1 / d for 1 <= d < 2. The guess floor(2^124 / top word) in one word has an error below 2^-60, and a Newton
+// 1 / d for 1/2 <= d < 2. The guess floor(2^124 / top word) in one word has an error below 2^-60, and a Newton
 // step r * (2 - d * r) in N words from 1 / d in N - 1 words doubles the correct bits: the error is below 2^-60N.
 template <int N>
 constexpr auto fx_recip(const fx<N>& d) noexcept -> fx<N>
@@ -593,6 +603,18 @@ constexpr auto fx_alternating_split(const fx<N>& z, const fx<N> (&head)[M], cons
     return s;
 }
 
+// fx_alternating_split in one word, with the top word of each head term
+template <int Shift, std::size_t M, std::size_t K>
+constexpr auto fx_alternating_top(const fx<1>& z, const fx<2> (&head)[M], const std::uint64_t (&tail)[K]) noexcept -> fx<1>
+{
+    fx<1> s {{fx_tail_sum(z.w[0], tail) >> Shift}};
+    for (std::size_t i {M}; i-- > 0U;)
+    {
+        s = fx_sub(fx_top<1>(head[i]), fx_mul(z, s));
+    }
+    return s;
+}
+
 // The high 128 bits of a * b.
 constexpr auto fx_mul_high(const boost::int128::uint128_t& a, const boost::int128::uint128_t& b) noexcept -> boost::int128::uint128_t
 {
@@ -731,6 +753,22 @@ constexpr auto fx_lead_t(const boost::int128::uint128_t& sig, const int k, int& 
     return fx_from_decimal<N>(sig, nd);
 }
 
+// The same for sig + tail / 2^64
+template <int N>
+constexpr auto fx_scale(const boost::int128::uint128_t& sig, const std::uint64_t tail, const fx<N>& f) noexcept -> boost::int128::uint128_t
+{
+    std::uint64_t p[static_cast<std::size_t>(N + 3)] {};
+    const std::uint64_t g[3] {tail, sig.low, sig.high};
+    BOOST_DECIMAL_FX_UNROLL
+    for (int i {}; i < 3; ++i)
+    {
+        p[i + N] = fx_mul_add(fx_make_span<N>(p, i), fx_make_span(f.w), g[i]);
+    }
+    std::uint64_t r[2] {};
+    fx_shr_words(fx_make_span(r), fx_make_span<2>(p, N), p[N + 2], 62U);
+    return boost::int128::uint128_t {r[1], r[0]};
+}
+
 // q * 10^e with precision + 1 digits in q and more digits below them that are not all zero, rounded in the
 // current mode, for a result in the normal range
 template <typename T, typename U>
@@ -760,7 +798,8 @@ template <typename T>
 constexpr auto fx_round(boost::int128::uint128_t sig, int e, const bool neg) noexcept -> T
 {
     constexpr int p {precision_v<T>};
-    if (p >= 16 && sig >= pow10(static_cast<boost::int128::uint128_t>(36)) && e + 37 - p >= etiny_v<T>)
+    static_assert(p >= 16, "one word is for decimal32_t");
+    if (sig >= pow10(static_cast<boost::int128::uint128_t>(36)) && e + 37 - p >= etiny_v<T>)
     {
         const int drop {(sig >= pow10(static_cast<boost::int128::uint128_t>(38)) ? 39 : sig >= pow10(static_cast<boost::int128::uint128_t>(37)) ? 38 : 37) - p - 1};
         return fx_round_kept<T>(impl::divmod_pow10_dispatch(sig, drop, pow10(static_cast<boost::int128::uint128_t>(drop))).quotient, e + drop, neg);

@@ -826,13 +826,34 @@ struct fx_table_imp
     };
 
     // pi/2 = 1.570796326 794896619 ...
-    static constexpr std::uint32_t pio2[6] = { UINT32_C(1), UINT32_C(570796326), UINT32_C(794896619), UINT32_C(231321691), UINT32_C(639751442), UINT32_C(98584699) };
+    static constexpr std::uint32_t pio2[8] = { UINT32_C(1), UINT32_C(570796326), UINT32_C(794896619), UINT32_C(231321691), UINT32_C(639751442), UINT32_C(98584699),
+                                                UINT32_C(687552910), UINT32_C(487472296) };
 
     // 2/pi for |x| < 10^19 in base 2^64, high word first: word i has the weight 2^(-64(i + 1))
-    static constexpr std::uint64_t two_over_pi_bin[7] =
+    static constexpr std::uint64_t two_over_pi_bin[3] =
     {
-        UINT64_C(0xA2F9836E4E441529), UINT64_C(0xFC2757D1F534DDC0), UINT64_C(0xDB6295993C439041), UINT64_C(0xFE5163ABDEBBC561),
-        UINT64_C(0xB7246E3A424DD2E0), UINT64_C(0x06492EEA09D1921C), UINT64_C(0xFE1DEB1CB129A73E)
+        UINT64_C(0xA2F9836E4E441529), UINT64_C(0xFC2757D1F534DDC0), UINT64_C(0xDB6295993C439041)
+    };
+
+    // 2/pi * 10^-j for j = 1 to 16, in the same form as two_over_pi_bin
+    static constexpr std::uint64_t two_over_pi_pow10_bin[16][3] =
+    {
+        {UINT64_C(0x104C26BE3B06CEEA), UINT64_C(0x99372261CBB87C93), UINT64_C(0x4923755C1FA05B39)},
+        {UINT64_C(0x01A1371305E714B1), UINT64_C(0x0F52503CFAC5A60E), UINT64_C(0xBA838BBC6990091F)},
+        {UINT64_C(0x0029B8B51A30B544), UINT64_C(0xE7EEA19FB2AD5D67), UINT64_C(0xDF738DF93DC19A83)},
+        {UINT64_C(0x00042C121C381220), UINT64_C(0x7D97DCF65EAAEFBD), UINT64_C(0x96585AFF52F9C2A6)},
+        {UINT64_C(0x00006ACE9C6C01D0), UINT64_C(0x0C8F2FB23CAAB192), UINT64_C(0xF56F3C4CBB7F6043)},
+        {UINT64_C(0x00000AAE42D799C8), UINT64_C(0x014184C5061111C1), UINT64_C(0xE557EC6E12BFF006)},
+        {UINT64_C(0x000001116D158F60), UINT64_C(0xCCECF3AD4D681B60), UINT64_C(0x3088CAD7CEACCB33)},
+        {UINT64_C(0x0000001B57B55B23), UINT64_C(0x47B14B91548A6923), UINT64_C(0x380DADE26177ADEB)},
+        {UINT64_C(0x00000002BBF8891D), UINT64_C(0x20C4EDF4EEDAA41D), UINT64_C(0x1F34916370259164)},
+        {UINT64_C(0x0000000045FF40E9), UINT64_C(0x5013B1654B15DD36), UINT64_C(0x1CB874F05803C1BD)},
+        {UINT64_C(0x0000000006FFECE4), UINT64_C(0x219B91BD544EFC85), UINT64_C(0x6945A54B3C00602C)},
+        {UINT64_C(0x0000000000B3314A), UINT64_C(0x035C5B5FBBA17FA6), UINT64_C(0xF0ED5D5452CCD66A)},
+        {UINT64_C(0x000000000011EB54), UINT64_C(0x33893C565F90265D), UINT64_C(0x7E7E22EED5147BD7)},
+        {UINT64_C(0x000000000001CABB), UINT64_C(0x9EC0EC6F098E6A3C), UINT64_C(0x8CA636B17BB53F95)},
+        {UINT64_C(0x0000000000002DDF), UINT64_C(0x8FE017A4B427D76C), UINT64_C(0x7477057825F8865B)},
+        {UINT64_C(0x0000000000000496), UINT64_C(0x5B30025D45372F24), UINT64_C(0x720BE6F26A3273D5)},
     };
 
     // ceil(10^(-9a) * 2^448) for a = 1 to 4, in the same form as two_over_pi_bin
@@ -849,10 +870,10 @@ struct fx_table_imp
     };
 
     // pi/2 in the same form as two_over_pi_bin, but word 0 is the integer part
-    static constexpr std::uint64_t pio2_bin[5] =
+    static constexpr std::uint64_t pio2_bin[7] =
     {
         UINT64_C(0x0000000000000001), UINT64_C(0x921FB54442D18469), UINT64_C(0x898CC51701B839A2), UINT64_C(0x52049C1114CF98E8),
-        UINT64_C(0x04177D4C76273644)
+        UINT64_C(0x04177D4C76273644), UINT64_C(0xA29410F31C6809BB), UINT64_C(0xDF2A33679A748636)
     };
 };
 
@@ -1015,16 +1036,19 @@ template <bool b>
 constexpr std::uint32_t fx_table_imp<b>::two_over_pi[720];
 
 template <bool b>
-constexpr std::uint32_t fx_table_imp<b>::pio2[6];
+constexpr std::uint32_t fx_table_imp<b>::pio2[8];
 
 template <bool b>
-constexpr std::uint64_t fx_table_imp<b>::two_over_pi_bin[7];
+constexpr std::uint64_t fx_table_imp<b>::two_over_pi_bin[3];
+
+template <bool b>
+constexpr std::uint64_t fx_table_imp<b>::two_over_pi_pow10_bin[16][3];
 
 template <bool b>
 constexpr std::uint64_t fx_table_imp<b>::pow10_neg9_bin[4][7];
 
 template <bool b>
-constexpr std::uint64_t fx_table_imp<b>::pio2_bin[5];
+constexpr std::uint64_t fx_table_imp<b>::pio2_bin[7];
 
 #endif
 
