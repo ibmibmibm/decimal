@@ -180,6 +180,15 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_shr_words(const fx_span<std::uint64
     }
 }
 
+// The integer n < 4 in N words
+template <int N>
+constexpr auto fx_int(const std::uint64_t n) noexcept -> fx<N>
+{
+    fx<N> r {};
+    r.w[N - 1] = n << 62U;
+    return r;
+}
+
 template <int N>
 constexpr auto fx_one() noexcept -> fx<N>
 {
@@ -298,6 +307,19 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_add(const fx<N>& a, const fx<N>& b)
     return fx_add_body(a, b);
 }
 
+// a / 2^s, truncated, for s < 64.
+template <int N>
+constexpr auto fx_shr(const fx<N>& a, const unsigned s) noexcept -> fx<N>
+{
+    if (s == 0U)
+    {
+        return a;
+    }
+    fx<N> r {};
+    fx_shr_words(fx_make_span(r.w), fx_make_span(a.w), 0U, s);
+    return r;
+}
+
 // a * 2^s, for a * 2^s < 4 and 0 < s < 64.
 template <int N>
 constexpr auto fx_shl(fx<N> a, const unsigned s) noexcept -> fx<N>
@@ -308,6 +330,17 @@ constexpr auto fx_shl(fx<N> a, const unsigned s) noexcept -> fx<N>
     }
     a.w[0] <<= s;
     return a;
+}
+
+// a * n / 2^s, truncated, for 0 < s < 64 and a * n / 2^s < 4.
+template <int N>
+constexpr auto fx_mul_shr(const fx<N>& a, const std::uint64_t n, const unsigned s) noexcept -> fx<N>
+{
+    std::uint64_t p[static_cast<std::size_t>(N + 1)] {};
+    p[N] = fx_mul_add(fx_make_span<N>(p), fx_make_span(a.w), n);
+    fx<N> r {};
+    fx_shr_words(fx_make_span(r.w), fx_make_span<N>(p), p[N], s);
+    return r;
 }
 
 // The low N words of the words a
@@ -339,6 +372,46 @@ constexpr auto fx_mul_small(const fx<N>& a, const std::uint64_t n) noexcept -> f
     fx<N> r {};
     fx_mul_add(fx_make_span(r.w), fx_make_span(a.w), n);
     return r;
+}
+
+// The top N words of a, which truncates it to N words
+template <int N, int M>
+constexpr auto fx_top(const fx<M>& a) noexcept -> fx<N>
+{
+    fx<N> r {};
+    for (int i {}; i < N; ++i)
+    {
+        r.w[i] = a.w[M - N + i];
+    }
+    return r;
+}
+
+// a with M words as N >= M words, with the low words zero
+template <int N, int M>
+constexpr auto fx_extend(const fx<M>& a) noexcept -> fx<N>
+{
+    fx<N> r {};
+    for (int i {}; i < M; ++i)
+    {
+        r.w[N - M + i] = a.w[i];
+    }
+    return r;
+}
+
+// 1 / d for 1 <= d < 2. The guess floor(2^124 / top word) in one word has an error below 2^-60, and a Newton
+// step r * (2 - d * r) in N words from 1 / d in N - 1 words doubles the correct bits: the error is below 2^-60N.
+template <int N>
+constexpr auto fx_recip(const fx<N>& d) noexcept -> fx<N>
+{
+    fx<N> r {};
+    BOOST_DECIMAL_IF_CONSTEXPR (N == 1)
+    {
+        std::uint64_t rem {};
+        r.w[0] = boost::int128::detail::udiv_2by1(UINT64_C(1) << 60U, 0U, d.w[N - 1], rem);
+        return r;
+    }
+    r = fx_extend<N>(fx_recip(fx_top<(N > 1 ? N - 1 : 1)>(d)));
+    return fx_mul(r, fx_sub(fx_int<N>(2U), fx_mul(d, r)));
 }
 
 // a < b
@@ -380,6 +453,18 @@ constexpr auto fx_alternating(const fx<N>& z, const fx<N> (&c)[M]) noexcept -> f
     for (std::size_t i {M - 1}; i-- > 0U;)
     {
         s = fx_sub(c[i], fx_mul(z, s));
+    }
+    return s;
+}
+
+// c0 + z*(c1 + z*(c2 + ...)), for coefficients that are all positive.
+template <int N, std::size_t M>
+constexpr auto fx_horner(const fx<N>& z, const fx<N> (&c)[M]) noexcept -> fx<N>
+{
+    fx<N> s {c[M - 1]};
+    for (std::size_t i {M - 1}; i-- > 0U;)
+    {
+        s = fx_add(c[i], fx_mul(z, s));
     }
     return s;
 }
