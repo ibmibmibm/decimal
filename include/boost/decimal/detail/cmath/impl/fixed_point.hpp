@@ -1000,7 +1000,7 @@ constexpr auto fx_wide_try_round(const fx_wide<2>& r, bool neg, T& out, const un
 {
     int exp10 {};
     const auto digits {fx_wide_digits(r, neg, exp10)};
-    if (exp10 < -38 || fx_near_boundary(digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-exp10)) >> (126U - bits)) + 2U))
+    if (exp10 < -39 || fx_near_boundary(digits, static_cast<std::uint64_t>(pow10(static_cast<boost::int128::uint128_t>(-exp10 - 1)) >> (126U - bits)) * 10U + 12U))
     {
         return false;
     }
