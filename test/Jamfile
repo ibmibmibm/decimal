@@ -165,6 +165,7 @@ run github_issue_expm1.cpp ;
 run github_issue_exp2.cpp ;
 run github_issue_log.cpp ;
 run github_issue_atanh.cpp ;
+run github_issue_asinh.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
