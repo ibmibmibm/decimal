@@ -192,9 +192,7 @@ constexpr auto fx_int(const std::uint64_t n) noexcept -> fx<N>
 template <int N>
 constexpr auto fx_one() noexcept -> fx<N>
 {
-    fx<N> r {};
-    r.w[N - 1] = UINT64_C(1) << 62U;
-    return r;
+    return fx_int<N>(1U);
 }
 
 template <int N>
@@ -483,6 +481,42 @@ constexpr auto fx_horner(const fx<N>& z, const fx<N> (&c)[M]) noexcept -> fx<N>
         s = fx_add(c[i], fx_mul(z, s));
     }
     return s;
+}
+
+// c[lo] + t*(c[lo + 1] + ... + t*(c[hi - 1] + t*s)) in W words, from a table of three words. With Alt the
+// terms alternate in sign: |c[lo]| - t*(|c[lo + 1]| - ...).
+template <bool Alt, int W, std::size_t M>
+constexpr auto fx_horner_range(const fx<W>& t, const fx<3> (&c)[M], const std::size_t lo, std::size_t hi, fx<W> s) noexcept -> fx<W>
+{
+    while (hi > lo)
+    {
+        --hi;
+        s = Alt ? fx_sub(fx_top<W>(c[hi]), fx_mul(t, s)) : fx_add(fx_top<W>(c[hi]), fx_mul(t, s));
+    }
+    return s;
+}
+
+// The series of K terms c[0] + t*(c[1] + ...) for a small t. The terms from A on are below t^A and take
+// two words, and the terms from B on take one word: the error of each part stays below that of the sum.
+template <bool Alt, std::size_t K, std::size_t A, std::size_t B, std::size_t M>
+constexpr auto fx_series(const fx<1>& t, const fx<3> (&c)[M]) noexcept -> fx<1>
+{
+    return fx_horner_range<Alt>(t, c, 0U, K, fx<1> {});
+}
+
+template <bool Alt, std::size_t K, std::size_t A, std::size_t B, std::size_t M>
+constexpr auto fx_series(const fx<2>& t, const fx<3> (&c)[M]) noexcept -> fx<2>
+{
+    const auto low {fx_horner_range<Alt>(fx_top<1>(t), c, A, K, fx<1> {})};
+    return fx_horner_range<Alt>(t, c, 0U, A, fx_extend<2>(low));
+}
+
+template <bool Alt, std::size_t K, std::size_t A, std::size_t B, std::size_t M>
+constexpr auto fx_series(const fx<3>& t, const fx<3> (&c)[M]) noexcept -> fx<3>
+{
+    const auto low {fx_horner_range<Alt>(fx_top<1>(t), c, B, K, fx<1> {})};
+    const auto mid {fx_horner_range<Alt>(fx_top<2>(t), c, A, B, fx_extend<2>(low))};
+    return fx_horner_range<Alt>(t, c, 0U, A, fx_extend<3>(mid));
 }
 
 // The alternating sum of the tail terms by Horner's rule in one word, for the top word z1 of z
@@ -844,6 +878,14 @@ constexpr auto fx_wide_int(const std::uint64_t n) noexcept -> fx_wide<N>
     return r;
 }
 
+// u * 2^s in [1, 2) for u in [0.1, 1)
+template <int N>
+constexpr auto fx_normalize(const fx<N>& u, unsigned& s) noexcept -> fx<N>
+{
+    s = static_cast<unsigned>(countl_zero(u.w[N - 1]) - 1);
+    return fx_shl(u, s);
+}
+
 // |r| as digits * 10^exp10, and the sign of r flipped by neg
 template <int N>
 struct fx_signed_digits
@@ -920,6 +962,12 @@ constexpr auto fx_wide_try_round(const fx_wide<1>& r, const bool neg, T& out, co
 constexpr auto decimal_at_least(const boost::int128::uint128_t& sig, const int e, const int p, const unsigned c, const int n) noexcept -> bool
 {
     return e + p > n || (e + p == n && sig >= pow10(static_cast<boost::int128::uint128_t>(p - 2)) * c);
+}
+
+// |x| < 1/256 for x = sig * 10^e
+constexpr auto decimal_tiny(const boost::int128::uint128_t& sig, const int e) noexcept -> bool
+{
+    return e < 0 && (e < -38 || sig * 256U < pow10(static_cast<boost::int128::uint128_t>(-e)));
 }
 
 #ifdef _MSC_VER
