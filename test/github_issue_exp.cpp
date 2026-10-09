@@ -29,6 +29,10 @@ void test_nearest()
     BOOST_TEST_EQ(exp("0.6931471805599453094172321214581766"_DL), 2_DL);
     BOOST_TEST_EQ(exp(-14000_DL), "7.537951771629720907593006284141136e-6081"_DL);
     BOOST_TEST_EQ(exp(14100.5_DL), "5.879522772387939140565400738265113e6123"_DL);
+    // Below 2E-3 units above a representable value, where two words leave the result to three, and where one word
+    // leaves it to two
+    BOOST_TEST_EQ(exp(0.0094_DL), "1.009444318756591279459315657025093"_DL);
+    BOOST_TEST_EQ(exp(0.495_DD), 1.640498239057044_DD);
     BOOST_TEST_EQ(exp(-886.6121476392893_DDF), 8.896858673609e-386_DDF);
     BOOST_TEST_EQ(exp(69.11742129600862_DDF), 1.040673923013077e30_DDF);
     BOOST_TEST_EQ(exp(5.884449_DFF), 359.4047_DFF);
@@ -38,6 +42,7 @@ void test_nearest()
     BOOST_TEST_EQ(exp(1000_DD), std::numeric_limits<decimal64_t>::infinity());
     BOOST_TEST_EQ(exp(-1000_DD), 0_DD);
     #endif
+    BOOST_TEST_EQ(exp(-1e-17_DL), "0.9999999999999999900000000000000000"_DL);
 }
 
 void test_directed()
@@ -51,6 +56,7 @@ void test_directed()
     BOOST_TEST_EQ(exp(-230_DF), 1.2e-100_DF);
 
     fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(exp(0.0094_DL), "1.009444318756591279459315657025094"_DL);
     BOOST_TEST_EQ(exp(-1e-20_DF), 1_DF);
     BOOST_TEST_EQ(exp(1e-20_DF), 1.000001_DF);
     BOOST_TEST_EQ(exp(1e-390_DD), 1.000000000000001_DD);
