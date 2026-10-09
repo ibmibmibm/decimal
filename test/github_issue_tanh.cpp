@@ -35,6 +35,13 @@ void test_nearest()
     BOOST_TEST_EQ(tanh(20_DD), 1_DD);
     BOOST_TEST_EQ(tanh(50_DD), 1_DD);
     BOOST_TEST_EQ(tanh(-1000_DD), -1_DD);
+
+    // Next to a rounding boundary, where the first try in one word cannot round
+    BOOST_TEST_EQ(tanh(0.482_DD), 0.4478439131457828_DD);
+    BOOST_TEST_EQ(tanh(1.06_DD), 0.7856638590269437_DD);
+
+    // Next to a rounding boundary, where the first try in two words cannot round
+    BOOST_TEST_EQ(tanh(0.8_DL), "0.6640367702678489636848446564002429"_DL);
 }
 
 void test_directed()
