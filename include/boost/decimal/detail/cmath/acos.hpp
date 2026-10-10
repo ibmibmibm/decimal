@@ -91,6 +91,21 @@ constexpr auto acos_fixed(const T x) noexcept -> T
             }
         }
     }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        // The same first try for x < 0.99, where the result is above 0.1
+        T r {};
+        if (neg || !decimal_at_least(sig, e, p, 99U, 0))
+        {
+            const bool poly {!decimal_at_least(sig, e, p, 50U, 0)};
+            const auto t1 {poly ? fx_sub(fx_top<1>(fx_table::half_pi), asin_poly(fx_from_decimal<1>(sig, -e)))
+                                : asin_value<1, true>(sig, e, p, true)};
+            if (fx_wide_try_round(fx_widen(neg ? fx_sub(fx_top<1>(fx_table::pi), t1) : t1), false, r, poly ? 21U : 28U))
+            {
+                return r;
+            }
+        }
+    }
     const auto theta {asin_value<words>(sig, e, p, true)};
     return fx_wide_round<T, words>(fx_widen(neg ? fx_sub(fx_top<words>(fx_table::pi), theta) : theta), false);
 }
