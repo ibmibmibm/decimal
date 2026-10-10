@@ -6,21 +6,21 @@
 #ifndef BOOST_DECIMAL_DETAIL_CMATH_ERF_HPP
 #define BOOST_DECIMAL_DETAIL_CMATH_ERF_HPP
 
-#include <boost/decimal/detail/cmath/impl/kahan_sum.hpp>
-#include <boost/decimal/detail/cmath/impl/evaluate_polynomial.hpp>
-#include <boost/decimal/detail/cmath/exp.hpp>
-#include <boost/decimal/detail/cmath/fabs.hpp>
-#include <boost/decimal/detail/cmath/frexp.hpp>
-#include <boost/decimal/detail/cmath/ldexp.hpp>
+#include <boost/decimal/detail/cmath/impl/exp_impl.hpp>
+#include <boost/decimal/detail/cmath/impl/fixed_point.hpp>
+#include <boost/decimal/detail/cmath/frexp10.hpp>
+#include <boost/decimal/detail/cmath/fpclassify.hpp>
+#include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/config.hpp>
-#include <boost/decimal/numbers.hpp>
-#include <boost/decimal/decimal128_t.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
+#include <cstddef>
+#include <cstdint>
 #include <limits>
-#include <array>
+#include <type_traits>
 #endif
 
 namespace boost {
@@ -28,732 +28,955 @@ namespace decimal {
 
 namespace detail {
 
-//
-// Asymptotic series for large z:
-//
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
-class erf_asympt_series_t
+namespace erf_detail {
+
+// The polynomial of g on interval i for the given words: its first coefficient in the table, the number of
+// coefficients, its center c = cw + 1/2 for half, log2 of its half width h, and the first coefficient of the tail
+struct erf_interval
 {
-private:
-    T result;
-    T xx;
-    int tk {1};
-
-public:
-    using result_type = T;
-
-    explicit constexpr erf_asympt_series_t(T z)
-    {
-        const auto neg_z_squared {-z * z};
-        result = -exp(neg_z_squared) / sqrt(numbers::pi_v<T>);
-        result /= z;
-        xx = neg_z_squared * 2;
-    }
-
-    constexpr auto operator()() noexcept -> T
-    {
-        auto r {result};
-        result *= tk / xx;
-        tk += 2;
-        if (fabs(r) < fabs(result))
-        {
-            result = 0;
-        }
-
-        return r;
-    }
-
+    int first;
+    int count;
+    unsigned cw;
+    int log2_h;
+    int split;
+    bool half;
 };
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
-class erf_series_near_zero
+constexpr auto erf_interval_of(const int words, const unsigned i) noexcept -> erf_interval
 {
-private:
-    T term;
-    T zz;
-    int k {};
+    // [1, 2], [2, 4] and [4, 8] for all types, then [8, 10] for two words, and [8, 12] and [12, 16] for three words
+    return words == 1 ? (i == 0U   ? erf_interval {0, 20, 1U, -1, 20, true}
+                         : i == 1U ? erf_interval {20, 23, 3U, 0, 23, false}
+                                   : erf_interval {43, 26, 6U, 1, 26, false})
+         : words == 2 ? (i == 0U   ? erf_interval {0, 31, 1U, -1, 23, true}
+                         : i == 1U ? erf_interval {31, 36, 3U, 0, 28, false}
+                         : i == 2U ? erf_interval {67, 40, 6U, 1, 33, false}
+                                   : erf_interval {107, 27, 9U, 0, 19, false})
+                      : (i == 0U   ? erf_interval {0, 43, 1U, -1, 23, true}
+                         : i == 1U ? erf_interval {43, 50, 3U, 0, 28, false}
+                         : i == 2U ? erf_interval {93, 57, 6U, 1, 33, false}
+                         : i == 3U ? erf_interval {150, 49, 10U, 1, 25, false}
+                                   : erf_interval {199, 44, 14U, 1, 21, false});
+}
 
-public:
-    using result_type = T;
-
-    explicit constexpr erf_series_near_zero(const T &z) : term {z}, zz {-z * z} {}
-
-    constexpr auto operator()() noexcept -> T
+// Whether each first is the sum of the counts before it, and the last interval ends at the size of the table
+constexpr auto erf_intervals_fit(const int words, const unsigned last, const int size) noexcept -> bool
+{
+    for (unsigned i {1}; i <= last; ++i)
     {
-        auto result {term / (2 * k + 1)};
-        term *= zz / ++k;
-        return result;
+        if (erf_interval_of(words, i).first != erf_interval_of(words, i - 1U).first + erf_interval_of(words, i - 1U).count)
+        {
+            return false;
+        }
     }
+    return erf_interval_of(words, last).first + erf_interval_of(words, last).count == size;
+}
+
+static_assert(erf_intervals_fit(1, 2U, static_cast<int>(sizeof(fx_table::erfc_d32) / sizeof(fx_table::erfc_d32[0]))), "the intervals cover the table");
+static_assert(erf_intervals_fit(2, 3U, static_cast<int>(sizeof(fx_table::erfc_d64) / sizeof(fx_table::erfc_d64[0]))), "the intervals cover the table");
+static_assert(erf_intervals_fit(3, 4U, static_cast<int>(sizeof(fx_table::erfc_d128) / sizeof(fx_table::erfc_d128[0]))), "the intervals cover the table");
+
+// Whether the tail of each interval, the coefficients from its split on, sums to below 2^-62: for |u| <= 1 its
+// partial sums then fit in N - 1 words scaled by 2^64
+template <int N, std::size_t M>
+constexpr auto erf_splits_fit(const fx<N> (&c)[M], const unsigned last) noexcept -> bool
+{
+    for (unsigned i {}; i <= last; ++i)
+    {
+        const auto iv {erf_interval_of(N, i)};
+        boost::int128::uint128_t sum {};
+        for (int k {iv.first + iv.split}; k < iv.first + iv.count; ++k)
+        {
+            if (c[k].w[N - 1] != 0U)
+            {
+                return false;
+            }
+            sum += c[k].w[N - 2] + UINT64_C(1);
+        }
+        if (sum.high != 0U)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static_assert(erf_splits_fit(fx_table::erfc_d64, 3U) && erf_splits_fit(fx_table::erfc_d128, 4U), "the tails fit in fewer words");
+
+// The coefficients of the polynomial of the interval iv in the table of N words
+constexpr auto erf_poly(const fx<1>&, const erf_interval& iv) noexcept -> fx_span<const fx<1>> { return fx_make_span(fx_table::erfc_d32, iv.first, iv.count); }
+constexpr auto erf_poly(const fx<2>&, const erf_interval& iv) noexcept -> fx_span<const fx<2>> { return fx_make_span(fx_table::erfc_d64, iv.first, iv.count); }
+constexpr auto erf_poly(const fx<3>&, const erf_interval& iv) noexcept -> fx_span<const fx<3>> { return fx_make_span(fx_table::erfc_d128, iv.first, iv.count); }
+
+// erf(x) / x for z = x^2 <= 1 by the Taylor series, whose terms alternate in sign. The terms from z^20, z^33 and z^45
+// on are below 2^-64, 2^-128 and 2^-192. As z can be near 1, all terms take N words.
+constexpr auto erf_series(const fx<1>& z) noexcept -> fx<1>
+{
+    return fx_even_odd(z, fx_make_span<20>(fx_table::erf_taylor), false);
+}
+
+template <int N>
+constexpr auto erf_series(const fx<N>& z) noexcept -> fx<N>
+{
+    constexpr std::size_t terms {N == 2 ? 33U : 45U};
+    return fx_series<true, terms, terms, terms>(z, fx_table::erf_taylor);
+}
+
+// x = whole + frac as x / 4 in fixed point, for x < 16
+template <int N>
+constexpr auto erf_quarter(const std::uint64_t whole, const fx<N>& frac) noexcept -> fx<N>
+{
+    auto r {fx_shr(frac, 2U)};
+    r.w[N - 1] += whole << 60U;
+    return r;
+}
+
+// The polynomial c in u >= 0, alternating where above, else with positive terms
+constexpr auto erf_g_sum(const fx<1>& u, const fx_span<const fx<1>> c, const bool above, std::size_t) noexcept -> fx<1>
+{
+    return fx_even_odd(u, c, !above);
+}
+
+// The tail from c[split] on runs in N - 1 words scaled by 2^64, the low words of c, with the same last bit
+template <int N>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto erf_g_sum(const fx<N>& u, const fx_span<const fx<N>> c, const bool above, const std::size_t split) noexcept -> fx<N>
+{
+    const auto ut {fx_top<N - 1>(u)};
+    auto t {fx_low<N - 1>(c[c.size() - 1U].w)};
+    for (std::size_t k {c.size() - 1U}; k-- > split;)
+    {
+        const auto ck {fx_low<N - 1>(c[k].w)};
+        t = above ? fx_sub(ck, fx_mul(ut, t)) : fx_add(ck, fx_mul(ut, t));
+    }
+    fx<N> s {};
+    for (int i {}; i < N - 1; ++i)
+    {
+        s.w[i] = t.w[i];
+    }
+    for (std::size_t k {split}; k-- > 0U;)
+    {
+        s = above ? fx_sub(c[k], fx_mul(u, s)) : fx_add(c[k], fx_mul(u, s));
+    }
+    return s;
+}
+
+// g(x) = erfc(x) exp(x^2) for 1 <= x = whole + frac below the asymptotic range: the polynomial of the interval in
+// u = (x - c) / h, which is alternating for u >= 0 and has positive terms in |u| for u < 0
+template <int N>
+constexpr auto erf_g_arg(const std::uint64_t whole, const fx<N>& frac, const erf_interval& iv, bool& above) noexcept -> fx<N>
+{
+    const auto x4 {erf_quarter(whole, frac)};
+    fx<N> c4 {};
+    c4.w[N - 1] = (static_cast<std::uint64_t>(iv.cw) << 60U) | (iv.half ? UINT64_C(1) << 59U : 0U);
+    above = !fx_less(x4, c4);
+    return fx_shl(above ? fx_sub(x4, c4) : fx_sub(c4, x4), static_cast<unsigned>(2 - iv.log2_h));
+}
+
+// g(x) from the polynomial of its interval in N words
+template <int N>
+constexpr auto erf_g_table(const std::uint64_t whole, const fx<N>& frac) noexcept -> fx<N>
+{
+    const unsigned i {whole < 2U ? 0U : whole < 4U ? 1U : whole < 8U ? 2U : N == 3 && whole >= 12U ? 4U : 3U};
+    const auto iv {erf_interval_of(N, i)};
+    bool above {};
+    const auto u {erf_g_arg(whole, frac, iv, above)};
+    return erf_g_sum(u, erf_poly(u, iv), above, static_cast<std::size_t>(iv.split));
+}
+
+// g(x) = m * 2^-(64N - 66 + l) in N - 1 words, for the table of N words of decimal64_t or decimal128_t
+template <int N>
+using erf_mant_t = std::conditional_t<N == 2, std::uint64_t, boost::int128::uint128_t>;
+
+// The words of g as a mantissa
+constexpr auto erf_mant(const fx<1>& g) noexcept -> std::uint64_t { return g.w[0]; }
+constexpr auto erf_mant(const fx<2>& g) noexcept -> boost::int128::uint128_t { return {g.w[1], g.w[0]}; }
+
+// For the first M coefficients of the table of N words, m in [2^(64N - 67), 2^(64N - 65)) with each l below the next
+// one, the shift l_(k+1) - l_k - 1 that takes 2 u s_(k+1) times 2^-(64N - 64) to the scale of c_k, l of each first
+// coefficient, and for |u| < (j + 1) / 8 the last term and for three words the first term below 2^-64 of the first
+template <int N, std::size_t M>
+struct erf_float_table
+{
+    int l[4];
+    unsigned char last[4][8];
+    unsigned char split[4][8];
+    unsigned char shift[M];
 };
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
-constexpr auto erf_series_near_zero_sum(const T &x) noexcept -> T
-{
-    //
-    // We need Kahan summation here, otherwise the errors grow fairly quickly.
-    // This method is *much* faster than the alternatives even so.
-    //
-    constexpr T two_div_root_pi {2 / sqrt(numbers::pi_v<T>)};
+template <int N>
+using erf_float_table_t = erf_float_table<N, N == 2 ? 134U : 199U>;
 
-    erf_series_near_zero<T> sum{x};
-    return two_div_root_pi * tools::kahan_sum_series(sum, std::numeric_limits<T>::digits);
+// m of each coefficient of the table, in a struct of its own: the smaller members after 128-bit words would pad it
+template <int N, std::size_t M>
+struct erf_float_mant
+{
+    erf_mant_t<N> m[M];
+};
+
+template <int N>
+using erf_float_mant_t = erf_float_mant<N, N == 2 ? 134U : 199U>;
+
+// The tables of decimal64_t on [1, 10] and of decimal128_t on [1, 12], from erfc_d64 and erfc_d128. A test in
+// github_issue_erf.cpp makes them again from the coefficients.
+constexpr auto erf_float_mant_for(std::integral_constant<int, 2>) noexcept -> erf_float_mant_t<2>
+{
+    return {
+        {
+            UINT64_C(0x52536BFE8AB5A139), UINT64_C(0x53C66211132BDADB), UINT64_C(0x4DFA89C6F152F454),
+            UINT64_C(0x4371474A5079B449), UINT64_C(0x6D96513CD3DEB477), UINT64_C(0x544FB5D8034701F5),
+            UINT64_C(0x7B9C179CD91932A7), UINT64_C(0x56C2AFF9968CB47D), UINT64_C(0x75142743505F5692),
+            UINT64_C(0x4C303B1D0EF378EF), UINT64_C(0x5FE65E48D50DF963), UINT64_C(0x75055C622BCC4FBF),
+            UINT64_C(0x455B24DAB0D724A3), UINT64_C(0x50013BFDBA0D7CF4), UINT64_C(0x59F3D7ACAB970FCF),
+            UINT64_C(0x62B706A436D5A9B0), UINT64_C(0x69DE6A5E2E0B94D5), UINT64_C(0x6F15DF8938A5755E),
+            UINT64_C(0x72277D6866741649), UINT64_C(0x72FE6CA4AFB19AEA), UINT64_C(0x71A68776BD036D54),
+            UINT64_C(0x6E491B5D78F554F4), UINT64_C(0x69277087E135E7D7), UINT64_C(0x6293DFEF2AFE2D42),
+            UINT64_C(0x5AEA96FE72B114D8), UINT64_C(0x528C2C8658DB3500), UINT64_C(0x49CEF956C348CC00),
+            UINT64_C(0x40C8BCE5E5459000), UINT64_C(0x708FA43BAFD80000), UINT64_C(0x6966D3BB38D80000),
+            UINT64_C(0x58E4321C8BC00000), UINT64_C(0x5BA609F48A74B337), UINT64_C(0x6F5AB93452C5BB9C),
+            UINT64_C(0x410FF86A63033412), UINT64_C(0x4964186EA15A4804), UINT64_C(0x502730BB4FFBF078),
+            UINT64_C(0x54F7B27422554AA5), UINT64_C(0x579CE4C1213FD7EE), UINT64_C(0x5809440F0661DE9C),
+            UINT64_C(0x5657C6D771D9C3E5), UINT64_C(0x52C518A191C1F0AD), UINT64_C(0x4DA6412DA81A97A4),
+            UINT64_C(0x475E45155085CE63), UINT64_C(0x405423A47490A23E), UINT64_C(0x71D481BAF1B7C84B),
+            UINT64_C(0x62EFC48ABFA349BC), UINT64_C(0x5489FC6C8CC71D66), UINT64_C(0x47108E72AC1A98C7),
+            UINT64_C(0x759C7E72FED960D3), UINT64_C(0x5FDBFC8C9EE76C78), UINT64_C(0x4CFF2A2B0081487B),
+            UINT64_C(0x79F5295A9A914E6B), UINT64_C(0x5F46CB276125267A), UINT64_C(0x497475D2B632177A),
+            UINT64_C(0x6FD1F190CC99D7BE), UINT64_C(0x540F479D19A11D67), UINT64_C(0x7CDD62C5E1ADFE7E),
+            UINT64_C(0x5BA82A5AD151267B), UINT64_C(0x428414D66CD4D3D6), UINT64_C(0x5F75AFEAAD22917E),
+            UINT64_C(0x43C57C3583061D6C), UINT64_C(0x5F7C2947415A7AC0), UINT64_C(0x426080F2F9217380),
+            UINT64_C(0x57EE065EF8662000), UINT64_C(0x780824FC11894000), UINT64_C(0x6BC0EF4DF3EC8000),
+            UINT64_C(0x47BB1B2FD1D80000), UINT64_C(0x5F00D212275C85CA), UINT64_C(0x7B5FD9B67427F761),
+            UINT64_C(0x4F1DD92A07D1882C), UINT64_C(0x6441A9F35E78ED2F), UINT64_C(0x7D9336701EDAC927),
+            UINT64_C(0x4DC341905DD7841B), UINT64_C(0x5F4380FB6BA5753A), UINT64_C(0x737933B338D0DED3),
+            UINT64_C(0x4544D1A8084670E4), UINT64_C(0x5246EC3302DDEE21), UINT64_C(0x60C8067D1B331D5F),
+            UINT64_C(0x70C4B26AD6E4012A), UINT64_C(0x4118039A8AD5ED45), UINT64_C(0x4A797B2296D440BA),
+            UINT64_C(0x5475F92A0FAB5831), UINT64_C(0x5EF779B391B9CA77), UINT64_C(0x69E2EF1B12FCEE4B),
+            UINT64_C(0x7518A872ECFBBEDB), UINT64_C(0x403A748321505D3F), UINT64_C(0x45E85680C94761E8),
+            UINT64_C(0x4B814A7691E529A7), UINT64_C(0x50EFF7CDE5131C64), UINT64_C(0x561EEC4A62C699FE),
+            UINT64_C(0x5AF92FDB8ED431FE), UINT64_C(0x5F6AD6FBEED550EC), UINT64_C(0x63619054E1F5FC55),
+            UINT64_C(0x66CD2CFA1D4E72FE), UINT64_C(0x699FE1B2AD9A4302), UINT64_C(0x6BCE050302585AA8),
+            UINT64_C(0x6D51B5DF85D0351C), UINT64_C(0x6E32DA10258470C2), UINT64_C(0x6E550A616113257C),
+            UINT64_C(0x6D32E0A6DD4C6BE7), UINT64_C(0x6C0606DC4FFBE0DC), UINT64_C(0x6F051CC21995C6D8),
+            UINT64_C(0x6C560561F276F7E0), UINT64_C(0x4E0AF103C7EBC800), UINT64_C(0x4BFB6E294753D000),
+            UINT64_C(0x5395C8EBD4D3FC00), UINT64_C(0x4F57710B95D28000), UINT64_C(0x7F9B31283E54E1C9),
+            UINT64_C(0x70119A675DF54575), UINT64_C(0x61D8DCFD283CE95F), UINT64_C(0x54F04C6D72CA7C64),
+            UINT64_C(0x4950E040E323ADCC), UINT64_C(0x7DDCD4170D44F94A), UINT64_C(0x6B717DFC9CD04303),
+            UINT64_C(0x5B3998C6A1E7D9A8), UINT64_C(0x4D0B21D26AB6E254), UINT64_C(0x40B9EDE2533A641B),
+            UINT64_C(0x6C3238614EEB5F16), UINT64_C(0x59F88F995945AD07), UINT64_C(0x4A70F3886FDFA29A),
+            UINT64_C(0x7A93827356F678BF), UINT64_C(0x646D4BF7ED4AF008), UINT64_C(0x51E290F282F607C9),
+            UINT64_C(0x4273473898B68FE3), UINT64_C(0x6B5884E4B5FD38EA), UINT64_C(0x564E06D7A21A01DE),
+            UINT64_C(0x4512722995DE87A0), UINT64_C(0x6E10374F76D32100), UINT64_C(0x574DD5C83FFB2E00),
+            UINT64_C(0x44F1E4AE2BDA9000), UINT64_C(0x6C3648DDCAB10000), UINT64_C(0x54B9695435580000),
+            UINT64_C(0x46835319A5800000), UINT64_C(0x6D6D8E76E8000000)
+        }
+    };
 }
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
-constexpr auto erf_calc_impl(const T z, bool invert) noexcept -> T
+constexpr auto erf_float_table_for(std::integral_constant<int, 2>) noexcept -> erf_float_table_t<2>
 {
-    constexpr T zero {0, 0};
-
-    if (z < zero)
-    {
-        if (!invert)
+    return {
+        {2, 3, 4, 5},
+        {{12, 14, 16, 18, 20, 21, 23, 24}, {44, 47, 50, 52, 54, 56, 59, 61},
+         {81, 84, 87, 90, 93, 96, 99, 102}, {117, 119, 121, 122, 124, 125, 126, 127}},
+        {{0, 0, 0, 0, 0, 0, 0, 0}, {31, 31, 31, 31, 31, 31, 31, 31},
+         {67, 67, 67, 67, 67, 67, 67, 67}, {107, 107, 107, 107, 107, 107, 107, 107}},
         {
-            return -erf_calc_impl(-z, invert);
+            1, 1, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 2, 0, 1, 0, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 2, 1, 1, 2, 1, 2, 1, 2, 2, 1, 1, 0, 1, 0, 1, 1, 0,
+            1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 2,
+            2, 2, 2, 3, 2, 2, 2, 2, 3, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2, 2, 3, 2, 2, 3, 0
         }
-        else if (z < T{-5, -1})
-        {
-            return 2 - erf_calc_impl(-z, invert);
-        }
-        else
-        {
-            return 1 + erf_calc_impl(-z, false);
-        }
-    }
-
-    T result {};
-
-    //
-    // Big bunch of selection statements now to pick which
-    // implementation to use, try to put most likely options
-    // first:
-    //
-    if (z < T{5, -1})
-    {
-        //
-        // We're going to calculate erf:
-        //
-        if (z == zero)
-        {
-            result = zero;
-        }
-        else if (z < T{1, -10})
-        {
-            constexpr T c {UINT64_C(3379167095512573896), -21};
-            result = z * T{UINT64_C(1125), -3} + z * c;
-        }
-        else
-        {
-            // Max Error found at long double precision =   1.623299e-20
-            // Maximum Deviation Found:                     4.326e-22
-            // Expected Error Term:                         -4.326e-22
-            // Maximum Relative Change in Control Points:   1.474e-04
-            constexpr T Y {UINT64_C(1044948577880859375), -18};
-            constexpr std::array<T, 6> P = {
-                T{UINT64_C(8343058921465319890), -20},
-                T{UINT64_C(3380972830755654137), -19, construction_sign::negative},
-                T{UINT64_C(5096027344060672046), -20, construction_sign::negative},
-                T{UINT64_C(9049063461585377944), -21, construction_sign::negative},
-                T{UINT64_C(4894686514647986692), -22, construction_sign::negative},
-                T{UINT64_C(2003056263661518778), -23, construction_sign::negative}
-            };
-            constexpr std::array<T, 6> Q = {
-                T{UINT64_C(1), 0},
-                T{UINT64_C(4558173005158751724), -19},
-                T{UINT64_C(9165373543562417920), -20},
-                T{UINT64_C(1027226526759100312), -20},
-                T{UINT64_C(6505117526878515487), -22},
-                T{UINT64_C(1895325191056554968), -23}
-            };
-
-            result = z * (Y + tools::evaluate_polynomial(P, T(z * z)) / tools::evaluate_polynomial(Q, T(z * z)));
-        }
-    }
-    else if (invert ? (z < 110) : (z < T{66, -1}))
-    {
-        //
-        // We'll be calculating erfc:
-        //
-        invert = !invert;
-
-        if (z < T{15, -1})
-        {
-            // Max Error found at long double precision =   3.239590e-20
-            // Maximum Deviation Found:                     2.241e-20
-            // Expected Error Term:                         -2.241e-20
-            // Maximum Relative Change in Control Points:   5.110e-03
-            constexpr T Y {UINT64_C(4059357643127441406), -19};
-            constexpr std::array<T, 8> P = {
-                T{UINT64_C(9809059221628120317), -20, construction_sign::negative},
-                T{UINT64_C(1599890899229691413), -19},
-                T{UINT64_C(2223598216199357124), -19},
-                T{UINT64_C(1273039217035773623), -19},
-                T{UINT64_C(3840575303427624003), -20},
-                T{UINT64_C(6284311608511567193), -21},
-                T{UINT64_C(4412666545143917464), -22},
-                T{UINT64_C(2666890683362956426), -26}
-            };
-            constexpr std::array<T, 7> Q = {
-                T{UINT64_C(1), 0},
-                T{UINT64_C(2032374749854694693), -18},
-                T{UINT64_C(1783554549549694052), -18},
-                T{UINT64_C(8679403262937605782), -19},
-                T{UINT64_C(2480256069900216984), -19},
-                T{UINT64_C(3966496318330022699), -20},
-                T{UINT64_C(2792202373094490268), -21}
-            };
-
-            constexpr T half {5, -1};
-            result = Y + tools::evaluate_polynomial(P, T(z - half)) / tools::evaluate_polynomial(Q, T(z - half));
-        }
-        else if (z < T{25, -1})
-        {
-            // Max Error found at long double precision =   3.686211e-21
-            // Maximum Deviation Found:                     1.495e-21
-            // Expected Error Term:                         -1.494e-21
-            // Maximum Relative Change in Control Points:   1.793e-04
-
-            constexpr T Y {UINT64_C(5067281723022460937), -19};
-            constexpr std::array<T, 7> P = {
-                T{UINT64_C(2435004762076984022), -20, construction_sign::negative},
-                T{UINT64_C(3435226879356714513), -20},
-                T{UINT64_C(5054208243055449495), -20},
-                T{UINT64_C(2574793259177573882), -20},
-                T{UINT64_C(6693498441903543561), -21},
-                T{UINT64_C(9080791441609952444), -22},
-                T{UINT64_C(5159172666980500279), -23}
-            };
-            constexpr std::array<T, 7> Q = {
-                T{UINT64_C(1), 0},
-                T{UINT64_C(1716578616719303363), -18},
-                T{UINT64_C(1264096348242803662), -18},
-                T{UINT64_C(5123714378389690159), -19},
-                T{UINT64_C(1209026230511209509), -19},
-                T{UINT64_C(1580271978318874853), -20},
-                T{UINT64_C(8978713707780316114), -22}
-            };
-
-            constexpr T one_and_half {15, -1};
-            result = Y + tools::evaluate_polynomial(P, T(z - one_and_half)) / tools::evaluate_polynomial(Q, T(z - one_and_half));
-        }
-        else if (z < T{45, -1})
-        {
-            // Maximum Deviation Found:                     1.107e-20
-            // Expected Error Term:                         -1.106e-20
-            // Maximum Relative Change in Control Points:   1.709e-04
-            // Max Error found at long double precision =   1.446908e-20
-
-            constexpr T Y {UINT64_C(5405750274658203125), -19};
-            constexpr std::array<T, 7> P = {
-                T{UINT64_C(2952767165309728403), -21},
-                T{UINT64_C(1418532458954956041), -20},
-                T{UINT64_C(1049595846264322939), -20},
-                T{UINT64_C(3439637959761000776), -21},
-                T{UINT64_C(5906544119487763790), -22},
-                T{UINT64_C(5234353806361740087), -23},
-                T{UINT64_C(1898960430503312573), -24}
-            };
-            constexpr std::array<T, 7> Q = {
-                T{UINT64_C(1), 0},
-                T{UINT64_C(1193521601852856426), -18},
-                T{UINT64_C(6032569643634543929), -19},
-                T{UINT64_C(1654111424585405858), -19},
-                T{UINT64_C(2597298709462031665), -20},
-                T{UINT64_C(2216575682928936992), -21},
-                T{UINT64_C(8041494641903097998), -23}
-            };
-
-            constexpr T three_and_half {35, -1};
-            result = Y + tools::evaluate_polynomial(P, T(z - three_and_half)) / tools::evaluate_polynomial(Q, T(z - three_and_half));
-        }
-        else
-        {
-            // Max Error found at long double precision =   7.961166e-21
-            // Maximum Deviation Found:                     6.677e-21
-            // Expected Error Term:                         6.676e-21
-            // Maximum Relative Change in Control Points:   2.319e-05
-
-            constexpr T Y {UINT64_C(5582551956176757812), -19};
-
-            constexpr std::array<T, 9> P = {
-                T{UINT64_C(5934387930080502141), -21},
-                T{UINT64_C(2806662310090897139), -20},
-                T{UINT64_C(1415978352045830500), -19, construction_sign::negative},
-                T{UINT64_C(9780882011543005488), -19, construction_sign::negative},
-                T{UINT64_C(5473515277960120494), -18, construction_sign::negative},
-                T{UINT64_C(1386773046602453266), -17, construction_sign::negative},
-                T{UINT64_C(2712749487205398217), -17, construction_sign::negative},
-                T{UINT64_C(2925451527470094615), -17, construction_sign::negative},
-                T{UINT64_C(1688657744997996769), -17, construction_sign::negative}
-            };
-            constexpr std::array<T, 9> Q = {
-                T{UINT64_C(1), 0},
-                T{UINT64_C(4729489111866453945), -18},
-                T{UINT64_C(2367505431476957492), -17},
-                T{UINT64_C(6000215173356931867), -17},
-                T{UINT64_C(1317662516451495229), -16},
-                T{UINT64_C(1781679249712834825), -16},
-                T{UINT64_C(1824993905059152227), -16},
-                T{UINT64_C(1043652514795785780), -16},
-                T{UINT64_C(3083655118912242917), -17}
-            };
-
-            const auto inv_z {1 / z};
-            result = Y + tools::evaluate_polynomial(P, inv_z) / tools::evaluate_polynomial(Q, inv_z);
-        }
-
-        int expon {};
-        auto hi {floor(ldexp(frexp(z, &expon), 32))};
-        hi = ldexp(hi, expon - 32);
-        auto lo {z - hi};
-        auto sq {z * z};
-        auto err_sqr {((hi * hi - sq) + T{2, 0} * hi * lo) + lo * lo};
-
-        result *= exp(-sq) * exp(-err_sqr) / z;
-    }
-    else
-    {
-        //
-        // Any value of z larger than 110 will underflow to zero:
-        //
-        result = zero;
-        invert = !invert;
-    }
-
-    if (invert)
-    {
-        result = T{1, 0} - result;
-    }
-
-    return result;
+    };
 }
 
-template <>
-constexpr auto erf_calc_impl<decimal128_t>(const decimal128_t z, bool invert) noexcept -> decimal128_t
+constexpr auto erf_float_mant_for(std::integral_constant<int, 3>) noexcept -> erf_float_mant_t<3>
 {
-    constexpr decimal128_t zero {0, 0};
-    constexpr decimal128_t half {5, -1};
-    constexpr decimal128_t one {1, 0};
-
-    if (z < zero)
-    {
-        if (!invert)
+    return {
         {
-            return -erf_calc_impl(-z, invert);
+            boost::int128::uint128_t {UINT64_C(0x52536BFE8AB5A139), UINT64_C(0xBDF0F0D8E20F3F6B)},
+            boost::int128::uint128_t {UINT64_C(0x53C66211132BDADB), UINT64_C(0x53AC84E8639F908D)},
+            boost::int128::uint128_t {UINT64_C(0x4DFA89C6F152F454), UINT64_C(0xFCBE34AA5D5E4C03)},
+            boost::int128::uint128_t {UINT64_C(0x4371474A5079B449), UINT64_C(0x904FA3C1A4423EC7)},
+            boost::int128::uint128_t {UINT64_C(0x6D96513CD3DEB477), UINT64_C(0x4209E76488B273B9)},
+            boost::int128::uint128_t {UINT64_C(0x544FB5D8034701F5), UINT64_C(0xE4F2F65969977138)},
+            boost::int128::uint128_t {UINT64_C(0x7B9C179CD91932A7), UINT64_C(0x90DF2703EEACFCD2)},
+            boost::int128::uint128_t {UINT64_C(0x56C2AFF9968CB47D), UINT64_C(0xD8477F5B49582A15)},
+            boost::int128::uint128_t {UINT64_C(0x75142743505F5692), UINT64_C(0x5D530EFEEF55BA85)},
+            boost::int128::uint128_t {UINT64_C(0x4C303B1D0EF378EF), UINT64_C(0xECF266A2FF4724DB)},
+            boost::int128::uint128_t {UINT64_C(0x5FE65E48D50DF963), UINT64_C(0xDF62033AB30099D5)},
+            boost::int128::uint128_t {UINT64_C(0x75055C622BCC4FC1), UINT64_C(0x6084C9F73A9B847A)},
+            boost::int128::uint128_t {UINT64_C(0x455B24DAB0D724A4), UINT64_C(0x79959F52A6AF63E1)},
+            boost::int128::uint128_t {UINT64_C(0x50013BFDBA0D7B69), UINT64_C(0xDF2D030B65614DDA)},
+            boost::int128::uint128_t {UINT64_C(0x59F3D7ACAB970E8A), UINT64_C(0xE8E644FC53F20299)},
+            boost::int128::uint128_t {UINT64_C(0x62B706A436D71DC8), UINT64_C(0x10B8E053C0B4EE13)},
+            boost::int128::uint128_t {UINT64_C(0x69DE6A5E2E0CC6BF), UINT64_C(0xC541E1A88B4090AA)},
+            boost::int128::uint128_t {UINT64_C(0x6F15DF8937AA061E), UINT64_C(0x670F72E3AD964769)},
+            boost::int128::uint128_t {UINT64_C(0x72277D6865A55D40), UINT64_C(0xA832079AFA6D40FB)},
+            boost::int128::uint128_t {UINT64_C(0x72FE6CA52B06C1EF), UINT64_C(0x6BB07EFB9A19DF4B)},
+            boost::int128::uint128_t {UINT64_C(0x71A68777226AEDA4), UINT64_C(0x993219539B48E3CF)},
+            boost::int128::uint128_t {UINT64_C(0x6E491B31833AE8DE), UINT64_C(0x1528D5BEC0BB0031)},
+            boost::int128::uint128_t {UINT64_C(0x69277063BBEFC35F), UINT64_C(0x184C8B6C5FA7D35D)},
+            boost::int128::uint128_t {UINT64_C(0x6293EB323E442BEB), UINT64_C(0xE4A9D5586DB04FAD)},
+            boost::int128::uint128_t {UINT64_C(0x5AEAA04130C843CF), UINT64_C(0x1C382AC7C10D6890)},
+            boost::int128::uint128_t {UINT64_C(0x528A27CF1990C24D), UINT64_C(0x78B41203EA33DEC0)},
+            boost::int128::uint128_t {UINT64_C(0x49CD5066CDC76444), UINT64_C(0xF4854A4C9F0DFC00)},
+            boost::int128::uint128_t {UINT64_C(0x41061E68F23D061D), UINT64_C(0x896EC20F3311E000)},
+            boost::int128::uint128_t {UINT64_C(0x70F49DB598FA5AE7), UINT64_C(0xB6484E1A1D950000)},
+            boost::int128::uint128_t {UINT64_C(0x60C2C40F3A7083EB), UINT64_C(0x7FEA63D8D9180000)},
+            boost::int128::uint128_t {UINT64_C(0x51C815886BF4C1BC), UINT64_C(0x3BE15495C6C00000)},
+            boost::int128::uint128_t {UINT64_C(0x4439883D74556416), UINT64_C(0x6DDDBE5C6C000000)},
+            boost::int128::uint128_t {UINT64_C(0x706504E18A2A50B5), UINT64_C(0x883E7164E0000000)},
+            boost::int128::uint128_t {UINT64_C(0x5B71A1D51D0CA333), UINT64_C(0xCC2C971200000000)},
+            boost::int128::uint128_t {UINT64_C(0x4982443270493816), UINT64_C(0x11C5630800000000)},
+            boost::int128::uint128_t {UINT64_C(0x74CE27F5953D033C), UINT64_C(0xB1BE5D8000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5BBF3B6ADAEFE385), UINT64_C(0x459AD00000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4746127EB9BE2A4A), UINT64_C(0xCF61800000000000)},
+            boost::int128::uint128_t {UINT64_C(0x6D863AA364280B8D), UINT64_C(0x9870000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x52E6B78A121D29C9), UINT64_C(0xFA30000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x7CC2DE8757F77AB4), UINT64_C(0xE600000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x662212C9A4AC7816), UINT64_C(0x1000000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4B2D854F453DA4AE), UINT64_C(0x8000000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5BA609F48A74B337), UINT64_C(0xC5610C765368D086)},
+            boost::int128::uint128_t {UINT64_C(0x6F5AB93452C5BB9C), UINT64_C(0x9C2F7CDEEE18A79C)},
+            boost::int128::uint128_t {UINT64_C(0x410FF86A63033412), UINT64_C(0x81EB767906B2968C)},
+            boost::int128::uint128_t {UINT64_C(0x4964186EA15A4804), UINT64_C(0x86F6E63215997435)},
+            boost::int128::uint128_t {UINT64_C(0x502730BB4FFBF078), UINT64_C(0xE5924E9BB3FBFB23)},
+            boost::int128::uint128_t {UINT64_C(0x54F7B27422554AA5), UINT64_C(0x783AAE552A4FCBDD)},
+            boost::int128::uint128_t {UINT64_C(0x579CE4C1213FD7EE), UINT64_C(0xE776E9E9C1560BF1)},
+            boost::int128::uint128_t {UINT64_C(0x5809440F0661DE9C), UINT64_C(0xC2E2441ABCD80D49)},
+            boost::int128::uint128_t {UINT64_C(0x5657C6D771D9C3E5), UINT64_C(0x5534DB56CED007F8)},
+            boost::int128::uint128_t {UINT64_C(0x52C518A191C1F0AD), UINT64_C(0x5FECE2223F0E5310)},
+            boost::int128::uint128_t {UINT64_C(0x4DA6412DA81A97A4), UINT64_C(0x2A709F29FE7739A0)},
+            boost::int128::uint128_t {UINT64_C(0x475E45155085CE63), UINT64_C(0xA32FC2368C3C8D4C)},
+            boost::int128::uint128_t {UINT64_C(0x405423A47490A243), UINT64_C(0xD577795838E0B70F)},
+            boost::int128::uint128_t {UINT64_C(0x71D481BAF1B7C852), UINT64_C(0x85595E8BB98750C5)},
+            boost::int128::uint128_t {UINT64_C(0x62EFC48ABFA3453A), UINT64_C(0xEB3FD1C82B1A06A8)},
+            boost::int128::uint128_t {UINT64_C(0x5489FC6C8CC71A73), UINT64_C(0xE8588B1CA032457A)},
+            boost::int128::uint128_t {UINT64_C(0x47108E72AC1BE2C7), UINT64_C(0xF9FAD300804F08B6)},
+            boost::int128::uint128_t {UINT64_C(0x759C7E72FEDB1070), UINT64_C(0xA8E37C218DB5DDC4)},
+            boost::int128::uint128_t {UINT64_C(0x5FDBFC8C9E5B8230), UINT64_C(0xD0854C4EFEE29F45)},
+            boost::int128::uint128_t {UINT64_C(0x4CFF2A2B0025C814), UINT64_C(0x4AF1864014908582)},
+            boost::int128::uint128_t {UINT64_C(0x79F5295AC7308D38), UINT64_C(0x4DDF1892A4E8C350)},
+            boost::int128::uint128_t {UINT64_C(0x5F46CB277E540983), UINT64_C(0x97B69E2CB003C103)},
+            boost::int128::uint128_t {UINT64_C(0x497475CD52197D36), UINT64_C(0xAF6E1C5987C63A58)},
+            boost::int128::uint128_t {UINT64_C(0x6FD1F189BF507955), UINT64_C(0x063B8150D2A8D812)},
+            boost::int128::uint128_t {UINT64_C(0x540F4899C648D494), UINT64_C(0x726FE3F1CDF5A99F)},
+            boost::int128::uint128_t {UINT64_C(0x7CDD64106D0EFAA5), UINT64_C(0x09C6D9ED5ED58258)},
+            boost::int128::uint128_t {UINT64_C(0x5BA80792BE7E0F5C), UINT64_C(0x9396404FED1D5E8E)},
+            boost::int128::uint128_t {UINT64_C(0x4283FE15C4F7072F), UINT64_C(0xCA6690D3D82C4A35)},
+            boost::int128::uint128_t {UINT64_C(0x5F79392A189D7D6B), UINT64_C(0xCBE1B68498EA180C)},
+            boost::int128::uint128_t {UINT64_C(0x43C7CC7722B9ACBF), UINT64_C(0xFC10A0088F01F6C0)},
+            boost::int128::uint128_t {UINT64_C(0x5F3A6601967D01A6), UINT64_C(0xFAC3B91C1D3D7980)},
+            boost::int128::uint128_t {UINT64_C(0x4235782E88C66CA8), UINT64_C(0xAEEF38440F5FA300)},
+            boost::int128::uint128_t {UINT64_C(0x5B2497BD63198EAF), UINT64_C(0x39446A62390A0800)},
+            boost::int128::uint128_t {UINT64_C(0x7C3D147A452628E0), UINT64_C(0xF8837E305CF0C000)},
+            boost::int128::uint128_t {UINT64_C(0x53DD87A43B99128C), UINT64_C(0xDD9790F965628000)},
+            boost::int128::uint128_t {UINT64_C(0x7029EF12EBAC1477), UINT64_C(0x0286DD1788400000)},
+            boost::int128::uint128_t {UINT64_C(0x4A516E46413778BF), UINT64_C(0x85F9EBCFE0100000)},
+            boost::int128::uint128_t {UINT64_C(0x6199B4B4AC372A4F), UINT64_C(0xFB30ED18DB000000)},
+            boost::int128::uint128_t {UINT64_C(0x7F0CC12233463B32), UINT64_C(0xAE7C5E0B2C000000)},
+            boost::int128::uint128_t {UINT64_C(0x51FAEE9B5C3B32ED), UINT64_C(0x757338D9B0000000)},
+            boost::int128::uint128_t {UINT64_C(0x68E79F83D8768C6F), UINT64_C(0x7030219300000000)},
+            boost::int128::uint128_t {UINT64_C(0x42901D4168E5C871), UINT64_C(0xC0E242EE00000000)},
+            boost::int128::uint128_t {UINT64_C(0x53C2D79933096A68), UINT64_C(0xC9FDD68000000000)},
+            boost::int128::uint128_t {UINT64_C(0x68971F0BEDA5A80C), UINT64_C(0x1AE84F8000000000)},
+            boost::int128::uint128_t {UINT64_C(0x410EA6E2A5EF27F7), UINT64_C(0x585F360000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4FF672B56972A989), UINT64_C(0x987D000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5CD7A586A12A7C08), UINT64_C(0x16A7800000000000)},
+            boost::int128::uint128_t {UINT64_C(0x709739B6DBBE59F0), UINT64_C(0x3780000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5D5B72C8EEE0EE7B), UINT64_C(0xB120000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x6EFCA640A20D59D0), UINT64_C(0x3180000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5F00D212275C85CA), UINT64_C(0x9CEBB9A1C4424B85)},
+            boost::int128::uint128_t {UINT64_C(0x7B5FD9B67427F761), UINT64_C(0x9CBD033166D47ECA)},
+            boost::int128::uint128_t {UINT64_C(0x4F1DD92A07D1882C), UINT64_C(0xEBBEE796E45D8DC8)},
+            boost::int128::uint128_t {UINT64_C(0x6441A9F35E78ED2F), UINT64_C(0x97E351415B58D7D9)},
+            boost::int128::uint128_t {UINT64_C(0x7D9336701EDAC927), UINT64_C(0x3A8D54BBFB5D7CA1)},
+            boost::int128::uint128_t {UINT64_C(0x4DC341905DD7841B), UINT64_C(0xCC774904BDBC84CA)},
+            boost::int128::uint128_t {UINT64_C(0x5F4380FB6BA5753A), UINT64_C(0xFE6EF789481CE4BC)},
+            boost::int128::uint128_t {UINT64_C(0x737933B338D0DED3), UINT64_C(0x429362208BEAF222)},
+            boost::int128::uint128_t {UINT64_C(0x4544D1A8084670E4), UINT64_C(0x64036F86F965791A)},
+            boost::int128::uint128_t {UINT64_C(0x5246EC3302DDEE21), UINT64_C(0x3CD6F7B97EBE1DD3)},
+            boost::int128::uint128_t {UINT64_C(0x60C8067D1B331D5F), UINT64_C(0x84E916315124DAC2)},
+            boost::int128::uint128_t {UINT64_C(0x70C4B26AD6E40129), UINT64_C(0xDEEA80EEA194D01F)},
+            boost::int128::uint128_t {UINT64_C(0x4118039A8AD5ED55), UINT64_C(0xF3DBC7F72A815804)},
+            boost::int128::uint128_t {UINT64_C(0x4A797B2296D440C9), UINT64_C(0x8F668EB0A43AFB50)},
+            boost::int128::uint128_t {UINT64_C(0x5475F92A0FAB4FF4), UINT64_C(0xDE3EBF8631870C2A)},
+            boost::int128::uint128_t {UINT64_C(0x5EF779B391B9C2BA), UINT64_C(0xF50CC4ACBBA7F615)},
+            boost::int128::uint128_t {UINT64_C(0x69E2EF1B12FFEF45), UINT64_C(0x33A960336C8A6081)},
+            boost::int128::uint128_t {UINT64_C(0x7518A872ECFE9126), UINT64_C(0x11585CD725132547)},
+            boost::int128::uint128_t {UINT64_C(0x403A748320E72502), UINT64_C(0x508B04A92F504B97)},
+            boost::int128::uint128_t {UINT64_C(0x45E85680C8E48C3E), UINT64_C(0xA3791A7A67FDA70A)},
+            boost::int128::uint128_t {UINT64_C(0x4B814A76A7E4B215), UINT64_C(0x5936A290F9487CC3)},
+            boost::int128::uint128_t {UINT64_C(0x50EFF7CDF9BD1C89), UINT64_C(0xEAE17A9B3DAFD852)},
+            boost::int128::uint128_t {UINT64_C(0x561EEC46D4E21B39), UINT64_C(0xA827E485ACFA55CC)},
+            boost::int128::uint128_t {UINT64_C(0x5AF92FD83813A79F), UINT64_C(0xA40B187CA2EFC479)},
+            boost::int128::uint128_t {UINT64_C(0x5F6AD76E39BC9D5F), UINT64_C(0xE3F40173231B7EF2)},
+            boost::int128::uint128_t {UINT64_C(0x636190C04167644C), UINT64_C(0x38790625798EFB2A)},
+            boost::int128::uint128_t {UINT64_C(0x66CD21CEEFACA80D), UINT64_C(0xD32AAA663158D585)},
+            boost::int128::uint128_t {UINT64_C(0x699FD73466A0B65E), UINT64_C(0x59AF55E8A3A6185D)},
+            boost::int128::uint128_t {UINT64_C(0x6BCEDD477A12DC5F), UINT64_C(0x2193D86DF310428A)},
+            boost::int128::uint128_t {UINT64_C(0x6D528115280B2284), UINT64_C(0xD6FE2A07ADC79BEF)},
+            boost::int128::uint128_t {UINT64_C(0x6E265753AAD6BA67), UINT64_C(0x69379D2D754E27EC)},
+            boost::int128::uint128_t {UINT64_C(0x6E49489E9452BE83), UINT64_C(0xC36C151BF505376E)},
+            boost::int128::uint128_t {UINT64_C(0x6DBD8372EE81690A), UINT64_C(0x4734164CAD892FEC)},
+            boost::int128::uint128_t {UINT64_C(0x6C885575D5F6DA9E), UINT64_C(0xC894CD47BD1E2ABC)},
+            boost::int128::uint128_t {UINT64_C(0x6AB1EE8212BCB2D1), UINT64_C(0x8849999D2747FF20)},
+            boost::int128::uint128_t {UINT64_C(0x684510BF52996936), UINT64_C(0xA9C003543E321F40)},
+            boost::int128::uint128_t {UINT64_C(0x654EB197D4DD2704), UINT64_C(0xF0C1BA7153B8CA00)},
+            boost::int128::uint128_t {UINT64_C(0x61DD8FBCCF195DEA), UINT64_C(0xD87FA655B1834E00)},
+            boost::int128::uint128_t {UINT64_C(0x5E01C29F18CA98E4), UINT64_C(0x601444DCB2405000)},
+            boost::int128::uint128_t {UINT64_C(0x59CC47B1B1CF1454), UINT64_C(0x6470A801E9C66000)},
+            boost::int128::uint128_t {UINT64_C(0x554E904AE8A5FD93), UINT64_C(0x8757F6D515A98000)},
+            boost::int128::uint128_t {UINT64_C(0x509A134D17F282BC), UINT64_C(0xE0E5F58E8D880000)},
+            boost::int128::uint128_t {UINT64_C(0x4BBFF9025A91224F), UINT64_C(0x1FD2E2A49D280000)},
+            boost::int128::uint128_t {UINT64_C(0x46D0E0649CCE262A), UINT64_C(0x8B2453361A000000)},
+            boost::int128::uint128_t {UINT64_C(0x41DBC1B26D98ADF1), UINT64_C(0xD3B0642243000000)},
+            boost::int128::uint128_t {UINT64_C(0x79D93E6B78320E83), UINT64_C(0xB3B154D880000000)},
+            boost::int128::uint128_t {UINT64_C(0x702AD8ADBBA37153), UINT64_C(0xB9AF9EC060000000)},
+            boost::int128::uint128_t {UINT64_C(0x66E9276845AE2009), UINT64_C(0x70AFDA5C80000000)},
+            boost::int128::uint128_t {UINT64_C(0x5DC9704F38BC8E09), UINT64_C(0xB3E42DA000000000)},
+            boost::int128::uint128_t {UINT64_C(0x53D6F9CC72FBAB55), UINT64_C(0x47FA3CB000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4BB6C18FD61164BB), UINT64_C(0x9A35377000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4A8421014B0E288D), UINT64_C(0xBE6F590000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4276B7EEF8F6497F), UINT64_C(0xD510EC0000000000)},
+            boost::int128::uint128_t {UINT64_C(0x455BA8EB63138500), UINT64_C(0xFE1FD80000000000)},
+            boost::int128::uint128_t {UINT64_C(0x3E3941B2ED80E511), UINT64_C(0x9328600000000000)},
+            boost::int128::uint128_t {UINT64_C(0x557212A0ABFB4A97), UINT64_C(0xF4F8400000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4A8C81732EDCD742), UINT64_C(0xF4CA000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x72FA0C7E65C48F09), UINT64_C(0x3F50ED58EB5A1E3E)},
+            boost::int128::uint128_t {UINT64_C(0x5B15720AD2DAE0F1), UINT64_C(0x57B0E822E70EBAE8)},
+            boost::int128::uint128_t {UINT64_C(0x47CF7C378CBD76E4), UINT64_C(0x6CF2CB52A1ED2703)},
+            boost::int128::uint128_t {UINT64_C(0x70B241CBA4AEC69A), UINT64_C(0x8078A934376E0BEB)},
+            boost::int128::uint128_t {UINT64_C(0x5804C611740EB0F7), UINT64_C(0x29D8647FD217E433)},
+            boost::int128::uint128_t {UINT64_C(0x446DD22EC2D756F4), UINT64_C(0x6A9DF53E7B37DDE0)},
+            boost::int128::uint128_t {UINT64_C(0x69EA8E8015960B9B), UINT64_C(0x6DD2FD9EADAD248E)},
+            boost::int128::uint128_t {UINT64_C(0x519A7219E839199C), UINT64_C(0x484C63E6AACEB7E2)},
+            boost::int128::uint128_t {UINT64_C(0x7D2FFBF669D57302), UINT64_C(0x6E7017CB0557D6B7)},
+            boost::int128::uint128_t {UINT64_C(0x5F9B2E3602303132), UINT64_C(0x244256329B890B20)},
+            boost::int128::uint128_t {UINT64_C(0x48B34F585ADC4696), UINT64_C(0x74A89A30256CB161)},
+            boost::int128::uint128_t {UINT64_C(0x6E184681829F5C30), UINT64_C(0x38B07F2128EBDC8E)},
+            boost::int128::uint128_t {UINT64_C(0x5302F09E1A0E6A06), UINT64_C(0xC4DB8F9E5351A46D)},
+            boost::int128::uint128_t {UINT64_C(0x7CA95D38C5F30CE7), UINT64_C(0x9600E48EAB67CB06)},
+            boost::int128::uint128_t {UINT64_C(0x5D38742FE19B9192), UINT64_C(0xCB125737D0803D42)},
+            boost::int128::uint128_t {UINT64_C(0x456D3318EE6B6E67), UINT64_C(0x349951781A9F442F)},
+            boost::int128::uint128_t {UINT64_C(0x66FF450B7954791C), UINT64_C(0x952B1858E092A9D4)},
+            boost::int128::uint128_t {UINT64_C(0x4C18F01A8154DD7D), UINT64_C(0x9C23CA956DF963D4)},
+            boost::int128::uint128_t {UINT64_C(0x7001625A34220388), UINT64_C(0x1C58631418460B5B)},
+            boost::int128::uint128_t {UINT64_C(0x521BED95EF231EC3), UINT64_C(0xEAD8F6CB10A8C9CE)},
+            boost::int128::uint128_t {UINT64_C(0x77EC77F075E7DA8F), UINT64_C(0x8B771A90066A8989)},
+            boost::int128::uint128_t {UINT64_C(0x573E99E34E94DD70), UINT64_C(0x202AE3FA4F95F34F)},
+            boost::int128::uint128_t {UINT64_C(0x7E76E3D54214A026), UINT64_C(0xA37BB520A720DEDF)},
+            boost::int128::uint128_t {UINT64_C(0x5B5132003AC80EFA), UINT64_C(0xC49901F6019468D9)},
+            boost::int128::uint128_t {UINT64_C(0x41B21C6FD88D9D1D), UINT64_C(0xB9FE98B518A760AB)},
+            boost::int128::uint128_t {UINT64_C(0x5E2EA87F341F224D), UINT64_C(0x0516A2635FAD59A8)},
+            boost::int128::uint128_t {UINT64_C(0x43446D8D3ADA13F9), UINT64_C(0x4592E0CA98CCB7C8)},
+            boost::int128::uint128_t {UINT64_C(0x5FBECC6521B9FEBB), UINT64_C(0x9A772556B4111000)},
+            boost::int128::uint128_t {UINT64_C(0x43E635127DF0F9BB), UINT64_C(0x8D0FCA69F82B9100)},
+            boost::int128::uint128_t {UINT64_C(0x5FF784E5AA2CFDB1), UINT64_C(0x60DF4771B802E800)},
+            boost::int128::uint128_t {UINT64_C(0x4395667F94DD90C9), UINT64_C(0x2D16B625E119E000)},
+            boost::int128::uint128_t {UINT64_C(0x5EDD0EA6C0F80CBC), UINT64_C(0xDD5CBE74F2650000)},
+            boost::int128::uint128_t {UINT64_C(0x4259EABB1D0B0F0E), UINT64_C(0x3748908ECACC0000)},
+            boost::int128::uint128_t {UINT64_C(0x5C813FE5DCFBA9C8), UINT64_C(0x43D86B1C96400000)},
+            boost::int128::uint128_t {UINT64_C(0x4044C9B616067C5D), UINT64_C(0xC4F54CCB40800000)},
+            boost::int128::uint128_t {UINT64_C(0x5901EFDAC3A80B57), UINT64_C(0x0CD16F02A0000000)},
+            boost::int128::uint128_t {UINT64_C(0x7ADD8DE861C08DFB), UINT64_C(0x3FFB8F91E0000000)},
+            boost::int128::uint128_t {UINT64_C(0x5486A71B80C9E953), UINT64_C(0xA965A5C680000000)},
+            boost::int128::uint128_t {UINT64_C(0x73ED21D64CD473E7), UINT64_C(0xF742E8E000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4F3E9B80A4325118), UINT64_C(0x7B12855000000000)},
+            boost::int128::uint128_t {UINT64_C(0x6BFE65EDC2618290), UINT64_C(0x7306CE0000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4950C34F0AE28DFA), UINT64_C(0xE9EE4E0000000000)},
+            boost::int128::uint128_t {UINT64_C(0x634AD9EEC02F4379), UINT64_C(0xC41CD00000000000)},
+            boost::int128::uint128_t {UINT64_C(0x438B38735408E0E1), UINT64_C(0xD013C00000000000)},
+            boost::int128::uint128_t {UINT64_C(0x5AE6CA44EB128FD7), UINT64_C(0xD70A000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x70C9E44CE0E77A5E), UINT64_C(0xF130000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4B85BEA805F1B7F3), UINT64_C(0x73C0000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x4BF492B992EFF413), UINT64_C(0x4500000000000000)},
+            boost::int128::uint128_t {UINT64_C(0x64D0BA7EA76484A9), UINT64_C(0x0000000000000000)}
         }
-        else if (z < -half)
-        {
-            return 2 - erf_calc_impl(-z, invert);
-        }
-        else
-        {
-            return 1 + erf_calc_impl(-z, false);
-        }
-    }
-
-    decimal128_t result {};
-
-    //
-    // Big bunch of selection statements now to pick which
-    // implementation to use, try to put most likely options
-    // first:
-    //
-    if (z < half)
-    {
-        //
-        // We're going to calculate erf:
-        //
-        if (z == zero)
-        {
-            result = zero;
-        }
-        else if (z < decimal128_t{1, -20})
-        {
-            constexpr decimal128_t c {int128::uint128_t{UINT64_C(183185015307313), UINT64_C(4316214765445777362)}, -36};
-            result = z * decimal128_t{UINT64_C(1125), -3} + z * c;
-        }
-        else
-        {
-            // Max Error found at long double precision =   2.342380e-35
-            // Maximum Deviation Found:                     6.124e-36
-            // Expected Error Term:                         -6.124e-36
-            // Maximum Relative Change in Control Points:   3.492e-10
-            constexpr decimal128_t Y {UINT64_C(10841522216796875), -16};
-            constexpr std::array<decimal128_t, 8> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(239754751511176), UINT64_C(15346977608939294094)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(192712955706190), UINT64_C(2786476198819993080)}, -34, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(315600174339923), UINT64_C(3061015393610667132)}, -35, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(61091917605891), UINT64_C(1019303663574361383)}, -35, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(436787460032112), UINT64_C(1788731756814597798)}, -37, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(306994537534154), UINT64_C(5857517254794866796)}, -38, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(91970165438019), UINT64_C(5861580289485811316)}, -39, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(186725770436288), UINT64_C(13306862545778890572)}, -41, construction_sign::negative}
-            };
-            constexpr std::array<decimal128_t, 8> Q = {
-                decimal128_t{UINT64_C(1)},
-                decimal128_t{int128::uint128_t{UINT64_C(252912975277071), UINT64_C(16234303672316163784)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(54212866299291), UINT64_C(9947708872772716820)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(69574086016095), UINT64_C(17436381122513081906)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(58086374505287), UINT64_C(2736284848178772790)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(317762509029661), UINT64_C(14901341870138001204)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(106376826023067), UINT64_C(57314722672041808)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(169888257966113), UINT64_C(17571764770326690292)}, -41}
-            };
-
-            const auto z_squared {z * z};
-            result = z * (Y + tools::evaluate_polynomial(P, z_squared) / tools::evaluate_polynomial(Q, z_squared));
-        }
-    }
-    else if (invert ? (z < decimal128_t{110}) : (z < decimal128_t{UINT64_C(865), -2}))
-    {
-        //
-        // We'll be calculating erfc:
-        //
-        invert = !invert;
-
-        if (z < one)
-        {
-            // Max Error found at long double precision =   3.246278e-35
-            // Maximum Deviation Found:                     1.388e-35
-            // Expected Error Term:                         1.387e-35
-            // Maximum Relative Change in Control Points:   6.127e-05
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(201595030518654), UINT64_C(473630177736155136)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(347118283305744), UINT64_C(13376242280388530596)}, -35, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(108837567018829), UINT64_C(8949668339020089396)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(205156638136972), UINT64_C(8479374702376111038)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(165456838044201), UINT64_C(8069456678105518694)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(79629242873361), UINT64_C(2204766815466333204)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(251989150980866), UINT64_C(8451275733071948234)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(535539364059100), UINT64_C(16183076954934542620)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(74543006006681), UINT64_C(16874855259041196514)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(62057810663588), UINT64_C(4225016817461922308)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(236651445527996), UINT64_C(10163568610288357464)}, -39}
-            };
-            constexpr std::array<decimal128_t, 11> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(134251975244461), UINT64_C(12266621785705425304)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(151087088804865), UINT64_C(7783954991533043640)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(101533324186242), UINT64_C(5983365784156864228)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(449605535730502), UINT64_C(10426028039653281378)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(136248852536558), UINT64_C(5020121607011525382)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(283036543896270), UINT64_C(9880778004342474900)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(389408639476240), UINT64_C(2248582422915465180)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(322701424296268), UINT64_C(7168735379570594832)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(123050804282587), UINT64_C(10903520715667482668)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(146728458516852), UINT64_C(13607062250089259428)}, -44}
-            };
-
-            result = Y + tools::evaluate_polynomial(P, z - half) / tools::evaluate_polynomial(Q, z - half);
-        }
-        else if (z < decimal128_t{UINT64_C(15), -1})
-        {
-            // Max Error found at long double precision =   2.215785e-35
-            // Maximum Deviation Found:                     1.539e-35
-            // Expected Error Term:                         1.538e-35
-            // Maximum Relative Change in Control Points:   6.104e-05
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(247512601803296), UINT64_C(15871045498809073664)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(157190807096733), UINT64_C(3137315625382477952)}, -35, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(470641968793799), UINT64_C(4414359042974488606)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(91817523159857), UINT64_C(7399250419088684648)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(72372915581218), UINT64_C(10309284290091665052)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(334719143293246), UINT64_C(12410907560623277594)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(100623987889980), UINT64_C(3812727289885689320)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(201634177286597), UINT64_C(799217504105204558)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(262985005296582), UINT64_C(13926270613440862488)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(204098189489188), UINT64_C(7062163629122386192)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(72189464720907), UINT64_C(6671367611770889188)}, -39}
-            };
-            constexpr std::array<decimal128_t, 10> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(126293469034752), UINT64_C(6450544005567922118)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(133533437898934), UINT64_C(4515443098870771936)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(84192571838248), UINT64_C(9806577921514899802)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(349261792374621), UINT64_C(8697853943046476554)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(98992586623193), UINT64_C(17173790472898309662)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(191996836870529), UINT64_C(4384468307423291196)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(246146619886387), UINT64_C(5406971225063089448)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(189665960731903), UINT64_C(5272013552808781312)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(67084640707228), UINT64_C(2876771981794530406)}, -38}
-            };
-
-            result = Y + tools::evaluate_polynomial(P, z - one) / tools::evaluate_polynomial(Q, z - one);
-        }
-        else if (z < decimal128_t{UINT64_C(225), -2})
-        {
-            // Maximum Deviation Found:                     1.418e-35
-            // Expected Error Term:                         1.418e-35
-            // Maximum Relative Change in Control Points:   1.316e-04
-            // Max Error found at long double precision =   1.998462e-35
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(272406602338080), UINT64_C(4210402105957662720)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(109088969685101), UINT64_C(16218967400415836944)}, -35, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(179904028726584), UINT64_C(15631322379863663306)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(388449429341863), UINT64_C(3427022958736033442)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(295897921010371), UINT64_C(1587344243601439264)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(128311334641994), UINT64_C(878517591583687586)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(356144639692578), UINT64_C(1960158824930269962)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(65205351588585), UINT64_C(16368106670938658990)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(77045156856563), UINT64_C(153253981163960422)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(537510269782597), UINT64_C(7864628744107903138)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(169600143262140), UINT64_C(3983972277722912520)}, -40}
-            };
-            constexpr std::array<decimal128_t, 11> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(115741879193406), UINT64_C(8849667838245590984)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(111889261564439), UINT64_C(9272201090524384636)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(64335733615491), UINT64_C(10424160044837123455)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(242716646826127), UINT64_C(5037354530739296758)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(62372416290286), UINT64_C(9576972220148352039)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(109309228510036), UINT64_C(2873272329067173224)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(126151786412974), UINT64_C(12619763573277031316)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(87133643197794), UINT64_C(6231683340705747136)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(274931293980236), UINT64_C(1071170154394471314)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(101089787635740), UINT64_C(3144907365133271220)}, -46}
-            };
-
-            constexpr decimal128_t one_point_five {UINT64_C(15), -1};
-            result = Y + tools::evaluate_polynomial(P, z - one_point_five) / tools::evaluate_polynomial(Q, z - one_point_five);
-        }
-        else if (z < decimal128_t{UINT64_C(3), 0})
-        {
-            // Maximum Deviation Found:                     3.575e-36
-            // Expected Error Term:                         3.575e-36
-            // Maximum Relative Change in Control Points:   7.103e-05
-            // Max Error found at long double precision =   5.794737e-36
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(286754050062812), UINT64_C(9099170110843895808)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(489057861995043), UINT64_C(13133699014237994112)}, -36, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(78716949829450), UINT64_C(16506161309933484600)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(163541727676567), UINT64_C(6172848388919604508)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(116849098118354), UINT64_C(5575376344146644276)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(468745851741019), UINT64_C(5310956418198470786)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(119095866461710), UINT64_C(1828946576302487130)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(197846101027371), UINT64_C(399196491668317404)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(210429683133053), UINT64_C(13307826345816323382)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(131144025181426), UINT64_C(8089821001624051524)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(366778344605918), UINT64_C(17527236426819373002)}, -41}
-            };
-            constexpr std::array<decimal128_t, 10> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(104988268168107), UINT64_C(15957835969636138288)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(91869045001594), UINT64_C(3343713105315737866)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(477061739171983), UINT64_C(17142859933886225322)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(162141950642440), UINT64_C(14211750507196794040)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(374371737149964), UINT64_C(8759731599645491996)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(58778403347531), UINT64_C(12075093728068093506)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(60578304096118), UINT64_C(5572830439296116489)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(372338447915402), UINT64_C(18110338228551247378)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(104134117466942), UINT64_C(5843491151628340768)}, -39}
-            };
-
-            constexpr decimal128_t offset {UINT64_C(225), -2};
-            result = Y + tools::evaluate_polynomial(P, z - offset) / tools::evaluate_polynomial(Q, z - offset);
-        }
-        else if (z < decimal128_t{UINT64_C(35), -1})
-        {
-            // Maximum Deviation Found:                     8.126e-37
-            // Expected Error Term:                         -8.126e-37
-            // Maximum Relative Change in Control Points:   1.363e-04
-            // Max Error found at long double precision =   1.747062e-36
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(292937225141646), UINT64_C(6920050031251800064)}, -34};
-            constexpr std::array<decimal128_t, 9> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(182706965924257), UINT64_C(1687510779571187718)}, -36, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(56892448168985), UINT64_C(572440462241151398)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(80518338580783), UINT64_C(5160816315849708842)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(442730178280838), UINT64_C(9281603077550627672)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(135371629264938), UINT64_C(7268401433168016132)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(252380094364866), UINT64_C(3735236004636993191)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(287925910284089), UINT64_C(6157066008997322426)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(186226232526489), UINT64_C(2794677292908361186)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(526445427809093), UINT64_C(11759659595468142822)}, -41}
-            };
-            constexpr std::array<decimal128_t, 9> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(86688065670866), UINT64_C(11737797169918939734)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(61583053693636), UINT64_C(8177778869190231158)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(254010066013673), UINT64_C(14314255351052138662)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(66581844722135), UINT64_C(10035464857808786462)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(113662830747969), UINT64_C(10480615872240633506)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(123515411355391), UINT64_C(5270626324694473614)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(78194463948513), UINT64_C(4344969105995523842)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(221048990718863), UINT64_C(13286283565256558792)}, -39}
-            };
-
-            constexpr decimal128_t offset {UINT64_C(3), 0};
-            result = Y + tools::evaluate_polynomial(P, z - offset) / tools::evaluate_polynomial(Q, z - offset);
-        }
-        else if (z < decimal128_t{UINT64_C(55), -1})
-        {
-            // Maximum Deviation Found:                     5.804e-36
-            // Expected Error Term:                         -5.803e-36
-            // Maximum Relative Change in Control Points:   2.475e-05
-            // Max Error found at long double precision =   1.349545e-35
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(298155700831090), UINT64_C(5321526117547458560)}, -34};
-            constexpr std::array<decimal128_t, 11> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(64045367177120), UINT64_C(7126526946326712216)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(391406866150465), UINT64_C(13877902186207036830)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(427079575463624), UINT64_C(13820156213019431766)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(226722485297785), UINT64_C(7367271055178592050)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(72749098730669), UINT64_C(12561100216305275316)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(153528658470216), UINT64_C(5879898154264305294)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(219923398120484), UINT64_C(14096269023324246296)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(213307473906181), UINT64_C(12198158514880462324)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(134873959287144), UINT64_C(3092403745659621536)}, -40},
-                decimal128_t{int128::uint128_t{UINT64_C(503884309615476), UINT64_C(12990957617719465524)}, -42},
-                decimal128_t{int128::uint128_t{UINT64_C(84655302336436), UINT64_C(13284173252492882164)}, -43}
-            };
-            constexpr std::array<decimal128_t, 11> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(82917204517225), UINT64_C(1063181960067981490)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(57605799915412), UINT64_C(13799772320923268379)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(239437708311408), UINT64_C(11868061651166147832)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(65954868750830), UINT64_C(5000461927831447784)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(125840371312782), UINT64_C(6087785675919187498)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(168473189330587), UINT64_C(10282225561684677028)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(156321229157805), UINT64_C(14905032956529638730)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(96238765217732), UINT64_C(16749337409586968088)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(355113369717463), UINT64_C(1147037262655638552)}, -40},
-                decimal128_t{int128::uint128_t{UINT64_C(59660975952017), UINT64_C(9288316767064383273)}, -41}
-            };
-
-            constexpr decimal128_t offset {UINT64_C(45), -1};
-            result = Y + tools::evaluate_polynomial(P, z - offset) / tools::evaluate_polynomial(Q, z - offset);
-        }
-        else if (z < decimal128_t{UINT64_C(75), -1})
-        {
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(302190791256700), UINT64_C(9714184389844172800)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(158964046028465), UINT64_C(11438909756407891630)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(122032765584843), UINT64_C(16892011538683858512)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(103532882203150), UINT64_C(1945910839355703890)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(405360279555144), UINT64_C(17738257215223704096)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(92516692701440), UINT64_C(2848453183816212240)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(133596036229094), UINT64_C(11924473305888059236)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(124584587904639), UINT64_C(291610981922610256)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(73122377133008), UINT64_C(17327362738533036112)}, -40},
-                decimal128_t{int128::uint128_t{UINT64_C(246528390085209), UINT64_C(3924280155277418766)}, -42},
-                decimal128_t{int128::uint128_t{UINT64_C(364835518629564), UINT64_C(5571555254170192776)}, -44}
-            };
-            constexpr std::array<decimal128_t, 10> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(61172687098579), UINT64_C(11482353827453039470)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(308943765243564), UINT64_C(387347066952065946)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(91666260198101), UINT64_C(11910461875258093924)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(176121839055192), UINT64_C(13669190067175731198)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(227277440268902), UINT64_C(12960685819537436558)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(197021940733251), UINT64_C(7957691617384334234)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(110655785712500), UINT64_C(17625392428371128500)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(365445712168932), UINT64_C(1180958078663840968)}, -40},
-                decimal128_t{int128::uint128_t{UINT64_C(540820373195725), UINT64_C(8782966917686320850)}, -42}
-            };
-
-            constexpr decimal128_t offset {UINT64_C(65), -1};
-            result = Y + tools::evaluate_polynomial(P, z - offset) / tools::evaluate_polynomial(Q, z - offset);
-        }
-        else if (z < decimal128_t{UINT64_C(115), -1})
-        {
-            // Maximum Deviation Found:                     8.380e-36
-            // Expected Error Term:                         8.380e-36
-            // Maximum Relative Change in Control Points:   2.632e-06
-            // Max Error found at long double precision =   9.849522e-36
-
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(304027649204451), UINT64_C(1728229377678557184)}, -34};
-            constexpr std::array<decimal128_t, 10> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(153100583833654), UINT64_C(14327035843678029036)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(95077518459187), UINT64_C(9942820403827655058)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(115711360658550), UINT64_C(6169858550655575230)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(67302585249761), UINT64_C(14717008898158466981)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(229634417799869), UINT64_C(3537386017055083086)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(495496840641844), UINT64_C(10464545210085775186)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(68846798464464), UINT64_C(6483309338720405631)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(59962321481173), UINT64_C(3516818090677968196)}, -39},
-                decimal128_t{int128::uint128_t{UINT64_C(298562604094816), UINT64_C(10053434321960440794)}, -41},
-                decimal128_t{int128::uint128_t{UINT64_C(64908849789679), UINT64_C(2483175171918744174)}, -42}
-            };
-            constexpr std::array<decimal128_t, 10> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(92097343963423), UINT64_C(10172380546965853922)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(69835981275607), UINT64_C(1604553196623401915)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(310243256559610), UINT64_C(7192679776206411020)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(88990066089511), UINT64_C(8751850376241707954)}, -34},
-                decimal128_t{int128::uint128_t{UINT64_C(170930514330698), UINT64_C(15386692183241008522)}, -35},
-                decimal128_t{int128::uint128_t{UINT64_C(219870195268595), UINT64_C(7096478956361471750)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(182649595150853), UINT64_C(10228274995118757972)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(88922494481931), UINT64_C(16755190767040428824)}, -38},
-                decimal128_t{int128::uint128_t{UINT64_C(193321492983025), UINT64_C(15015034683123628540)}, -40}
-            };
-
-            constexpr decimal128_t offset {UINT64_C(475), -2};
-            const auto half_z {z / 2};
-            result = Y + tools::evaluate_polynomial(P, half_z - offset) / tools::evaluate_polynomial(Q, half_z - offset);
-        }
-        else
-        {
-            // Maximum Deviation Found:                     1.132e-35
-            // Expected Error Term:                         -1.132e-35
-            // Maximum Relative Change in Control Points:   4.674e-04
-            // Max Error found at long double precision =   1.162590e-35
-            constexpr decimal128_t Y {int128::uint128_t{UINT64_C(305348553245121), UINT64_C(13092683829350334464)}, -34};
-            constexpr std::array<decimal128_t, 12> P = {
-                decimal128_t{int128::uint128_t{UINT64_C(499232842962978), UINT64_C(8830380466473645912)}, -37},
-                decimal128_t{int128::uint128_t{UINT64_C(174252455201786), UINT64_C(2479322227425103044)}, -36},
-                decimal128_t{int128::uint128_t{UINT64_C(135772070143446), UINT64_C(11134505343181509494)}, -34, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(491581404144094), UINT64_C(17408157071053090076)}, -34, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(483680789016642), UINT64_C(16561429108077906378)}, -33, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(118068225278210), UINT64_C(1054524085213991420)}, -32, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(494099073316133), UINT64_C(5874532072246990782)}, -32, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(78131897092350), UINT64_C(2017084479481280073)}, -31, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(170135756926931), UINT64_C(10167058340138167254)}, -31, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(148055281207309), UINT64_C(5898340572591612296)}, -31, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(147262609119790), UINT64_C(18318474967693923790)}, -31, construction_sign::negative},
-                decimal128_t{int128::uint128_t{UINT64_C(325548278155557), UINT64_C(11031073479106502338)}, -32, construction_sign::negative}
-            };
-            constexpr std::array<decimal128_t, 12> Q = {
-                decimal128_t{1},
-                decimal128_t{int128::uint128_t{UINT64_C(189215206044366), UINT64_C(7201146952646483464)}, -33},
-                decimal128_t{int128::uint128_t{UINT64_C(186246196669912), UINT64_C(16899706591617305338)}, -32},
-                decimal128_t{int128::uint128_t{UINT64_C(458071748953339), UINT64_C(14530259322322392676)}, -32},
-                decimal128_t{int128::uint128_t{UINT64_C(203833188002588), UINT64_C(3875604001885821522)}, -31},
-                decimal128_t{int128::uint128_t{UINT64_C(341498582010851), UINT64_C(13646636761762590294)}, -31},
-                decimal128_t{int128::uint128_t{UINT64_C(85020842353993), UINT64_C(17169196599155840002)}, -30},
-                decimal128_t{int128::uint128_t{UINT64_C(89231168049555), UINT64_C(9824611763952834930)}, -30},
-                decimal128_t{int128::uint128_t{UINT64_C(124681547981702), UINT64_C(8512281060063414408)}, -30},
-                decimal128_t{int128::uint128_t{UINT64_C(66284436919305), UINT64_C(10410142805477852184)}, -30},
-                decimal128_t{int128::uint128_t{UINT64_C(433333814418414), UINT64_C(10618654391229754076)}, -31},
-                decimal128_t{int128::uint128_t{UINT64_C(394332605728132), UINT64_C(16714436905006754448)}, -32}
-            };
-
-            const auto inv_z {1 / z};
-            result = Y + tools::evaluate_polynomial(P, inv_z) / tools::evaluate_polynomial(Q, inv_z);
-        }
-
-        decimal128_t hi {};
-        decimal128_t lo {};
-        int expon {};
-        hi = floor(ldexp(frexp(z, &expon), 56));
-        hi = ldexp(hi, expon - 56);
-        lo = z - hi;
-        auto sq = z * z;
-        auto err_sqr = ((hi * hi - sq) + 2 * hi * lo) + lo * lo;
-        result *= exp(-sq) * exp(-err_sqr) / z;
-    }
-    else
-    {
-        //
-        // Any value of z larger than 110 will underflow to zero:
-        //
-        result = zero;
-        invert = !invert;
-    }
-
-    if (invert)
-    {
-        result = one - result;
-    }
-
-    return result;
+    };
 }
+
+constexpr auto erf_float_table_for(std::integral_constant<int, 3>) noexcept -> erf_float_table_t<3>
+{
+    return {
+        {2, 3, 4, 5},
+        {{22, 27, 30, 33, 36, 39, 41, 42}, {68, 74, 78, 82, 86, 90, 92, 92},
+         {120, 126, 132, 138, 143, 148, 149, 149}, {174, 179, 183, 187, 191, 195, 198, 198}},
+        {{12, 15, 17, 18, 20, 22, 23, 24}, {56, 60, 62, 64, 67, 69, 71, 73},
+         {107, 111, 114, 117, 120, 122, 125, 128}, {163, 165, 168, 170, 172, 173, 175, 177}},
+        {
+            1, 1, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2,
+            2, 3, 2, 3, 2, 2, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 2, 1, 1, 2, 1,
+            2, 1, 2, 2, 1, 2, 1, 2, 2, 1, 2, 1, 2, 2, 1, 2, 2, 2, 1, 2, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1,
+            1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1,
+            1, 2, 1, 0, 1, 0, 1, 1, 2, 1, 1, 2, 1, 2, 1, 1, 2, 1, 2, 1, 1, 2, 1, 2, 1, 2, 1, 2, 1, 1, 2, 1, 2, 1, 2, 1,
+            2, 1, 2, 1, 2, 2, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 1, 2, 0
+        }
+    };
+}
+
+template <int N>
+struct erf_float_imp
+{
+    static constexpr erf_float_mant_t<N> mant {erf_float_mant_for(std::integral_constant<int, N> {})};
+    static constexpr erf_float_table_t<N> t {erf_float_table_for(std::integral_constant<int, N> {})};
+};
+
+#if !(defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L) && (!defined(_MSC_VER) || _MSC_VER != 1900)
+
+template <int N>
+constexpr erf_float_mant_t<N> erf_float_imp<N>::mant;
+
+template <int N>
+constexpr erf_float_table_t<N> erf_float_imp<N>::t;
+
+#endif
+
+// The high half of a b, in two words without the low product and so below the floor by at most 1
+constexpr auto erf_mul_high(const std::uint64_t a, const std::uint64_t b) noexcept -> std::uint64_t
+{
+    std::uint64_t hi {};
+    boost::int128::detail::umul(a, b, hi);
+    return hi;
+}
+
+constexpr auto erf_mul_high(const boost::int128::uint128_t& a, const boost::int128::uint128_t& b) noexcept -> boost::int128::uint128_t
+{
+    const boost::int128::uint128_t lh {boost::int128::uint128_t {a.low} * b.high};
+    const boost::int128::uint128_t hl {boost::int128::uint128_t {a.high} * b.low};
+    const boost::int128::uint128_t mid {boost::int128::uint128_t {lh.low} + boost::int128::uint128_t {hl.low}};
+    return boost::int128::uint128_t {a.high} * b.high + boost::int128::uint128_t {lh.high} + boost::int128::uint128_t {hl.high} + boost::int128::uint128_t {mid.high};
+}
+
+// The top word of m, and the mantissa in N - 1 words with the top word m
+constexpr auto erf_top(const std::uint64_t m) noexcept -> std::uint64_t { return m; }
+constexpr auto erf_top(const boost::int128::uint128_t& m) noexcept -> std::uint64_t { return m.high; }
+
+template <int N>
+constexpr auto erf_widen(const std::uint64_t m) noexcept -> erf_mant_t<N>
+{
+    return static_cast<erf_mant_t<N>>(boost::int128::uint128_t {m, 0U} >> (N == 2 ? 64 : 0));
+}
+
+// The mantissa m in the words of s
+constexpr auto erf_as(const std::uint64_t m, std::uint64_t) noexcept -> std::uint64_t { return m; }
+constexpr auto erf_as(const boost::int128::uint128_t& m, std::uint64_t) noexcept -> std::uint64_t { return m.high; }
+constexpr auto erf_as(const boost::int128::uint128_t& m, const boost::int128::uint128_t&) noexcept -> boost::int128::uint128_t { return m; }
+
+// From s = s_hi to s_lo, with u and w = u^2 times 2^(64W - 1) in the W words of s: s_k = c_k -+ u c_(k+1) + w s_(k+2),
+// and first s_k = c_k -+ u s_(k+1) where hi - lo is odd, so that the two products of a step do not wait on each other
+template <int N, typename M>
+constexpr auto erf_run(int k, const int lo, M s, const M& u, const M& w, const bool above) noexcept -> M
+{
+    const auto& t {erf_float_imp<N>::t};
+    const auto& m {erf_float_imp<N>::mant.m};
+    if (((k - lo) & 1) != 0)
+    {
+        --k;
+        const auto p {static_cast<M>(erf_mul_high(u, s) >> t.shift[k])};
+        s = above ? erf_as(m[k], s) - p : erf_as(m[k], s) + p;
+    }
+    while (k > lo)
+    {
+        k -= 2;
+        const auto p1 {static_cast<M>(erf_mul_high(u, erf_as(m[k + 1], s)) >> t.shift[k])};
+        const auto p2 {static_cast<M>(erf_mul_high(w, s) >> (t.shift[k] + t.shift[k + 1] + 1U))};
+        s = above ? erf_as(m[k], s) - p1 + p2 : erf_as(m[k], s) + p1 + p2;
+    }
+    return s;
+}
+
+// g(x) for 1 <= x < 10 or 12 in N - 1 words by Horner's rule on the table of N words, each sum at the scale of its
+// coefficient: g is below 4.25 units of 2^-62 or 8.34 units of 2^-126 off, from the steps, the tail and u
+template <int N>
+constexpr auto erf_g_float(const std::uint64_t whole, const fx<2>& frac, int& l) noexcept -> erf_mant_t<N>
+{
+    const unsigned i {whole < 2U ? 0U : whole < 4U ? 1U : whole < 8U ? 2U : 3U};
+    const auto iv {erf_interval_of(N, i)};
+    bool above {};
+    const auto u2 {static_cast<erf_mant_t<N>>(erf_mant(fx_top<N - 1>(erf_g_arg(whole, frac, iv, above))) << 1U)};
+    const auto& t {erf_float_imp<N>::t};
+    const auto u1 {erf_top(u2)};
+    const auto w2 {static_cast<erf_mant_t<N>>(erf_mul_high(u2, u2) << 1U)};
+    const auto w1 {erf_top(w2)};
+    // |u| <= 1, and |u| = 1 at the left end of an interval takes the row of |u| < 1
+    const auto j {static_cast<std::size_t>((u1 - (u1 >> 63U)) >> 60U)};
+    const int last {t.last[i][j]};
+    const auto s1 {erf_run<N>(last, t.split[i][j], erf_top(erf_float_imp<N>::mant.m[last]), u1, w1, above)};
+    l = t.l[i];
+    return erf_run<N>(t.split[i][j], iv.first, erf_widen<N>(s1), u2, w2, above);
+}
+
+// g(x) for x >= 10 or 12 in N - 1 words: 1 / x = r 2^-s with r = 1 / d for x = d 2^s, the series S in v = 1 / (2x^2) by
+// Horner's rule from term 9 + 80 / whole or 9 + 384 / whole, one word above 6 + 120 / whole, and g = S r (2 / sqrt(pi))
+// 2^-(s + 1), below 10 units of 2^-62 or 43.2 units of 2^-126 off
+template <int N>
+constexpr auto erf_g_asymptotic_float(const std::uint64_t whole, const fx<2>& frac, int& l) noexcept -> erf_mant_t<N>
+{
+    const auto s {static_cast<unsigned>(63 - countl_zero(whole))};
+    auto d {fx_shr(frac, s)};
+    d.w[1] += whole << (62U - s);
+    const auto dt {fx_top<N - 1>(d)};
+    auto r {fx_recip(dt)};
+    BOOST_DECIMAL_IF_CONSTEXPR (N == 3)
+    {
+        r = fx_mul(r, fx_sub(fx_int<N - 1>(2U), fx_mul(dt, r)));
+    }
+    const auto v {fx_shr(fx_mul(r, r), 2U * s + 1U)};
+    const auto v1 {fx_top<1>(v)};
+    auto t1 {fx_one<1>()};
+    std::uint64_t k {9U + (N == 2 ? 80U : 384U) / whole};
+    const std::uint64_t k2 {N == 2 ? 0U : 6U + 120U / whole};
+    while (k-- > k2)
+    {
+        t1 = fx_sub(fx_one<1>(), fx_mul(fx_mul_small(v1, 2U * k + 1U), t1));
+    }
+    auto t {fx_extend<N - 1>(t1)};
+    for (++k; k-- > 0U;)
+    {
+        t = fx_sub(fx_one<N - 1>(), fx_mul(fx_mul_small(v, 2U * k + 1U), t));
+    }
+    const auto g {fx_mul(fx_mul(t, r), fx_shl(fx_top<N - 1>(fx_table::inv_sqrt_pi), 1U))};
+    l = static_cast<int>(s) + 1;
+    return erf_mant(g);
+}
+
+// g(x) for x >= 8, 10 or 16 in one, two or three words by the asymptotic series 1 / (x sqrt(pi)) * sum (-1)^n
+// (2n - 1)!! / (2x^2)^n, where the first term left out is below 2^-(64N - 2)
+template <int N>
+constexpr auto erf_g_asymptotic(const std::uint64_t whole, const fx<N>& frac) noexcept -> fx<N>
+{
+    // 1 / x = 1 / d / 2^s with x = d * 2^s and d in [1, 2)
+    const auto s {static_cast<unsigned>(63 - countl_zero(whole))};
+    auto d {fx_shr(frac, s)};
+    d.w[N - 1] += whole << (62U - s);
+    const auto inv_x {fx_shr(fx_recip(d), s)};
+    const auto v {fx_shr(fx_mul(inv_x, inv_x), 1U)};
+
+    // The sum stops where a term is below 4 units of the last bit; 200 terms bound the loop
+    auto term {fx_one<N>()};
+    auto pos {term};
+    fx<N> neg {};
+    for (std::uint64_t n {1U}; n < 200U; ++n)
+    {
+        const auto t {fx_mul(term, v)};
+        term = fx_mul_small(t, 2U * n - 1U);
+        bool small {term.w[0] < 4U};
+        for (int i {1}; i < N; ++i)
+        {
+            small = small && term.w[i] == 0U;
+        }
+        if (small)
+        {
+            break;
+        }
+        if ((n & 1U) != 0U)
+        {
+            neg = fx_add(neg, term);
+        }
+        else
+        {
+            pos = fx_add(pos, term);
+        }
+    }
+    return fx_mul(fx_mul(fx_sub(pos, neg), inv_x), fx_top<N>(fx_table::inv_sqrt_pi));
+}
+
+// erf(x), or erfc(x) with complement, as digits * 10^exp10 for 0 < |x| < 1: erf(x) = x * s(x^2) by the Taylor series
+// keeps all digits, and erfc(x) = 1 - erf(x)
+template <typename T, int N>
+constexpr auto erf_small_x(const boost::int128::uint128_t& sig, const int e, const bool complement, const bool neg) noexcept -> exp_detail::exp_digits<N>
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int scale10 {fx_scale10(N)};
+    using digits_type = fx_digits_t<N>;
+    const auto unit {pow10(static_cast<boost::int128::uint128_t>(scale10))};
+
+    const auto ax {fx_from_decimal<N>(sig, -e)};
+    const auto s {erf_series(fx_mul(ax, ax))};
+    if (!complement)
+    {
+        // m has scale10 + 1 digits where s < 1, else scale10, and one more where m * s has a digit fewer
+        int len {s.w[N - 1] >= (UINT64_C(1) << 62U) ? scale10 : scale10 + 1};
+        const auto m {sig * pow10(static_cast<boost::int128::uint128_t>(len - p))};
+        auto d {fx_scale(m, s)};
+        if (d < unit)
+        {
+            ++len;
+            d = fx_scale(m * 10U, s);
+        }
+        return {static_cast<digits_type>(d), e - (len - p), exp_detail::exp_kind::digits};
+    }
+    const auto er {fx_mul(ax, s)};
+    if (neg)
+    {
+        return {static_cast<digits_type>(fx_scale(unit * 2U, fx_shr(fx_add(fx_one<N>(), er), 1U))), -scale10, exp_detail::exp_kind::digits};
+    }
+    return {static_cast<digits_type>(fx_scale(unit * 10U, fx_sub(fx_one<N>(), er))), -scale10 - 1, exp_detail::exp_kind::digits};
+}
+
+// x^2 = whole^2 + 2 whole frac + frac^2, and exp(-x^2) = 10^(-n - 1) * 10^(1 - f) for x^2 log10(e) = n + f
+template <int N>
+constexpr auto erf_square_log10(const std::uint64_t whole, const fx<N>& frac) noexcept -> exp_detail::exp_parts<N>
+{
+    std::uint64_t sq[static_cast<std::size_t>(N + 1)] {};
+    const auto carry {fx_mul_add(fx_make_span<N>(sq), fx_make_span(frac.w), 2U * whole)};
+    sq[N] = carry;
+    const auto f2 {fx_mul(frac, frac)};
+    sq[N] += fx_add_to(fx_make_span<N>(sq), fx_make_span(f2.w));
+    return exp_detail::exp_log10(whole * whole + ((sq[N] << 2U) | (sq[N - 1] >> 62U)), fx_frac<N>(sq), fx_table::log10_e);
+}
+
+// For decimal64_t and x >= 1, erfc(x) in one word with n + f from two words, rounded once in out away from a rounding
+// boundary: 10^(1 - f) = 2^a m is below 8.8 units of 2^-62 off, so with g and q below 17 for x < 10, else 23
+template <typename T>
+constexpr auto erfc_above_one_try(const boost::int128::uint128_t& sig, const int k, const std::uint64_t whole, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+
+    const auto frac {exp_detail::exp_frac<2>(sig, k, whole)};
+    const auto y {erf_square_log10(whole, frac)};
+    const auto r10 {exp_detail::exp10_frac<1>(fx_top<1>(fx_sub(fx_one<2>(), y.f)))};
+    int gl {};
+    const auto gm {whole < 10U ? erf_g_float<2>(whole, frac, gl) : erf_g_asymptotic_float<2>(whole, frac, gl)};
+
+    // erfc(x) = q 2^-(61 + l - a) 10^(-n - 1) with q = m g / 2^63, and d its digits times 10^19, or 10^20 below 10^18
+    const auto q {((static_cast<sig_type>(r10.m.w[0]) * gm) >> 63U).low};
+    const auto t {static_cast<sig_type>(q) * pow10(static_cast<sig_type>(19))};
+    const auto sh {static_cast<unsigned>(61 + gl) - r10.a};
+    int e10 {-y.exp10 - 20};
+    auto d {t >> sh};
+    if (d < pow10(static_cast<sig_type>(18)))
+    {
+        d = ((t >> 4U) * 10U) >> (sh - 4U);
+        --e10;
+    }
+    auto w {((d * (whole < 10U ? 17U : 23U)) >> 62U).low + 2U};
+    if (d >= pow10(static_cast<sig_type>(19)))
+    {
+        d /= 10U;
+        ++e10;
+        w = w / 10U + 2U;
+    }
+    return fx_try_round(d.low, e10, false, w, out);
+}
+
+// For decimal128_t and x >= 1, the digits D of erfc(x) in two words with n + f from three words: m g / 2^252 =
+// q 2^(2 - lz) with q in [2, 4), and D = q C with C = 10^P 2^e in (2^126 / 10, 2^126]
+constexpr auto erfc_above_one_digits2(const boost::int128::uint128_t& sig, const int k, const std::uint64_t whole) noexcept -> exp_detail::exp_digits<3>
+{
+    using sig_type = boost::int128::uint128_t;
+
+    const auto frac3 {exp_detail::exp_frac<3>(sig, k, whole)};
+    const auto y {erf_square_log10(whole, frac3)};
+    const auto r10 {exp_detail::exp10_frac<2, true>(fx_top<2>(fx_sub(fx_one<3>(), y.f)))};
+    const auto frac {fx_top<2>(frac3)};
+    int gl {};
+    const auto gm {whole < 12U ? erf_g_float<3>(whole, frac, gl) : erf_g_asymptotic_float<3>(whole, frac, gl)};
+    const auto pr {umul256(erf_mant(r10.m), gm)};
+    const auto lz {static_cast<unsigned>(countl_zero(pr[3]))};
+    const fx<2> q {{(pr[2] << lz) | (pr[1] >> (64U - lz)), (pr[3] << lz) | (pr[2] >> (64U - lz))}};
+    const int e {2 - static_cast<int>(lz) + static_cast<int>(r10.a) - gl};
+    const int p {((126 - e) * 78913) >> 18};
+    const auto c {e < 0 ? (pow10(static_cast<sig_type>(p - 3)) >> -e) * 1000U : pow10(static_cast<sig_type>(p)) << e};
+    return {fx_scale(c, q), -y.exp10 - 1 - p, exp_detail::exp_kind::digits};
+}
+
+// g in N words, and for the first try of decimal128_t from its floating g, below 8.34 units of 2^-126 off relative
+// and 1 more unit off
+template <int N>
+constexpr auto erf_g_fixed(const std::uint64_t whole, const fx<N>& frac, std::false_type) noexcept -> fx<N>
+{
+    // The end of the last interval of erf_interval_of, where g becomes asymptotic
+    constexpr std::uint64_t asymptotic {N == 1 ? 8U : N == 2 ? 10U : 16U};
+    return whole < asymptotic ? erf_g_table(whole, frac) : erf_g_asymptotic(whole, frac);
+}
+
+constexpr auto erf_g_fixed(const std::uint64_t whole, const fx<2>& frac, std::true_type) noexcept -> fx<2>
+{
+    int gl {};
+    const auto m {erf_g_float<3>(whole, frac, gl) >> gl};
+    return fx<2> {{m.low, m.high}};
+}
+
+// erf(x), or erfc(x) with complement, in N words for |x| = whole + frac >= 1: erfc(|x|) = exp(-x^2) * g(|x|), erf(x) =
+// 1 - erfc(x) and erfc(-|x|) = 2 - erfc(|x|). Kind below_one where erfc(|x|) cannot change the rounding of 1 or 2.
+template <typename T, int N>
+constexpr auto erf_above_one(const boost::int128::uint128_t& sig, const int k, const std::uint64_t whole, const bool complement, const bool neg) noexcept -> exp_detail::exp_digits<N>
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int scale10 {fx_scale10(N)};
+    using digits_type = fx_digits_t<N>;
+    const auto unit {pow10(static_cast<boost::int128::uint128_t>(scale10))};
+    const auto frac {exp_detail::exp_frac<N>(sig, k, whole)};
+    const auto y {erf_square_log10(whole, frac)};
+    int exp10 {-y.exp10 - 1};
+    // A first try in two words for decimal128_t takes the precise series of exp(-z), with an error below 2^-124
+    const auto r10 {exp_detail::exp10_frac<N, (N == 2 && fx_words(p) == 3)>(fx_sub(fx_one<N>(), y.f))};
+    const auto g {erf_g_fixed(whole, frac, std::integral_constant<bool, N == 2 && fx_words(p) == 3> {})};
+
+    // erfc(|x|) = 16 h * 10^exp10 with h in [1/16, 10/16)
+    const auto mg {fx_mul(r10.m, g)};
+    auto h {fx_shr(mg, 4U - r10.a)};
+    while (h.w[N - 1] < (UINT64_C(1) << 58U))
+    {
+        h = fx_mul_small(h, 10U);
+        --exp10;
+    }
+    if (complement && !neg)
+    {
+        return {static_cast<digits_type>(fx_scale(unit * 16U, h)), exp10 - scale10, exp_detail::exp_kind::digits};
+    }
+
+    // erfc(|x|) in fixed point. Below 10^-(p + 1) it cannot change the rounding of 1 or 2.
+    if (exp10 < -(p + 1))
+    {
+        return {0U, 0, exp_detail::exp_kind::below_one};
+    }
+    // erfc(|x|) = 2^a m g * 10^(-y.exp10 - 1) in units of 10^-scale10, or of 10^-(scale10 + 1) for erf(x). It is not
+    // an integer, so the floor of 2 - erfc or 1 - erfc is 1 below the difference with the floor of erfc.
+    const int s {complement ? scale10 - 1 - y.exp10 : scale10 - y.exp10};
+    const auto c {static_cast<digits_type>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(s)) << r10.a, mg))};
+    if (complement)
+    {
+        return {static_cast<digits_type>(unit * 2U) - c - 1U, -scale10, exp_detail::exp_kind::digits};
+    }
+    return {static_cast<digits_type>(unit * 10U) - c - 1U, -scale10 - 1, exp_detail::exp_kind::digits};
+}
+
+// A value in (2 - 10^-scale10, 2), rounded once in the current mode
+template <typename T, typename digits_type>
+constexpr auto just_below_two(const int scale10) noexcept -> T
+{
+    return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10)) * 2U - 1U), -scale10, false);
+}
+
+// erf(x), or erfc(x) with complement, for a finite x != 0, rounded once in the current mode. For |x| >= 1, erfc(|x|) =
+// exp(-x^2) * g(|x|), and erf(x) = 1 - erfc(x) and erfc(-|x|) = 2 - erfc(|x|) in fixed point.
+template <typename T>
+constexpr auto erf_fixed(const T x, const bool complement) noexcept -> T
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int words {fx_words(p)};
+    constexpr int scale10 {fx_scale10(words)};
+    using digits_type = fx_digits_t<words>;
+
+    int e {};
+    const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
+    const bool neg {signbit(x)};
+    const int k {-e};
+    const auto unit {pow10(static_cast<boost::int128::uint128_t>(scale10))};
+
+    if (k >= p)
+    {
+        // For |x| < 10^-(p + 1), erfc(x) rounds as a value next to 1
+        if (complement && k - p >= p + 1)
+        {
+            return neg ? fx_round<T>(static_cast<digits_type>(unit), -scale10, false) : exp_detail::just_below_one<T, digits_type>(scale10, false);
+        }
+        BOOST_DECIMAL_IF_CONSTEXPR (words == 2)
+        {
+            // One word: the sum is below 22, 3.5 or 5.6 units of 2^-62 off for x < 1, 0.7 or 0.86, so d1 * 2^-57, 2^-60
+            // or 2^-59 + 2 units of d1 for erf(x), and 54, 11 or 15 units for erfc(x) with x > 0, or 8 with x < 0
+            const auto r1 {erf_small_x<T, 1>(sig, e, complement, neg)};
+            const auto tenth {pow10(static_cast<boost::int128::uint128_t>(p - 1))};
+            const bool below_07 {k > p || sig < tenth * 7U};
+            const bool below_086 {below_07 || sig * 10U < tenth * 86U};
+            const auto w {complement ? (neg ? 8U : below_07 ? 11U : below_086 ? 15U : 54U) : (r1.digits >> (below_07 ? 60U : below_086 ? 59U : 57U)) + 2U};
+            T r {};
+            if (fx_try_round(r1.digits, r1.exp10, !complement && neg, w, r))
+            {
+                return r;
+            }
+        }
+        BOOST_DECIMAL_IF_CONSTEXPR (words == 3)
+        {
+            // A first try in two words: the error of the sum is below 210 units of 2^-126, so below d2 * 2^-118 + 2
+            // units of d2 for erf(x), and 250 units for erfc(x)
+            const auto r2 {erf_small_x<T, 2>(sig, e, complement, neg)};
+            if (!fx_near_boundary(r2.digits, complement ? 250U : static_cast<std::uint64_t>(r2.digits >> 118U) + 2U))
+            {
+                return fx_round<T>(r2.digits, r2.exp10, !complement && neg);
+            }
+        }
+        const auto r {erf_small_x<T, words>(sig, e, complement, neg)};
+        return fx_round<T>(r.digits, r.exp10, !complement && neg);
+    }
+
+    // Above these bounds, erfc(x) is below half of the smallest subnormal value, and erf(x) rounds as a value next to 1
+    const auto wide_whole {exp_detail::exp_whole(sig, k)};
+    constexpr std::uint64_t tiny_bound {words == 1 ? 16U : words == 2 ? 31U : 120U};
+    constexpr std::uint64_t one_bound {words == 1 ? 7U : 10U};
+    if (wide_whole >= (complement && !neg ? tiny_bound : one_bound))
+    {
+        if (!complement)
+        {
+            return exp_detail::just_below_one<T, digits_type>(scale10, neg);
+        }
+        return neg ? just_below_two<T, digits_type>(scale10) : T {1U, -2 * std::numeric_limits<T>::max_exponent10};
+    }
+    const auto whole {static_cast<std::uint64_t>(wide_whole)};
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 2)
+    {
+        // For erf(x) and erfc(-|x|), a first try in one word: the digits c of erfc(|x|) are below c * 104 / 2^62 + 4
+        // units off. Where it is too small in one word, it is below 10^-(p + 1) * (1 + 2^-50).
+        if (!complement || neg)
+        {
+            const auto r1 {erf_above_one<T, 1>(sig, k, whole, complement, neg)};
+            if (r1.kind != exp_detail::exp_kind::digits)
+            {
+                return complement ? just_below_two<T, digits_type>(scale10) : exp_detail::just_below_one<T, digits_type>(scale10, neg);
+            }
+            T r {};
+            const auto c {(complement ? UINT64_C(2000000000000000000) : UINT64_C(10000000000000000000)) - r1.digits};
+            if (fx_try_round(r1.digits, r1.exp10, !complement && neg, ((static_cast<boost::int128::uint128_t>(c) * 104U) >> 62U).low + 4U, r))
+            {
+                return r;
+            }
+        }
+        else
+        {
+            T r {};
+            if (erfc_above_one_try(sig, k, whole, r))
+            {
+                return r;
+            }
+        }
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 3)
+    {
+        // The same in two words: the error of erfc(|x|) is below 6.7 units of 2^-126, so below 10 or 3 units of d2
+        if (!complement || neg)
+        {
+            const auto r2 {erf_above_one<T, 2>(sig, k, whole, complement, neg)};
+            if (r2.kind != exp_detail::exp_kind::digits)
+            {
+                return complement ? just_below_two<T, digits_type>(scale10) : exp_detail::just_below_one<T, digits_type>(scale10, neg);
+            }
+            if (!fx_near_boundary(r2.digits, complement ? 3U : 10U))
+            {
+                return fx_round<T>(r2.digits, r2.exp10, !complement && neg);
+            }
+        }
+        else
+        {
+            // For erfc(x), D is below 32 or 67 units of 2^-126 off for x < 12 or above, and the result is not subnormal
+            const auto r2 {erfc_above_one_digits2(sig, k, whole)};
+            const std::uint64_t err {whole < 12U ? 32U : 67U};
+            if (r2.exp10 + 36 >= std::numeric_limits<T>::min_exponent10 - 1 && !fx_near_boundary(r2.digits, static_cast<std::uint64_t>(((r2.digits >> 64U) * err) >> 62U) + 2U))
+            {
+                return fx_round<T>(r2.digits, r2.exp10, false);
+            }
+        }
+    }
+    const auto r {erf_above_one<T, words>(sig, k, whole, complement, neg)};
+    if (r.kind != exp_detail::exp_kind::digits)
+    {
+        return complement ? just_below_two<T, digits_type>(scale10) : exp_detail::just_below_one<T, digits_type>(scale10, neg);
+    }
+    return fx_round<T>(r.digits, r.exp10, !complement && neg);
+}
+
+} // namespace erf_detail
 
 template <typename T>
 constexpr auto erf_impl(const T z) noexcept
@@ -764,7 +987,7 @@ constexpr auto erf_impl(const T z) noexcept
 
     if (fp == FP_ZERO || fp == FP_NAN)
     {
-        return z;
+        return issignaling(z) ? nan_conversion(z) : z;
     }
     #ifndef BOOST_DECIMAL_FAST_MATH
     else if (fp == FP_INFINITE)
@@ -773,7 +996,7 @@ constexpr auto erf_impl(const T z) noexcept
     }
     #endif
 
-    return detail::erf_calc_impl(z, false);
+    return erf_detail::erf_fixed(z, false);
 }
 
 template <typename T>
@@ -785,7 +1008,11 @@ constexpr auto erfc_impl(const T z) noexcept
 
     if (fp == FP_NAN)
     {
-        return z;
+        return detail::check_non_finite(z);
+    }
+    else if (fp == FP_ZERO)
+    {
+        return T{1};
     }
     #ifndef BOOST_DECIMAL_FAST_MATH
     else if (fp == FP_INFINITE)
@@ -794,7 +1021,7 @@ constexpr auto erfc_impl(const T z) noexcept
     }
     #endif
 
-    return detail::erf_calc_impl(z, true);
+    return erf_detail::erf_fixed(z, true);
 }
 
 } //namespace detail
