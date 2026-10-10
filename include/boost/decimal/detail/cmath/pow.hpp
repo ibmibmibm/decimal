@@ -7,19 +7,634 @@
 #define BOOST_DECIMAL_DETAIL_CMATH_POW_HPP
 
 #include <boost/decimal/fwd.hpp> // NOLINT(llvm-include-order)
-#include <boost/decimal/detail/cmath/impl/pow_impl.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/remove_trailing_zeros.hpp>
+#include <boost/decimal/detail/cmath/log.hpp>
+#include <boost/decimal/detail/cmath/impl/exp_impl.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <type_traits>
 #endif
 
 namespace boost {
 namespace decimal {
+
+namespace detail {
+
+namespace pow_detail {
+
+// s^n in r, or false where it does not fit in 128 bits
+constexpr auto pow_power(const boost::int128::uint128_t& s, unsigned n, boost::int128::uint128_t& r) noexcept -> bool
+{
+    r = 1U;
+    // With s < 2^b and bn <= 128 no step overflows, which saves the division
+    constexpr auto full {(std::numeric_limits<boost::int128::uint128_t>::max)()};
+    const auto limit {static_cast<unsigned>(128 - boost::int128::countl_zero(s)) * n <= 128U ? full : full / s};
+    while (n-- > 0U)
+    {
+        if (r > limit)
+        {
+            return false;
+        }
+        r *= s;
+    }
+    return true;
+}
+
+// An exact power sig * 10^exp, where ok
+struct pow_exact_value
+{
+    boost::int128::uint128_t sig;
+    int exp;
+    bool ok;
+};
+
+// x^n or x^-n for x = s * 10^ex with s not a multiple of 10, where it is exact in 128 bits. s^-n is a finite decimal
+// only for s = 2^i or 5^j, as 5^(in) * 10^(-in) or 2^(jn) * 10^(-jn), and s^n of more than 38 digits is not exact.
+constexpr auto pow_exact(boost::int128::uint128_t s, const int ex, unsigned n, const bool neg_n) noexcept -> pow_exact_value
+{
+    int scale {ex * static_cast<int>(n)};
+    if (neg_n)
+    {
+        scale = -scale;
+        const int i {boost::int128::countr_zero(s)};
+        unsigned j {};
+        if ((s >> static_cast<unsigned>(i)) == 1U)
+        {
+            j = static_cast<unsigned>(i);
+            s = 5U;
+        }
+        else
+        {
+            while (s % 5U == 0U)
+            {
+                s /= 5U;
+                ++j;
+            }
+            if (s != 1U)
+            {
+                return {};
+            }
+            s = 2U;
+        }
+        if (j * n >= 128U)
+        {
+            return {};
+        }
+        n *= j;
+        scale -= static_cast<int>(n);
+    }
+    boost::int128::uint128_t v {};
+    if (n >= 128U || !pow_power(s, n, v))
+    {
+        return {};
+    }
+    return {v, scale, true};
+}
+
+// x^y where it is exact, for x = sx * 10^ex with sx > 1 and y = m / d in lowest terms with d = 2^a * 5^b > 1:
+// x^m = (x^y)^d needs sx = q^d with d dividing ex, and then x^y = q^m * 10^(ex m / d).
+constexpr auto pow_exact_root(const boost::int128::uint128_t& sx, const int ex, const boost::int128::uint128_t& sy, const int ey, const bool neg_y) noexcept -> pow_exact_value
+{
+    const auto k {static_cast<unsigned>(-ey)};
+    const auto a {k - (std::min)(k, static_cast<unsigned>(boost::int128::countr_zero(sy)))};
+    unsigned fives {};
+    auto t {sy};
+    while (fives < k && t % 5U == 0U)
+    {
+        t /= 5U;
+        ++fives;
+    }
+    const unsigned b {k - fives};
+    const auto bits {static_cast<unsigned>(128 - countl_zero(sx))};
+    if (a >= 7U || b >= 3U)
+    {
+        return {};
+    }
+    const unsigned d {(1U << a) * (b == 0U ? 1U : b == 1U ? 5U : 25U)};
+    if (d >= bits || ex % static_cast<int>(d) != 0)
+    {
+        return {};
+    }
+
+    // q = floor(sx^(1/d)) by bisection, with q^d < 2^bits
+    boost::int128::uint128_t lo {1U};
+    boost::int128::uint128_t hi {boost::int128::uint128_t {1U} << ((bits + d - 1U) / d)};
+    while (hi - lo > 1U)
+    {
+        const auto mid {(lo + hi) / 2U};
+        boost::int128::uint128_t v {};
+        if (!pow_power(mid, d, v) || v > sx)
+        {
+            hi = mid;
+        }
+        else
+        {
+            lo = mid;
+        }
+    }
+    boost::int128::uint128_t v {};
+    pow_power(lo, d, v);
+    const auto m {sy / (pow10(static_cast<boost::int128::uint128_t>(k)) / d)};
+    if (v != sx || m >= 128U)
+    {
+        return {};
+    }
+    return pow_exact(lo, ex / static_cast<int>(d), static_cast<unsigned>(m), neg_y);
+}
+
+// |log10(x)| * 10^-k in N + 1 words as fx_wide, and the sign of log10(x)
+template <int N>
+struct pow_log
+{
+    fx_wide<N> v;
+    int k;
+    bool neg;
+};
+
+// log10(x) for x = sig * 10^e != 1 with p digits. Near 1, w = x - 1 = m * 10^k is exact with m in [0.1, 1), and
+// log10(1 + w) = w * ln(1 + w) / w * log10(e) with the ratio from log_ratio keeps all digits. Else |log10(x)| > 0.0016.
+template <int N>
+constexpr auto pow_log10(const boost::int128::uint128_t& sig, const int e, const int p) noexcept -> pow_log<N>
+{
+    if (e == -p || e == 1 - p)
+    {
+        const auto one {pow10(static_cast<boost::int128::uint128_t>(-e))};
+        const bool below {sig < one};
+        const auto d {below ? one - sig : sig - one};
+        if (decimal_tiny(d, e))
+        {
+            const auto g {log_detail::log_ratio(fx_from_decimal<N>(d, -e), below)};
+            const int nd {num_digits(d)};
+            return {fx_widen(fx_mul(fx_from_decimal<N>(d, nd), fx_mul(g, fx_top<N>(fx_table::log10_e)))), e + nd, below};
+        }
+    }
+    auto r {log_detail::log_wide_of<N>(sig, p, e, log_detail::log_base::ten)};
+    bool neg {};
+    r = fx_wide_abs(r, neg);
+    return {r, 0, neg};
+}
+
+// Whether digits with an error below 8, 10^12 or 10^9 units for three, two or one words can round another way
+// than the exact value: the digits below the p + 1 kept ones are near ...0 or ...5, as for an exact value.
+template <int words, typename digits_type>
+constexpr auto pow_near_boundary(const digits_type& sig, const int p) noexcept -> bool
+{
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 3)
+    {
+        return fx_near_boundary(sig);
+    }
+    constexpr int scale10 {fx_scale10(words)};
+    const int len {sig >= pow10(static_cast<digits_type>(scale10)) ? scale10 + 1 : scale10};
+    const auto m {pow10(static_cast<digits_type>(len - p - 1)) * 5U};
+    const auto r {sig % m};
+    const auto w {pow10(static_cast<digits_type>(words == 1 ? 9 : 12))};
+    return r < w || r > m - w;
+}
+
+// x^y for x = 1 + w next to 1 and a small t = y ln(1 + w), rounded once in out: 1 + expm1(t), where the rest past 1 takes
+// its own precision as |t| = T * 10^-a with T = |y| / 10^a1 * |w| / 10^a2 * ln(1 + w) / w
+template <typename T, int N>
+constexpr auto pow_near_one(const boost::int128::uint128_t& sig, const int e, const boost::int128::uint128_t& sy, const int ey,
+                            const bool neg_y, const bool neg, T& out) noexcept -> bool
+{
+    const int k {-e};
+    if (k <= 0 || k >= 39)
+    {
+        return false;
+    }
+    const auto one {pow10(static_cast<boost::int128::uint128_t>(k))};
+    const bool below {sig < one};
+    const auto sw {below ? one - sig : sig - one};
+    if (sw == 0U || sw >= (one >> 8U))
+    {
+        return false;
+    }
+    int a1 {};
+    int a2 {};
+    const auto ty {fx_lead_t<N>(sy, -ey, a1)};
+    const auto tw {fx_lead_t<N>(sw, k, a2)};
+    const auto big {fx_mul(fx_mul(ty, tw), log_detail::log_ratio(fx_from_decimal<N>(sw, k), below))};
+    const int a {a1 + a2};
+    const auto frac {a < 120 ? fx_mul(big, fx_from_decimal<N>(1U, a)) : fx<N> {}};
+    if (a < 2 || !exp_detail::exp_is_small(0U, frac))
+    {
+        return false;
+    }
+    const bool tneg {below != neg_y};
+    fx<N> s {};
+    static_cast<void>(exp_detail::expm1_rest<N, exp_detail::exp_small_terms(N)>(frac, tneg, s));
+    const auto m {pow10(static_cast<boost::int128::uint128_t>(tneg ? 38 : 37))};
+    out = fx_round<T>(fx_lead_digits(m, fx_mul(big, s), a, tneg), tneg ? -38 : -37, neg);
+    return true;
+}
+
+enum class pow_kind { digits, overflow, underflow, above_one, below_one };
+
+// The result as digits * 10^exp10 with scale10 + 1 digits, or the kind of a result beyond them
+template <int words>
+struct pow_parts
+{
+    fx_digits_t<words> digits;
+    int exp10;
+    pow_kind kind;
+};
+
+// 10^t, or 10^-t with neg, for t >= 0 in words + 1 words with the scale of fx. From whole >= bound the result
+// overflows or underflows, and t below 2^-(64 words - 20) cannot change the rounding of 1.
+template <int words, bool Wide = false>
+constexpr auto pow_exp10(const std::uint64_t (&t)[static_cast<std::size_t>(words + 1)], const bool neg, const std::uint64_t bound) noexcept -> pow_parts<words>
+{
+    constexpr int scale10 {fx_scale10(words)};
+    using digits_type = fx_digits_t<words>;
+
+    const std::uint64_t whole {(t[words] << 2U) | (t[words - 1] >> 62U)};
+    if (whole >= bound)
+    {
+        return {0U, 0, neg ? pow_kind::underflow : pow_kind::overflow};
+    }
+    fx<words> f {};
+    bool tiny {whole == 0U && t[0] < (UINT64_C(1) << 18U)};
+    for (int i {}; i < words; ++i)
+    {
+        f.w[i] = t[i];
+        tiny = tiny && (i == 0 || t[i] == 0U);
+    }
+    f.w[words - 1] &= (UINT64_C(1) << 62U) - 1U;
+    if (tiny)
+    {
+        return {0U, 0, neg ? pow_kind::below_one : pow_kind::above_one};
+    }
+
+    auto exp10 {static_cast<int>(whole)};
+    if (neg)
+    {
+        exp10 = -exp10 - 1;
+        f = fx_sub(fx_one<words>(), f);
+    }
+    const auto r10 {exp_detail::exp10_frac<words, Wide>(f)};
+    return {static_cast<digits_type>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(scale10)) << (r10.a + 1U), fx_shr(r10.m, 1U))),
+            exp10 - scale10, pow_kind::digits};
+}
+
+// |x|^y for x = sig * 10^e with p digits and y = sy * 10^ey in words: 10^(y log10(x)), which overflows or underflows
+// from y log10(x) >= bound
+template <int words>
+constexpr auto pow_digits(const boost::int128::uint128_t& sig, const int e, const int p, const boost::int128::uint128_t& sy, const int ey,
+                          const bool neg_y, const std::uint64_t bound) noexcept -> pow_parts<words>
+{
+    // |y log10(x)| = u * |log10(x)| * 10^k > 10^(k - 4) with u in [0.1, 1). For k < 0 it is below 1, where an error of
+    // 10^k in fixed point is small enough. Below 2^-(64 words - 20), it cannot change the rounding of 1.
+    const auto lg {pow_log10<words>(sig, e, p)};
+    const int nds {num_digits(sy)};
+    auto t {fx_wide_mul(lg.v, fx_from_decimal<words>(sy, nds))};
+    const int k {ey + nds + lg.k};
+    const bool neg_t {neg_y != lg.neg};
+    // From k = 9 on, |y log10(x)| > 10^5 is past the bound of every type
+    if (k >= 9)
+    {
+        return {0U, 0, neg_t ? pow_kind::underflow : pow_kind::overflow};
+    }
+    if (k > 0)
+    {
+        std::uint64_t carry {};
+        for (int i {}; i <= words; ++i)
+        {
+            const auto v {static_cast<boost::int128::uint128_t>(t.w[i]) * pow10(static_cast<std::uint64_t>(k)) + carry};
+            t.w[i] = v.low;
+            carry = v.high;
+        }
+    }
+    else if (k < 0)
+    {
+        t = fx_wide_mul(t, fx_from_decimal<words>(1U, -k));
+    }
+    return pow_exp10<words>(t.w, neg_t, bound);
+}
+
+// remove_trailing_zeros, which takes six products, with a quick return where the last digit is not zero
+template <typename Sig>
+constexpr auto pow_trim(const Sig s) noexcept -> remove_trailing_zeros_return<Sig>
+{
+    if ((s & 1U) != 0U || s % 5U != 0U)
+    {
+        return {s, 0U};
+    }
+    return remove_trailing_zeros(s);
+}
+
+// As 2^64 = 1 (mod 5), s = high + low (mod 5), without the division of uint128_t
+constexpr auto pow_trim(const boost::int128::uint128_t& s) noexcept -> remove_trailing_zeros_return<boost::int128::uint128_t>
+{
+    if ((s.low & 1U) != 0U || (s.high % 5U + s.low % 5U) % 5U != 0U)
+    {
+        return {s, 0U};
+    }
+    return remove_trailing_zeros(s);
+}
+
+// x^y in N words, one for decimal64_t and two for decimal128_t, rounded once in out where it cannot be next to a
+// rounding boundary. ln(x) is below 18 units of 2^(2 - 64N) off (10 from u >= 0.1), log10(x) 18 log10(e) + 6 < 14.
+template <typename T, int N>
+constexpr auto pow_try(const boost::int128::uint128_t& sig, const int e, const boost::int128::uint128_t& sy, const int ey,
+                       const bool neg_y, const bool neg, T& out) noexcept -> bool
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+
+    if (ey >= 0 || ey < -100)
+    {
+        return false;
+    }
+    // Where 14 n + |log10(x)| > 56 (300 in two words), for the integer part n of |y|, the bound below is too wide for
+    // the try to pay
+    constexpr int gate {N == 1 ? 56 : 300};
+    const int ex {e + p};
+    const int ax {ex < 0 ? -ex : ex};
+    if (ax > gate)
+    {
+        return false;
+    }
+    // y = n + f with the fraction f below 1 unit off, and t = n log10(x) + f log10(x)
+    using sig_type = std::conditional_t<N == 1, std::uint64_t, boost::int128::uint128_t>;
+    auto rem {static_cast<sig_type>(sy)};
+    std::uint64_t n {};
+    if (-ey < p)
+    {
+        const auto ten {pow10(static_cast<sig_type>(-ey))};
+        if (rem >= ten * static_cast<unsigned>((gate - ax) / 14 + 1))
+        {
+            return false;
+        }
+        for (unsigned b {N == 1 ? 4U : 16U}; b != 0U; b >>= 1U)
+        {
+            if (rem >= ten * b)
+            {
+                rem -= ten * b;
+                n += b;
+            }
+        }
+    }
+    const auto lg {pow_log10<N>(sig, e, p)};
+    if (lg.k != 0)
+    {
+        return false;
+    }
+    fx_wide<N> t {};
+    std::uint64_t carry {};
+    for (int i {}; i <= N; ++i)
+    {
+        const auto v {static_cast<boost::int128::uint128_t>(lg.v.w[i]) * n + carry};
+        t.w[i] = v.low;
+        carry = v.high;
+    }
+    t = fx_wide_add(t, fx_wide_mul(lg.v, fx_from_decimal<N>(rem, -ey)));
+    const auto r {pow_exp10<N, N == 2>(t.w, neg_y != lg.neg, static_cast<std::uint64_t>(std::numeric_limits<T>::max_exponent10 + p + 1))};
+    if (r.kind != pow_kind::digits)
+    {
+        return false;
+    }
+    // t has an error below 14 (n + 1) + |log10(x)| + 2 units, and 10^t 32 more (46 in two words) and ln(10) times
+    // that of t, below 37 / 16
+    const auto et {14U * (n + 1U) + ((lg.v.w[N] << 2U) | (lg.v.w[N - 1] >> 62U)) + 3U};
+    const auto err {(N == 1 ? 32U : 46U) + ((et * 37U) >> 4U) + 1U};
+    const boost::int128::uint128_t digits {r.digits};
+    BOOST_DECIMAL_IF_CONSTEXPR (N == 1)
+    {
+        return fx_try_round(digits.low, r.exp10, neg, ((digits * err) >> 62U).low + 2U, out);
+    }
+    if (fx_near_boundary(digits, ((static_cast<boost::int128::uint128_t>((digits >> 63U).low + 1U) * err) >> 63U).low + 2U))
+    {
+        return false;
+    }
+    out = fx_round<T>(digits, r.exp10, neg);
+    return true;
+}
+
+// x^y for x = sig * 10^e and y = sy * 10^ey in words, rounded once with the sign neg. One word computes it again in
+// two near a boundary, and two or three words test for an exact value there.
+template <typename T, int words>
+constexpr auto pow_words(const boost::int128::uint128_t& sig, const int e, const boost::int128::uint128_t& sy, const int ey,
+                         const bool neg_y, const bool neg) noexcept -> T
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int scale10 {fx_scale10(words)};
+    using digits_type = fx_digits_t<words>;
+
+    BOOST_DECIMAL_IF_CONSTEXPR (words > 1)
+    {
+        T r {};
+        if (pow_try<T, words == 1 ? 1 : words - 1>(sig, e, sy, ey, neg_y, neg, r))
+        {
+            return r;
+        }
+    }
+    const auto r {pow_digits<words>(sig, e, p, sy, ey, neg_y, static_cast<std::uint64_t>(std::numeric_limits<T>::max_exponent10 + p + 1))};
+    switch (r.kind)
+    {
+        case pow_kind::overflow:
+            return T {1U, 2 * std::numeric_limits<T>::max_exponent10, neg};
+        case pow_kind::underflow:
+            return T {1U, -2 * std::numeric_limits<T>::max_exponent10, neg};
+        case pow_kind::above_one:
+            return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10))), -scale10, neg);
+        case pow_kind::below_one:
+            return exp_detail::below_one<T, digits_type>(scale10, neg);
+        default:
+            break;
+    }
+    if (pow_near_boundary<words>(r.digits, p))
+    {
+        BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+        {
+            return pow_words<T, 2>(sig, e, sy, ey, neg_y, neg);
+        }
+        const auto tx {pow_trim(sig)};
+        const auto exact {ey < 0 ? pow_exact_root(tx.trimmed_number, e + static_cast<int>(tx.number_of_removed_zeros), sy, ey, neg_y) : pow_exact_value {}};
+        if (exact.ok)
+        {
+            return T {exact.sig, exact.exp, neg};
+        }
+        BOOST_DECIMAL_IF_CONSTEXPR (words > 1)
+        {
+            T near_one {};
+            if (pow_near_one<T, words>(sig, e, sy, ey, neg_y, neg, near_one))
+            {
+                return near_one;
+            }
+        }
+    }
+    return fx_round<T>(r.digits, r.exp10, neg);
+}
+
+// t * 10 for t below 0.1, which keeps t near [0.1, 1) as the products of two such values are near [0.01, 1)
+template <int words>
+constexpr auto pow_int_normalize(fx<words>& t, int& s10) noexcept -> void
+{
+    if (t.w[words - 1] < UINT64_C(0x0666666666666666)) // 0.1 * 2^62, rounded down
+    {
+        t = fx_mul_small(t, 10U);
+        ++s10;
+    }
+}
+
+// x^n or x^-n for x = sig * 10^e with p digits and n >= 2 by squaring t = sig * 10^-p in words, rounded once in out
+// where it is not next to a boundary. A step loses below (4 words - 3) 2^(9 - 64 words) of its value, x^n 2n times that.
+template <typename T, int words>
+constexpr auto pow_int_words(const boost::int128::uint128_t& sig, const int e, const unsigned n, const bool neg_n, const bool neg, T& out) noexcept -> bool
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    const auto t {fx_from_decimal<words>(sig, p)};
+    auto r {t};
+    int s10 {};
+    for (int bit {62 - countl_zero(static_cast<std::uint64_t>(n))}; bit >= 0; --bit)
+    {
+        r = fx_mul(r, r);
+        s10 *= 2;
+        pow_int_normalize(r, s10);
+        if (((n >> static_cast<unsigned>(bit)) & 1U) != 0U)
+        {
+            r = fx_mul(r, t);
+            pow_int_normalize(r, s10);
+        }
+    }
+    int q {static_cast<int>(n) * (e + p) - s10};
+    if (neg_n)
+    {
+        // x^-n = 0.01 / r * 10^(2 - q), with u = r * 2^k in [1, 2)
+        constexpr auto hundredth {fx_from_decimal<words>(1U, 2)};
+        unsigned k {};
+        const auto u {fx_normalize(r, k)};
+        r = fx_mul(fx_recip(u), fx_shl(hundredth, k));
+        int s10n {};
+        pow_int_normalize(r, s10n);
+        q = 2 - q - s10n;
+    }
+    // r * 10^19 with 19 digits, or r * 10^38 with 37 or 38 digits for three words
+    const auto d {fx_scale(pow10(static_cast<boost::int128::uint128_t>(words < 3 ? 19 : 38)), r)};
+    if (q <= std::numeric_limits<T>::min_exponent10 || q >= std::numeric_limits<T>::max_exponent10 ||
+        (words < 3 && d < pow10(static_cast<boost::int128::uint128_t>(18))))
+    {
+        return false;
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words < 3)
+    {
+        return fx_try_round(static_cast<std::uint64_t>(d), q - 19, neg, words == 1 ? 600U * n + 64U : 2U, out);
+    }
+    if (fx_near_boundary(d))
+    {
+        return false;
+    }
+    out = fx_round<T>(d, q - 38, neg);
+    return true;
+}
+
+// x^n or x^-n for x = sig * 10^e in out, where it is exact in 128 bits
+template <typename T, typename Sig>
+constexpr auto pow_int_exact(const Sig sig, const int e, const boost::int128::uint128_t& n, const bool neg_n, const bool neg, T& out) noexcept -> bool
+{
+    const auto tx {pow_trim(sig)};
+    const int ex {e + static_cast<int>(tx.number_of_removed_zeros)};
+    const auto exact {n < 128U ? pow_exact(static_cast<boost::int128::uint128_t>(tx.trimmed_number), ex, static_cast<unsigned>(n), neg_n) : pow_exact_value {}};
+    if (exact.ok)
+    {
+        out = T {exact.sig, exact.exp, neg};
+    }
+    return exact.ok;
+}
+
+// x^y for a finite x != 0 and y = sy * 10^ey != 0 with sy not a multiple of 10 and the sign neg_y, rounded once in
+// the current mode
+template <typename T>
+constexpr auto pow_trimmed(const T x, const boost::int128::uint128_t& sy, const int ey, const bool neg_y) noexcept -> T
+{
+    constexpr int p {std::numeric_limits<T>::digits10};
+    constexpr int words {fx_words(p)};
+
+    // A negative x has a real power only for an integer y
+    const bool neg_x {signbit(x)};
+    if (neg_x && ey < 0)
+    {
+        #ifndef BOOST_DECIMAL_FAST_MATH
+        return std::numeric_limits<T>::quiet_NaN();
+        #else
+        return T {0};
+        #endif
+    }
+    const bool neg {neg_x && ey == 0 && (sy & 1U) != 0U};
+
+    // x = sig * 10^e, a power of 10 for sig = 10^(p - 1) with the exponent e10
+    int e {};
+    const auto sig_x {frexp10(x, &e)};
+    const auto sig {static_cast<boost::int128::uint128_t>(sig_x)};
+    const bool power10 {sig == pow10(static_cast<boost::int128::uint128_t>(p - 1))};
+    const int e10 {e + p - 1};
+
+    // |x| = 1 gives 1. An integer y = n gives 10^(e10 n) for a power of 10, and x * x and 1 / x round once. Else
+    // x^n comes from the fixed point away from a boundary, or is exact where it fits in 128 bits.
+    if (power10 && e10 == 0)
+    {
+        return T {1U, 0, neg};
+    }
+    if (ey >= 0)
+    {
+        const auto n {ey < 6 && sy < 100000U ? sy * pow10(static_cast<boost::int128::uint128_t>(ey)) : boost::int128::uint128_t {UINT64_MAX}};
+        if (power10)
+        {
+            // Past 10^5, 4 max_exponent10 is far enough out to overflow or underflow
+            const int scale {n > 100000U ? (e10 < 0 ? -4 : 4) * std::numeric_limits<T>::max_exponent10 : e10 * static_cast<int>(n)};
+            return T {1U, neg_y ? -scale : scale, neg};
+        }
+        if (n == 1U)
+        {
+            return neg_y ? T {1} / x : x;
+        }
+        if (n == 2U && !neg_y)
+        {
+            return x * x;
+        }
+        // The fixed point goes first, but for more words and n > 0 the exact power where it can fit in 128 bits: for x
+        // of d digits without the trailing zeros with (d - 1)n <= 38, and each trailing zero is a zero bit.
+        const bool fast {n < 100000U};
+        const bool exact_first {!fast || (words > 1 && !neg_y && (p - 1 - boost::int128::countr_zero(sig)) * static_cast<int>(n) <= 38)};
+        T r {};
+        if ((exact_first && pow_int_exact(sig_x, e, n, neg_y, neg, r)) || (fast && pow_int_words<T, words>(sig, e, static_cast<unsigned>(n), neg_y, neg, r)) ||
+            (!exact_first && pow_int_exact(sig_x, e, n, neg_y, neg, r)))
+        {
+            return r;
+        }
+    }
+    else if (power10 && ey > -39)
+    {
+        // 10^(ex y) is exact for an integer ex * y
+        const auto prod10 {static_cast<boost::int128::uint128_t>(e10 < 0 ? -e10 : e10) * sy};
+        const auto den {pow10(static_cast<boost::int128::uint128_t>(-ey))};
+        if (prod10 % den == 0U)
+        {
+            const auto n {prod10 / den};
+            const int scale {n > 100000U ? 4 * std::numeric_limits<T>::max_exponent10 : static_cast<int>(n)};
+            return T {1, (e10 < 0) != neg_y ? -scale : scale};
+        }
+    }
+    return pow_words<T, words>(sig, e, sy, ey, neg_y, neg);
+}
+
+// pow_trimmed for y = sig_y * 10^e_y, with the trailing zeros of sig_y removed in its own type
+template <typename T, typename Sig>
+constexpr auto pow_fixed(const T x, const Sig sig_y, const int e_y, const bool neg_y) noexcept -> T
+{
+    const auto ty {pow_trim(sig_y)};
+    return pow_trimmed(x, static_cast<boost::int128::uint128_t>(ty.trimmed_number), e_y + static_cast<int>(ty.number_of_removed_zeros), neg_y);
+}
+
+} // namespace pow_detail
+
+} // namespace detail
 
 BOOST_DECIMAL_EXPORT template <typename T, typename IntegralType>
 constexpr auto pow(const T b, const IntegralType p) noexcept
@@ -85,7 +700,7 @@ constexpr auto pow(const T b, const IntegralType p) noexcept
             result = ((p < static_cast<local_integral_type>(0)) ? zero : std::numeric_limits<T>::infinity());
         }
     }
-    else if (fpc_x != FP_NORMAL)
+    else if (fpc_x == FP_NAN)
     {
         // Excluded from LCOV since it's apparently optimized away or otherwise
         // missing from LCOV. Verified this line is covered in the unit tests.
@@ -93,54 +708,20 @@ constexpr auto pow(const T b, const IntegralType p) noexcept
         result = std::numeric_limits<T>::quiet_NaN(); // LCOV_EXCL_LINE
     }
     #endif
+    else if (p == static_cast<local_integral_type>(2))
+    {
+        // One product rounds once
+        result = b * b;
+    }
     else
     {
         using local_unsigned_integral_type = std::make_unsigned_t<IntegralType>;
 
-        int exp10val { };
+        const auto up {static_cast<local_unsigned_integral_type>(p < static_cast<local_integral_type>(0) ? static_cast<local_unsigned_integral_type>(~p) + 1U : static_cast<local_unsigned_integral_type>(p))};
 
-        const auto bn { frexp10(b, &exp10val) };
+        using magnitude_type = std::conditional_t<(sizeof(IntegralType) > sizeof(std::uint64_t)), boost::int128::uint128_t, std::uint64_t>;
 
-        const auto
-            zeros_removal
-            {
-                detail::remove_trailing_zeros(bn)
-            };
-
-        const bool is_pure { static_cast<int>(zeros_removal.trimmed_number) == 1 };
-
-        if(is_pure)
-        {
-            // Here, a pure power-of-10 argument (b) gets a pure integral result.
-            const int log10_val { exp10val + static_cast<int>(zeros_removal.number_of_removed_zeros) };
-
-            result = T { 1, log10_val * static_cast<int>(p) };
-        }
-        else
-        {
-            BOOST_DECIMAL_IF_CONSTEXPR (std::is_signed<local_integral_type>::value)
-            {
-                if(p < static_cast<local_integral_type>(UINT8_C(0)))
-                {
-                    const auto up =
-                        static_cast<local_unsigned_integral_type>
-                        (
-                              static_cast<local_unsigned_integral_type>(~p)
-                            + static_cast<local_unsigned_integral_type>(UINT8_C(1))
-                        );
-
-                    result = one / detail::pow_n_impl(b, up);
-                }
-                else
-                {
-                    result = detail::pow_n_impl(b, static_cast<local_unsigned_integral_type>(p));
-                }
-            }
-            else
-            {
-                result = detail::pow_n_impl(b, static_cast<local_unsigned_integral_type>(p));
-            }
-        }
+        result = detail::pow_detail::pow_fixed(b, static_cast<magnitude_type>(up), 0, p < static_cast<local_integral_type>(0));
     }
 
     return result;
@@ -156,8 +737,7 @@ constexpr auto pow(const T x, const T a) noexcept
     auto result = zero;
 
     const auto fpc_a = fpclassify(a);
-
-    const auto na = static_cast<int>(a);
+    const auto fpc_x = fpclassify(x);
 
     if (fpc_a == FP_ZERO)
     {
@@ -165,14 +745,19 @@ constexpr auto pow(const T x, const T a) noexcept
 
         result = one;
     }
-    else if (na == a)
+    else if ((fpc_x == FP_NORMAL || fpc_x == FP_SUBNORMAL) && (fpc_a == FP_NORMAL || fpc_a == FP_SUBNORMAL))
     {
-        result = pow(x, na);
+        int e_a {};
+        const auto sig_a {frexp10(a, &e_a)};
+
+        result = detail::pow_detail::pow_fixed(x, sig_a, e_a, signbit(a));
+    }
+    else if (static_cast<int>(a) == a)
+    {
+        result = pow(x, static_cast<int>(a));
     }
     else
     {
-        const auto fpc_x = fpclassify(x);
-
         if ((fpc_x == FP_NAN) || (fpc_a == FP_NAN))
         {
             // This line is known to be covered by tests.
@@ -222,13 +807,7 @@ constexpr auto pow(const T x, const T a) noexcept
                         : one
                     );
             }
-            else
             #endif
-            {
-                const T a_log_x { a * ::boost::decimal::log(x) };
-
-                result = exp(a_log_x);
-            }
         }
     }
 
