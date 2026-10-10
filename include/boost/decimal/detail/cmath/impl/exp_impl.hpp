@@ -216,6 +216,17 @@ constexpr auto below_one(const int scale10, const bool neg) noexcept -> T
     return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10 + 1)) - 1U), -scale10 - 1, neg);
 }
 
+enum class exp_kind { digits, overflow, underflow, above_one, below_one };
+
+// A result as digits * 10^exp10 with scale10 + 1 digits, or the kind of a result beyond them
+template <int words>
+struct exp_digits
+{
+    fx_digits_t<words> digits;
+    int exp10;
+    exp_kind kind;
+};
+
 // exp(x), or exp2(x) with Base2, for a finite x != 0 where the result is not exact, rounded once in
 // the current mode. With y = x * log10(e) or x * log10(2) = k + f and 0 <= f < 1, the result is 10^k * 10^f.
 template <typename T, bool Base2 = false>
