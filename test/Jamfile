@@ -166,6 +166,7 @@ run github_issue_asin.cpp ;
 run github_issue_trig.cpp ;
 run github_issue_pow.cpp ;
 run github_issue_hypot.cpp ;
+run github_issue_erf.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;

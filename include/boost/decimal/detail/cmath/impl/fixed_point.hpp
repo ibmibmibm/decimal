@@ -529,6 +529,32 @@ constexpr auto fx_alternating(const fx<N>& z, const fx<N> (&c)[M]) noexcept -> f
     return s;
 }
 
+// c0 - u c1 + u^2 c2 - ..., or c0 + u c1 + ... with add, for two or more coefficients in one word: the even terms
+// and the odd terms as two chains in u^2, which run in parallel.
+template <int M, std::size_t Extent>
+constexpr auto fx_even_odd(const fx<1>& u, const fx_span<const fx<M>, Extent> c, const bool add) noexcept -> fx<1>
+{
+    const auto v {fx_mul(u, u)};
+    std::size_t k {c.size() - 1U};
+    auto s0 {fx_top<1>(c[k])};
+    auto s1 {fx_top<1>(c[k - 1U])};
+    while (k >= 3U)
+    {
+        k -= 2U;
+        s0 = fx_add(fx_top<1>(c[k]), fx_mul(v, s0));
+        s1 = fx_add(fx_top<1>(c[k - 1U]), fx_mul(v, s1));
+    }
+    auto even {s1};
+    auto odd {s0};
+    if (k == 2U)
+    {
+        even = fx_add(fx_top<1>(c[0]), fx_mul(v, s0));
+        odd = s1;
+    }
+    const auto uo {fx_mul(u, odd)};
+    return add ? fx_add(even, uo) : fx_sub(even, uo);
+}
+
 // c0 + z*(c1 + z*(c2 + ...)), for coefficients that are all positive.
 template <int N, std::size_t M>
 constexpr auto fx_horner(const fx<N>& z, const fx<N> (&c)[M]) noexcept -> fx<N>
