@@ -776,9 +776,10 @@ constexpr auto fx_from_decimal(boost::int128::uint128_t sig, int k) noexcept -> 
     return fx_from_far<N>(sig, k);
 }
 
-// floor(sig * f / 2^(64N - 2)), for f <= 1.5 so that the result has at most 39 digits.
+// floor(sig * f / 2^(64N - 2)), for f <= 1.5 so that the result has at most 39 digits, and the next 64 bits of the
+// fraction in frac
 template <int N>
-constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noexcept -> boost::int128::uint128_t
+constexpr auto fx_scale_frac(const boost::int128::uint128_t& sig, const fx<N>& f, std::uint64_t& frac) noexcept -> boost::int128::uint128_t
 {
     std::uint64_t p[static_cast<std::size_t>(N + 2)] {};
     const std::uint64_t g[2] {sig.low, sig.high};
@@ -789,7 +790,16 @@ constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noe
     }
     std::uint64_t r[2] {};
     fx_shr_words(fx_make_span(r), fx_make_span<2>(p, N - 1), p[N + 1], 62U);
+    frac = (p[N - 1] << 2U) | (N > 1 ? p[N > 1 ? N - 2 : 0] >> 62U : 0U);
     return boost::int128::uint128_t {r[1], r[0]};
+}
+
+// The same without the fraction
+template <int N>
+constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noexcept -> boost::int128::uint128_t
+{
+    std::uint64_t frac {};
+    return fx_scale_frac(sig, f, frac);
 }
 
 // floor(m + c), or floor(m - c) for sub, with c = m * g * 10^-s > 0: the rest of a series past its exact lead term m,
@@ -811,7 +821,7 @@ constexpr auto fx_lead_t(const boost::int128::uint128_t& sig, const int k, int& 
     return fx_from_decimal<N>(sig, nd);
 }
 
-// The same for sig + tail / 2^64
+// fx_scale for sig + tail / 2^64
 template <int N>
 constexpr auto fx_scale(const boost::int128::uint128_t& sig, const std::uint64_t tail, const fx<N>& f) noexcept -> boost::int128::uint128_t
 {
@@ -1011,6 +1021,27 @@ constexpr auto fx_wide_add(const fx_wide<N>& a, const fx_wide<N>& b, const bool 
     return fx_wide_add(a, neg ? fx_wide_negate(b) : b);
 }
 
+// a / 2^s as fixed point, for a wide a >= 0 below 2^(s + 2)
+template <int N>
+constexpr auto fx_wide_shr(const fx_wide<N>& a, const unsigned s) noexcept -> fx<N>
+{
+    fx<N> r {};
+    fx_shr_words(fx_make_span(r.w), fx_make_span<N>(a.w), a.w[N], s);
+    return r;
+}
+
+// a * 2^s for 0 < s < 64, where the result fits
+template <int N>
+constexpr auto fx_wide_shl(fx_wide<N> a, const unsigned s) noexcept -> fx_wide<N>
+{
+    for (int i {N}; i > 0; --i)
+    {
+        a.w[i] = (a.w[i] << s) | (a.w[i - 1] >> (64U - s));
+    }
+    a.w[0] <<= s;
+    return a;
+}
+
 // a * c, truncated, for a >= 0 and c < 4 in N words
 template <int N>
 constexpr auto fx_wide_mul(const fx_wide<N>& a, const fx<N>& c) noexcept -> fx_wide<N>
@@ -1079,6 +1110,14 @@ constexpr auto fx_wide_digits(fx_wide<N> r, bool neg, const int e10 = 0) noexcep
     fx_signed_digits<N> d {};
     d.exp10 = e10 - s10 - shift;
     d.neg = neg;
+    if (N == 1)
+    {
+        // One word: the 19 digits fit in 64 bits
+        const auto scale {pow10(static_cast<std::uint64_t>(s10))};
+        const auto low {(static_cast<boost::int128::uint128_t>(scale) * f.w[0]) >> 62U};
+        d.digits = static_cast<digits_type>(whole * scale + low.low);
+        return d;
+    }
     const auto scale {pow10(static_cast<boost::int128::uint128_t>(s10))};
     d.digits = static_cast<digits_type>(static_cast<boost::int128::uint128_t>(whole) * scale + fx_scale(scale, f));
     return d;
