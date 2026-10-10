@@ -413,6 +413,26 @@ constexpr auto just_below_one(const int scale10, const bool neg) noexcept -> T
     return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10 + 1)) - 1U), -scale10 - 1, neg);
 }
 
+enum class exp_kind { digits, overflow, underflow, above_one, below_one };
+
+// A result as digits * 10^exp10 with scale10 + 1 digits, or the kind of a result beyond them
+template <int words>
+struct exp_digits
+{
+    fx_digits_t<words> digits;
+    int exp10;
+    exp_kind kind;
+};
+
+// The bound of the first try of exp in one word, in units of its 19 digits; test_first_try_bounds checks it
+constexpr std::uint64_t exp_word_units {2U};
+
+// The bound of the 38 or 39 digits d of exp in two words, in units of d; test_first_try_bounds checks it
+BOOST_DECIMAL_FORCE_INLINE constexpr auto exp_two_word_units(const boost::int128::uint128_t& d) noexcept -> std::uint64_t
+{
+    return static_cast<std::uint64_t>(d >> 119U) + 2U;
+}
+
 // Whether the 38 or 39 digits d of exp from words words, below 2 units off in three words and below d * 2^-119 + 2 in
 // two, can round to another value than the exact one: for decimal64_t the boundaries are multiples of 5 * 10^21
 template <int words>
@@ -424,7 +444,7 @@ constexpr auto exp_near_boundary(const boost::int128::uint128_t& d) noexcept -> 
     }
     const auto unit {pow10(static_cast<boost::int128::uint128_t>(21)) * 5U};
     const auto rest {d % unit};
-    const auto w {(d >> 119U) + 2U};
+    const boost::int128::uint128_t w {exp_two_word_units(d)};
     return rest < w || rest > unit - w;
 }
 
@@ -452,7 +472,7 @@ constexpr auto exp_wide_stage(const boost::int128::uint128_t& sig, const int k, 
         // A first try in two words: its error is below 46 units of 2^-126, so below d2 * 2^-119 + 2 units of d2
         const auto y2 {exp_log10_signed<2>(sig, k, whole, c, neg)};
         const auto d2 {exp10_digits(exp10_frac<2, true>(y2.f), fx_scale10(2))};
-        if (!fx_near_boundary(d2, static_cast<std::uint64_t>(d2 >> 119U) + 2U))
+        if (!fx_near_boundary(d2, exp_two_word_units(d2)))
         {
             return fx_round<T>(static_cast<digits_type>(d2), y2.exp10 - fx_scale10(2), false);
         }
@@ -536,7 +556,7 @@ constexpr auto exp_fixed(const T x) noexcept -> T
             int e1 {};
             const auto d1 {exp_word_digits<Base2, (p < 16)>(s1, k1, neg, e1)};
             T r {};
-            if (fx_try_round(d1, e1 - fx_scale10(1), false, exp_word_bound<T>(2U), r))
+            if (fx_try_round(d1, e1 - fx_scale10(1), false, exp_word_bound<T>(exp_word_units), r))
             {
                 return r;
             }

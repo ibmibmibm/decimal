@@ -81,6 +81,9 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto sinh_cosh_parts(const std::uint64_t wh
     return {d, y.exp10};
 }
 
+// The bound of the first try of sinh and cosh in one word, in units of its 19 digits; test_first_try_bounds checks it
+constexpr std::uint64_t sinh_cosh_word_units {3U};
+
 // The 19 digits of sinh(|x|) or cosh(x) = 10^exp10 2^(a - 1) (M -+ 10^(-2 exp10) 2^(-2 a) / M) for |x| = sig * 10^-k:
 // M and 1 / M are from exp_word_reduce and the same tables. The error is in (-2.3, 2.3) units for sinh from 1. With
 // Narrow, the series stop at z^3 with the same relative error, and the error is below 2^25 units for sinh from 0.1.
@@ -219,7 +222,7 @@ constexpr auto sinh_cosh_fixed(const T x, const bool is_cosh, const bool neg) no
             int e1 {};
             const auto d1 {sinh_cosh_word_digits<(p < 16)>(s1, k1, is_cosh, e1)};
             T r {};
-            if (fx_try_round(d1, e1, neg, exp_word_bound<T>(3U), r))
+            if (fx_try_round(d1, e1, neg, exp_word_bound<T>(sinh_cosh_word_units), r))
             {
                 return r;
             }

@@ -84,6 +84,9 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto tanh_quotient(const std::uint64_t whol
     return true;
 }
 
+// The bound of the first try of tanh in one word, in units of its 19 digits; test_first_try_bounds checks it
+constexpr std::uint64_t tanh_word_units {3U};
+
 // The 19 digits of tanh(|x|) = 1 - 2 t / (1 + t) for |x| = sig * 10^-k >= 0.11 and t = exp(-2 |x|) from
 // exp_word_reduce, with an error in (-2.5, 1.8) units or below 2^25 units with Narrow, or 0 where t is below 10^-19
 template <bool Narrow>
@@ -186,7 +189,7 @@ constexpr auto tanh_fixed(const T x, const bool neg) noexcept -> T
                 return just_below_one<T, digits_type>(scale10, neg);
             }
             T r {};
-            if (fx_try_round(d1, -19, neg, exp_word_bound<T>(3U), r))
+            if (fx_try_round(d1, -19, neg, exp_word_bound<T>(tanh_word_units), r))
             {
                 return r;
             }

@@ -9,6 +9,7 @@
 #include <boost/decimal.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <cstdint>
+#include <type_traits>
 
 using namespace boost::decimal;
 using namespace boost::decimal::detail;
@@ -44,9 +45,32 @@ auto distance(const uint128_t& a, const uint128_t& b) -> uint128_t
     return a > b ? a - b : b - a;
 }
 
-// The first try in the given words has a bound of d * 2^-bits + base units of d, and three words add 8 units of theirs
+// Whether |d2 10^e2 - d3 10^e3| <= limit 10^e2 for |e2 - e3| <= 1, in units of the smaller exponent: c of the larger
+// one and f of the smaller one give 10 c - f = 10 (c - f / 10) - f % 10, with no overflow
+auto within(const uint128_t& d2, const int e2, const uint128_t& d3, const int e3, const uint128_t& limit) -> bool
+{
+    if (e2 == e3)
+    {
+        return distance(d2, d3) <= limit;
+    }
+    const bool coarse2 {e2 > e3};
+    const auto& c {coarse2 ? d2 : d3};
+    const auto& f {coarse2 ? d3 : d2};
+    const auto q {f / 10U};
+    const auto r {f % 10U};
+    const auto bound {coarse2 ? limit * 10U : limit};
+    // 10 (c - q) - r, with |c - q| at most bound / 10 + 1 where it passes
+    if (distance(c, q) > bound / 10U + 1U)
+    {
+        return false;
+    }
+    const auto diff {c >= q ? distance((c - q) * 10U, r) : (q - c) * 10U + r};
+    return diff <= bound;
+}
+
+// The first try in two words has the bound exp_two_word_units of its digits d, and three words add 8 units of theirs
 template <int words, bool Precise, bool Base2>
-void test_exp(const int p, const unsigned bits, const unsigned base)
+void test_exp(const int p)
 {
     const auto& c {Base2 ? fx_table::log10_2 : fx_table::log10_e};
     constexpr int reference {3};
@@ -72,17 +96,24 @@ void test_exp(const int p, const unsigned bits, const unsigned base)
             }
             const auto d1 {exp_detail::exp10_digits(exp_detail::exp10_frac<words, Precise>(y1.f), fx_scale10(words))};
             const auto d3 {exp_detail::exp10_digits(exp_detail::exp10_frac(y3.f), fx_scale10(reference))};
-            BOOST_TEST(distance(d1 * scale, d3) <= ((d1 >> bits) + base) * scale + 8U);
+            BOOST_TEST(distance(d1 * scale, d3) <= exp_detail::exp_two_word_units(d1) * scale + 8U);
         }
     }
 }
 
-// The first try in one word has a bound of 2 units of its 19 digits, or 2^25 units with Narrow for 7 digits
+// The bounds that the library gives to the rounding of a first try in one word: Narrow for 7 digits
+template <bool Narrow>
+auto word_bound(const std::uint64_t units) -> uint128_t
+{
+    return exp_detail::exp_word_bound<typename std::conditional<Narrow, decimal32_t, decimal64_t>::type>(units);
+}
+
+// The first try in one word has the bound exp_word_units of its 19 digits, or 2^25 units with Narrow
 template <bool Base2, bool Narrow>
 void test_exp_word()
 {
     constexpr int p {Narrow ? 7 : 16};
-    const uint128_t w {Narrow ? UINT64_C(1) << 25U : 2U};
+    const uint128_t w {word_bound<Narrow>(exp_detail::exp_word_units)};
     const auto& c {Base2 ? fx_table::log10_2 : fx_table::log10_e};
     constexpr int reference {3};
     const auto scale {pow10(static_cast<uint128_t>(fx_scale10(reference) - fx_scale10(1)))};
@@ -111,13 +142,13 @@ void test_exp_word()
     }
 }
 
-// The first try of sinh and cosh in one word has a bound of 3 units of its 19 digits, or 2^25 units with Narrow and
-// sinh from 0.1. With near, exp(|x|) is next above 2 * 10^n, where sinh(|x|) is next below 10^n: the largest error.
+// The first try of sinh and cosh in one word has the bound sinh_cosh_word_units of its 19 digits, or 2^25 units with
+// Narrow and sinh from 0.1. With near, exp(|x|) is next above 2 * 10^n, where sinh(|x|) is next below 10^n: the largest error.
 template <bool Narrow>
 void test_sinh_cosh_word(const bool is_cosh, const bool near)
 {
     constexpr int p {Narrow ? 7 : 16};
-    const uint128_t w {Narrow ? UINT64_C(1) << 25U : 3U};
+    const uint128_t w {word_bound<Narrow>(exp_detail::sinh_cosh_word_units)};
     for (int k {12}; k <= 17; ++k)
     {
         for (int i {0}; i < trials / 6; ++i)
@@ -143,12 +174,12 @@ void test_sinh_cosh_word(const bool is_cosh, const bool near)
     }
 }
 
-// The first try of tanh in one word has a bound of 3 units of its 19 digits, or 2^25 units with Narrow
+// The first try of tanh in one word has the bound tanh_word_units of its 19 digits, or 2^25 units with Narrow
 template <bool Narrow>
 void test_tanh_word()
 {
     constexpr int p {Narrow ? 7 : 16};
-    const uint128_t w {Narrow ? UINT64_C(1) << 25U : 3U};
+    const uint128_t w {word_bound<Narrow>(exp_detail::tanh_word_units)};
     const auto scale {pow10(static_cast<uint128_t>(19))};
 
     for (int k {12}; k <= 16; ++k)
@@ -172,6 +203,77 @@ void test_tanh_word()
     }
 }
 
+void test_erf_above_one()
+{
+    using T = decimal128_t;
+    for (int i {0}; i < trials; ++i)
+    {
+        const int p {34};
+        const int k {p - 1 - static_cast<int>(next_word() % 2U)};
+        const auto sig {next_sig(p)};
+        const auto whole {static_cast<std::uint64_t>(exp_detail::exp_whole(sig, k))};
+        if (whole < 1U || whole >= 120U)
+        {
+            continue;
+        }
+
+        for (int kind {0}; kind < 3; ++kind)
+        {
+            const bool complement {kind != 0};
+            const bool neg {kind == 1 || (kind == 0 && (next_word() & 1U) != 0U)};
+            const auto r3 {erf_detail::erf_above_one<T, 3>(sig, k, whole, complement, neg)};
+            if (r3.kind != exp_detail::exp_kind::digits)
+            {
+                continue;
+            }
+            uint128_t d2 {};
+            int e2 {};
+            std::uint64_t limit {};
+            if (kind == 2)
+            {
+                const auto r2 {erf_detail::erfc_above_one_digits2(sig, k, whole)};
+                d2 = r2.digits;
+                e2 = r2.exp10;
+                limit = erf_detail::erfc_above_two_word_units(r2.digits, whole);
+            }
+            else
+            {
+                const auto r2 {erf_detail::erf_above_one<T, 2>(sig, k, whole, complement, neg)};
+                if (r2.kind != exp_detail::exp_kind::digits)
+                {
+                    continue;
+                }
+                d2 = r2.digits;
+                e2 = r2.exp10;
+                limit = erf_detail::erf_above_two_word_units(complement);
+            }
+
+            // The two values can lie on the two sides of a power of ten
+            BOOST_TEST(e2 >= r3.exp10 - 1 && e2 <= r3.exp10 + 1);
+            BOOST_TEST(within(d2, e2, static_cast<uint128_t>(r3.digits), r3.exp10, limit));
+        }
+    }
+}
+
+void test_erf_below_one()
+{
+    using T = decimal128_t;
+    for (int i {0}; i < trials; ++i)
+    {
+        const int p {34};
+        const int e {-p - static_cast<int>(next_word() % 4U)};
+        const auto sig {next_sig(p)};
+        const bool complement {(next_word() & 1U) != 0U};
+        const bool neg {(next_word() & 1U) != 0U};
+        const auto r2 {erf_detail::erf_small_x<T, 2>(sig, e, complement, neg)};
+        const auto r3 {erf_detail::erf_small_x<T, 3>(sig, e, complement, neg)};
+        const auto d2 {static_cast<uint128_t>(r2.digits)};
+        const std::uint64_t limit {erf_detail::erf_small_two_word_units(d2, complement)};
+        BOOST_TEST(r2.exp10 >= r3.exp10 - 1 && r2.exp10 <= r3.exp10 + 1);
+        BOOST_TEST(within(d2, r2.exp10, static_cast<uint128_t>(r3.digits), r3.exp10, limit));
+    }
+}
+
 } // namespace
 
 int main()
@@ -188,8 +290,15 @@ int main()
     }
     test_tanh_word<true>();
     test_tanh_word<false>();
-    test_exp<2, true, false>(34, 119U, 2U);
-    test_exp<2, true, true>(34, 119U, 2U);
+    test_exp<2, true, false>(34);
+    test_exp<2, true, true>(34);
+    test_erf_above_one();
+    test_erf_below_one();
+    // Next to a power of ten: 9995 * 10^0 and 1000 * 10^1 are 5 units of 10^0 apart, and a unit of 10^1 is 10 of them
+    BOOST_TEST(within(9995U, 0, 1000U, 1, 5U));
+    BOOST_TEST(!within(9995U, 0, 1000U, 1, 4U));
+    BOOST_TEST(within(1000U, 1, 9995U, 0, 1U));
+    BOOST_TEST(!within(1000U, 1, 9945U, 0, 5U));
 
     return boost::report_errors();
 }

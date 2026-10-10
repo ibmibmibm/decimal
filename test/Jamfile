@@ -183,6 +183,7 @@ run github_issue_pow_eval_method_1.cpp
 run github_issue_pow_eval_method_2.cpp
   : : : <pch>off ;
 run github_issue_hypot.cpp ;
+run github_issue_erf.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
