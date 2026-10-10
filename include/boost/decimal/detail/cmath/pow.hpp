@@ -196,26 +196,12 @@ constexpr auto pow_near_boundary(const digits_type& sig, const int p) noexcept -
     return r < w || r > m - w;
 }
 
-enum class pow_kind { digits, overflow, underflow, above_one, below_one };
-
-// The result as digits * 10^exp10 with scale10 + 1 digits, or the kind of a result beyond them
-template <int words>
-struct pow_parts
-{
-    fx_digits_t<words> digits;
-    int exp10;
-    pow_kind kind;
-};
-
-// |x|^y for x = sig * 10^e with p digits and y = sy * 10^ey in words: y log10(x) = whole + f gives 10^whole * 10^f,
-// or 10^(-whole - 1) * 10^(1 - f) for a negative product. The result overflows or underflows from whole >= bound.
+// |x|^y for x = sig * 10^e with p digits and y = sy * 10^ey in words: 10^(y log10(x)), which overflows or underflows
+// from y log10(x) >= bound
 template <int words>
 constexpr auto pow_digits(const boost::int128::uint128_t& sig, const int e, const int p, const boost::int128::uint128_t& sy, const int ey,
-                          const bool neg_y, const std::uint64_t bound) noexcept -> pow_parts<words>
+                          const bool neg_y, const std::uint64_t bound) noexcept -> exp_detail::exp_digits<words>
 {
-    constexpr int scale10 {fx_scale10(words)};
-    using digits_type = fx_digits_t<words>;
-
     // |y log10(x)| = u * |log10(x)| * 10^k > 10^(k - 4) with u in [0.1, 1). For k < 0 it is below 1, where an error of
     // 10^k in fixed point is small enough. Below 2^-(64 words - 20), it cannot change the rounding of 1.
     const auto lg {pow_log10<words>(sig, e, p)};
@@ -223,7 +209,12 @@ constexpr auto pow_digits(const boost::int128::uint128_t& sig, const int e, cons
     auto t {fx_wide_mul(lg.v, fx_from_decimal<words>(sy, nds))};
     const int k {ey + nds + lg.k};
     const bool neg_t {neg_y != lg.neg};
-    if (k > 0 && k < 9)
+    // From k = 9 on, |y log10(x)| > 10^5 is past the bound of every type
+    if (k >= 9)
+    {
+        return {0U, 0, neg_t ? exp_detail::exp_kind::underflow : exp_detail::exp_kind::overflow};
+    }
+    if (k > 0)
     {
         std::uint64_t carry {};
         for (int i {}; i <= words; ++i)
@@ -237,33 +228,7 @@ constexpr auto pow_digits(const boost::int128::uint128_t& sig, const int e, cons
     {
         t = fx_wide_mul(t, fx_from_decimal<words>(1U, -k));
     }
-    const std::uint64_t whole {(t.w[words] << 2U) | (t.w[words - 1] >> 62U)};
-    if (k >= 9 || whole >= bound)
-    {
-        return {0U, 0, neg_t ? pow_kind::underflow : pow_kind::overflow};
-    }
-    fx<words> f {};
-    bool tiny {whole == 0U && t.w[0] < (UINT64_C(1) << 18U)};
-    for (int i {}; i < words; ++i)
-    {
-        f.w[i] = t.w[i];
-        tiny = tiny && (i == 0 || t.w[i] == 0U);
-    }
-    f.w[words - 1] &= (UINT64_C(1) << 62U) - 1U;
-    if (tiny)
-    {
-        return {0U, 0, neg_t ? pow_kind::below_one : pow_kind::above_one};
-    }
-
-    auto exp10 {static_cast<int>(whole)};
-    if (neg_t)
-    {
-        exp10 = -exp10 - 1;
-        f = fx_sub(fx_one<words>(), f);
-    }
-    const auto r10 {exp_detail::exp10_frac(f)};
-    return {static_cast<digits_type>(fx_scale(pow10(static_cast<boost::int128::uint128_t>(scale10)) << (r10.a + 1U), fx_shr(r10.m, 1U))),
-            exp10 - scale10, pow_kind::digits};
+    return exp_detail::exp10_wide<words>(t.w, neg_t, bound);
 }
 
 // remove_trailing_zeros, which takes six products, with a quick return where the last digit is not zero
@@ -294,22 +259,11 @@ constexpr auto pow_words(const boost::int128::uint128_t& sig, const int e, const
                          const bool neg_y, const bool neg) noexcept -> T
 {
     constexpr int p {std::numeric_limits<T>::digits10};
-    constexpr int scale10 {fx_scale10(words)};
-    using digits_type = fx_digits_t<words>;
 
     const auto r {pow_digits<words>(sig, e, p, sy, ey, neg_y, static_cast<std::uint64_t>(std::numeric_limits<T>::max_exponent10 + p + 1))};
-    switch (r.kind)
+    if (r.kind != exp_detail::exp_kind::digits)
     {
-        case pow_kind::overflow:
-            return T {1U, 2 * std::numeric_limits<T>::max_exponent10, neg};
-        case pow_kind::underflow:
-            return T {1U, -2 * std::numeric_limits<T>::max_exponent10, neg};
-        case pow_kind::above_one:
-            return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10))), -scale10, neg);
-        case pow_kind::below_one:
-            return exp_detail::below_one<T, digits_type>(scale10, neg);
-        default:
-            break;
+        return exp_detail::exp10_beyond<T, words>(r.kind, neg);
     }
     if (pow_near_boundary<words>(r.digits, p))
     {
