@@ -756,9 +756,10 @@ constexpr auto fx_from_decimal(boost::int128::uint128_t sig, int k) noexcept -> 
     return fx_from<N>(sig, k);
 }
 
-// floor(sig * f / 2^(64N - 2)), for f <= 1.5 so that the result has at most 39 digits.
+// floor(sig * f / 2^(64N - 2)), for f <= 1.5 so that the result has at most 39 digits, and the next 64 bits of the
+// fraction in frac
 template <int N>
-constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noexcept -> boost::int128::uint128_t
+constexpr auto fx_scale_frac(const boost::int128::uint128_t& sig, const fx<N>& f, std::uint64_t& frac) noexcept -> boost::int128::uint128_t
 {
     std::uint64_t p[static_cast<std::size_t>(N + 2)] {};
     const std::uint64_t g[2] {sig.low, sig.high};
@@ -769,7 +770,16 @@ constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noe
     }
     std::uint64_t r[2] {};
     fx_shr_words(fx_make_span(r), fx_make_span<2>(p, N - 1), p[N + 1], 62U);
+    frac = (p[N - 1] << 2U) | (N > 1 ? p[N > 1 ? N - 2 : 0] >> 62U : 0U);
     return boost::int128::uint128_t {r[1], r[0]};
+}
+
+// The same without the fraction
+template <int N>
+constexpr auto fx_scale(const boost::int128::uint128_t& sig, const fx<N>& f) noexcept -> boost::int128::uint128_t
+{
+    std::uint64_t frac {};
+    return fx_scale_frac(sig, f, frac);
 }
 
 // floor(m + c), or floor(m - c) for sub, with c = m * g * 10^-s > 0: the rest of a series past its exact lead term m,
@@ -791,7 +801,7 @@ constexpr auto fx_lead_t(const boost::int128::uint128_t& sig, const int k, int& 
     return fx_from_decimal<N>(sig, nd);
 }
 
-// The same for sig + tail / 2^64
+// fx_scale for sig + tail / 2^64
 template <int N>
 constexpr auto fx_scale(const boost::int128::uint128_t& sig, const std::uint64_t tail, const fx<N>& f) noexcept -> boost::int128::uint128_t
 {
@@ -1059,6 +1069,14 @@ constexpr auto fx_wide_digits(fx_wide<N> r, bool neg, const int e10 = 0) noexcep
     fx_wide_digits_of<N> d {};
     d.exp10 = e10 - s10 - shift;
     d.neg = neg;
+    BOOST_DECIMAL_IF_CONSTEXPR (N == 1)
+    {
+        // One word: the 19 digits fit in 64 bits
+        const auto scale {pow10(static_cast<std::uint64_t>(s10))};
+        const auto low {(static_cast<boost::int128::uint128_t>(scale) * f.w[0]) >> 62U};
+        d.digits = static_cast<digits_type>(whole * scale + low.low);
+        return d;
+    }
     const auto scale {pow10(static_cast<boost::int128::uint128_t>(s10))};
     d.digits = static_cast<digits_type>(static_cast<boost::int128::uint128_t>(whole) * scale + fx_scale(scale, f));
     return d;
