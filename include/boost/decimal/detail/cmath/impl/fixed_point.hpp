@@ -976,6 +976,14 @@ constexpr auto fx_wide_negate(const fx_wide<N>& a) noexcept -> fx_wide<N>
     return r;
 }
 
+// |a|, with neg set to whether a < 0
+template <int N>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_wide_abs(const fx_wide<N>& a, bool& neg) noexcept -> fx_wide<N>
+{
+    neg = (a.w[N] >> 63U) != 0U;
+    return neg ? fx_wide_negate(a) : a;
+}
+
 // a + b, or a - b for neg
 template <int N>
 constexpr auto fx_wide_add(const fx_wide<N>& a, const fx_wide<N>& b, const bool neg) noexcept -> fx_wide<N>
