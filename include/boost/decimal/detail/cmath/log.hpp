@@ -308,15 +308,15 @@ constexpr auto log_root_shift(const boost::int128::uint128_t& sig, const int p) 
 }
 
 // ln(x + sqrt(x^2 + 1)), or - 1 for Minus, for x = sig * 10^(n10 - p) >= 1 of p digits: with x = u * 2^-s * 10^n10 and
-// u in [0.5, 1), it is ln((u + sqrt(u^2 +- 4^s * 10^(-2 n10))) * 2^-s * 10^n10)
-template <int N, bool Minus>
+// u in [0.5, 1), it is ln((u + sqrt(u^2 +- 4^s * 10^(-2 n10))) * 2^-s * 10^n10), with the Steps of fx_sqrt
+template <int N, int Steps, bool Minus>
 constexpr auto log_root_sum(const boost::int128::uint128_t& sig, const int p, const int n10) noexcept -> fx_wide<N>
 {
     const unsigned s {log_root_shift(sig, p)};
     const auto u {fx_from_decimal<N>(sig << s, p)};
     const auto c {fx_from_decimal<N>(1U << (2U * s), 2 * n10)};
     const auto uu {fx_mul(u, u)};
-    return log_wide_of(fx_add(u, fx_sqrt(fx_is(Minus) ? fx_sub(uu, c) : fx_add(uu, c))), -static_cast<int>(s), n10);
+    return log_wide_of(fx_add(u, fx_sqrt<N, Steps>(fx_is(Minus) ? fx_sub(uu, c) : fx_add(uu, c))), -static_cast<int>(s), n10);
 }
 
 } // namespace log_detail
