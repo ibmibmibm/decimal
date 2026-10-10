@@ -176,6 +176,12 @@ run github_issue_1570_asinh.cpp ;
 run github_issue_atan.cpp ;
 run github_issue_asin.cpp ;
 run github_issue_trig.cpp ;
+run github_issue_pow.cpp ;
+# The tests set the evaluation method before the include, and the pch would hide it
+run github_issue_pow_eval_method_1.cpp
+  : : : <pch>off ;
+run github_issue_pow_eval_method_2.cpp
+  : : : <pch>off ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
