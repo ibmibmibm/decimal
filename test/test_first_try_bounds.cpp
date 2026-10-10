@@ -172,6 +172,94 @@ void test_tanh_word()
     }
 }
 
+void test_erf_above_one()
+{
+    using T = decimal128_t;
+    for (int i {0}; i < trials; ++i)
+    {
+        const int p {34};
+        const int k {p - 1 - static_cast<int>(next_word() % 2U)};
+        const auto sig {next_sig(p)};
+        const auto whole {static_cast<std::uint64_t>(exp_detail::exp_whole(sig, k))};
+        if (whole < 1U || whole >= 120U)
+        {
+            continue;
+        }
+
+        for (int kind {0}; kind < 3; ++kind)
+        {
+            const bool complement {kind != 0};
+            const bool neg {kind == 1 || (kind == 0 && (next_word() & 1U) != 0U)};
+            const auto r3 {erf_detail::erf_above_one<T, 3>(sig, k, whole, complement, neg)};
+            if (r3.kind != exp_detail::exp_kind::digits)
+            {
+                continue;
+            }
+            uint128_t d2 {};
+            int e2 {};
+            std::uint64_t limit {};
+            if (kind == 2)
+            {
+                const auto r2 {erf_detail::erfc_above_one_digits2(sig, k, whole)};
+                d2 = r2.digits;
+                e2 = r2.exp10;
+                limit = static_cast<std::uint64_t>(((r2.digits >> 64U) * (whole < 12U ? 32U : 67U)) >> 62U) + 2U;
+            }
+            else
+            {
+                const auto r2 {erf_detail::erf_above_one<T, 2>(sig, k, whole, complement, neg)};
+                if (r2.kind != exp_detail::exp_kind::digits)
+                {
+                    continue;
+                }
+                d2 = r2.digits;
+                e2 = r2.exp10;
+                limit = complement ? 3U : 10U;
+            }
+
+            // The two values can lie on the two sides of a power of ten
+            auto d3 {static_cast<uint128_t>(r3.digits)};
+            if (e2 == r3.exp10 + 1)
+            {
+                d3 /= 10U;
+            }
+            else if (e2 == r3.exp10 - 1)
+            {
+                d2 /= 10U;
+            }
+            BOOST_TEST(e2 >= r3.exp10 - 1 && e2 <= r3.exp10 + 1);
+            BOOST_TEST(distance(d2, d3) <= limit);
+        }
+    }
+}
+
+void test_erf_below_one()
+{
+    using T = decimal128_t;
+    for (int i {0}; i < trials; ++i)
+    {
+        const int p {34};
+        const int e {-p - static_cast<int>(next_word() % 4U)};
+        const auto sig {next_sig(p)};
+        const bool complement {(next_word() & 1U) != 0U};
+        const bool neg {(next_word() & 1U) != 0U};
+        const auto r2 {erf_detail::erf_small_x<T, 2>(sig, e, complement, neg)};
+        const auto r3 {erf_detail::erf_small_x<T, 3>(sig, e, complement, neg)};
+        auto d2 {static_cast<uint128_t>(r2.digits)};
+        auto d3 {static_cast<uint128_t>(r3.digits)};
+        const std::uint64_t limit {complement ? UINT64_C(250) : static_cast<std::uint64_t>(d2 >> 118U) + 2U};
+        if (r2.exp10 == r3.exp10 + 1)
+        {
+            d3 /= 10U;
+        }
+        else if (r2.exp10 == r3.exp10 - 1)
+        {
+            d2 /= 10U;
+        }
+        BOOST_TEST(distance(d2, d3) <= limit);
+    }
+}
+
 } // namespace
 
 int main()
@@ -190,6 +278,8 @@ int main()
     test_tanh_word<false>();
     test_exp<2, true, false>(34, 119U, 2U);
     test_exp<2, true, true>(34, 119U, 2U);
+    test_erf_above_one();
+    test_erf_below_one();
 
     return boost::report_errors();
 }

@@ -353,6 +353,17 @@ constexpr auto just_below_one(const int scale10, const bool neg) noexcept -> T
     return fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10 + 1)) - 1U), -scale10 - 1, neg);
 }
 
+enum class exp_kind { digits, overflow, underflow, above_one, below_one };
+
+// A result as digits * 10^exp10 with scale10 + 1 digits, or the kind of a result beyond them
+template <int words>
+struct exp_digits
+{
+    fx_digits_t<words> digits;
+    int exp10;
+    exp_kind kind;
+};
+
 // Whether the 38 or 39 digits d of exp from words words, below 2 units off in three words and below d * 2^-119 + 2 in
 // two, can round to another value than the exact one: for decimal64_t the boundaries are multiples of 5 * 10^21
 template <int words>
