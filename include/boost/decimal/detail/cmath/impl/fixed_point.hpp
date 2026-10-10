@@ -818,14 +818,15 @@ template <typename T>
 constexpr auto fx_round(boost::int128::uint128_t sig, int e, const bool neg) noexcept -> T
 {
     constexpr int p {precision_v<T>};
-    static_assert(p >= 16, "one word is for decimal32_t");
+    constexpr auto p37 {pow10(static_cast<boost::int128::uint128_t>(37))};
     if (sig >= pow10(static_cast<boost::int128::uint128_t>(36)) && e + 37 - p >= etiny_v<T>)
     {
-        const int drop {(sig >= pow10(static_cast<boost::int128::uint128_t>(38)) ? 39 : sig >= pow10(static_cast<boost::int128::uint128_t>(37)) ? 38 : 37) - p - 1};
+        const int len {sig >= p37 * 10U ? 39 : sig >= p37 ? 38 : 37};
+        const int drop {len - p - 1};
         return fx_round_kept<T>(impl::divmod_pow10_dispatch(sig, drop, pow10(static_cast<boost::int128::uint128_t>(drop))).quotient, e + drop, neg);
     }
 
-    if (sig < pow10(static_cast<boost::int128::uint128_t>(37)))
+    if (sig < p37)
     {
         sig *= 10U;
         --e;
@@ -955,6 +956,14 @@ constexpr auto fx_wide_negate(const fx_wide<N>& a) noexcept -> fx_wide<N>
         carry = static_cast<std::uint64_t>(carry == 1U && r.w[i] == 0U);
     }
     return r;
+}
+
+// |a|, with neg set to whether a < 0
+template <int N>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_wide_abs(const fx_wide<N>& a, bool& neg) noexcept -> fx_wide<N>
+{
+    neg = (a.w[N] >> 63U) != 0U;
+    return neg ? fx_wide_negate(a) : a;
 }
 
 // a + b, or a - b for neg
