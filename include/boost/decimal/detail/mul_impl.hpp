@@ -46,14 +46,11 @@ template <typename ReturnType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_finalize_u64(
     std::uint_fast64_t product, ExpType result_exp, bool result_sign) noexcept -> ReturnType
 {
-    int extra {6};
-    if (product >= UINT64_C(10000000000000)) // 10^13
-    {
-        extra = 7;
-    }
-
-    const auto pow_extra {detail::pow10<std::uint64_t>(static_cast<std::uint64_t>(extra))};
-    auto q {product / pow_extra};
+    // Divide by both constants and select, as a division by a variable is slow
+    const bool long_product {product >= UINT64_C(10000000000000)}; // 10^13
+    int extra {long_product ? 7 : 6};
+    const std::uint64_t pow_extra {long_product ? UINT64_C(10000000) : UINT64_C(1000000)};
+    auto q {long_product ? product / UINT64_C(10000000) : product / UINT64_C(1000000)};
     const auto r {product - q * pow_extra};
     const auto half {pow_extra >> 1};
 
