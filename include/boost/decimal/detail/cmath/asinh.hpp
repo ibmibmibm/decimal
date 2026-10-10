@@ -40,18 +40,18 @@ constexpr auto asinh_shift(const boost::int128::uint128_t& sig, const int p) noe
 
 // asinh(x) = ln(|x| + sqrt(x^2 + 1)) for |x| >= 1/256. Below 1, it is ln(u + sqrt(u^2 + 1)) with u = |x|. Else
 // |x| = u * 2^-s * 10^n10 with u in [0.5, 1), and it is ln((u + sqrt(u^2 + 4^s * 10^(-2 n10))) * 2^-s * 10^n10).
-template <int N>
+template <int N, int Steps = 2>
 constexpr auto asinh_ln(const boost::int128::uint128_t& sig, const int e, const int p) noexcept -> fx_wide<N>
 {
     if (e + p <= 0)
     {
         const auto u {fx_from_decimal<N>(sig, -e)};
-        return log_wide_of(fx_add(u, fx_sqrt(fx_add(fx_one<N>(), fx_mul(u, u)))), 0, 0);
+        return log_wide_of(fx_add(u, fx_sqrt<N, Steps>(fx_add(fx_one<N>(), fx_mul(u, u)))), 0, 0);
     }
     const unsigned s {asinh_shift(sig, p)};
     const auto u {fx_from_decimal<N>(sig << s, p)};
     const auto c {fx_from_decimal<N>(1U << (2U * s), 2 * (e + p))};
-    return log_wide_of(fx_add(u, fx_sqrt(fx_add(fx_mul(u, u), c))), -static_cast<int>(s), e + p);
+    return log_wide_of(fx_add(u, fx_sqrt<N, Steps>(fx_add(fx_mul(u, u), c))), -static_cast<int>(s), e + p);
 }
 
 // asinh of a finite x != 0, rounded once in the current mode
@@ -79,6 +79,16 @@ constexpr auto asinh_fixed(const T x) noexcept -> T
         T r {};
         if (decimal_at_least(sig, e, p, words == 3 ? 20U : 11U, 0)
             && fx_wide_try_round(asinh_ln<words == 3 ? 2 : 1>(sig, e, p), neg, r, words == 3 ? 8U : 4U))
+        {
+            return r;
+        }
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        // A first try with one Newton step fewer in the sqrt, within 2^28 units of 2^-62 of the full value for every
+        // decimal32_t x, for |x| >= 0.11, where the result is above 0.1
+        T r {};
+        if (decimal_at_least(sig, e, p, 11U, 0) && fx_wide_try_round(asinh_ln<1, 1>(sig, e, p), neg, r, 29U))
         {
             return r;
         }

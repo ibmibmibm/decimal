@@ -440,37 +440,49 @@ constexpr auto fx_div(const fx<N>& a, const fx<N>& b) noexcept -> fx<N>
     return fx_mul(a, fx_recip(b));
 }
 
-// 1 / sqrt(d) for 1 <= d < 4. The guess from a table has an error below 2^-9, and each Newton step
-// r * (3 - d * r^2) / 2 doubles the correct bits: three steps in one word, then one in N words from
-// 1 / sqrt(d) in N - 1 words.
+// One Newton step r * (3 - d * r^2) / 2 of 1 / sqrt(d), which doubles the correct bits
 template <int N>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_rsqrt_step(const fx<N>& d, const fx<N>& r) noexcept -> fx<N>
+{
+    return fx_shr(fx_mul(r, fx_sub(fx_int<N>(3U), fx_mul(d, fx_mul(r, r)))), 1U);
+}
+
+// 1 / sqrt(d) for 1 <= d < 4. A table guess within 2^-9 and a first step in 64 bits, lowered by 2^-27, leave r below
+// 1 / sqrt(d) by 2^-28 to 2^-17: Steps - 1 more steps in one word, then one in N words from N - 1 words.
+template <int N, int Steps = 3>
 constexpr auto fx_rsqrt(const fx<N>& d) noexcept -> fx<N>
 {
     fx<N> r {};
     BOOST_DECIMAL_IF_CONSTEXPR (N == 1)
     {
         const auto h {static_cast<unsigned>(d.w[0] >> 63U)};
-        r.w[0] = static_cast<std::uint64_t>(fx_table::rsqrt_guess[(h << 7U) | ((d.w[0] >> (55U + h)) & 127U)]) << 46U;
-        fx<N> three {};
-        three.w[0] = UINT64_C(3) << 62U;
-        for (int i {}; i < 3; ++i)
+        const std::uint64_t g {fx_table::rsqrt_guess[(h << 7U) | ((d.w[0] >> (55U + h)) & 127U)]};
+        r.w[0] = (g * (((UINT64_C(3) << 60U) - (UINT64_C(1) << 34U) - (d.w[0] >> 34U) * (g * g)) >> 30U)) << 15U;
+        for (int i {1}; i < Steps; ++i)
         {
-            r = fx_shr(fx_mul(r, fx_sub(three, fx_mul(d, fx_mul(r, r)))), 1U);
+            r = fx_rsqrt_step(d, r);
         }
         return r;
     }
-    r = fx_extend<N>(fx_rsqrt(fx_top<(N > 1 ? N - 1 : 1)>(d)));
-    fx<N> three {};
-    three.w[N - 1] = UINT64_C(3) << 62U;
-    return fx_shr(fx_mul(r, fx_sub(three, fx_mul(d, fx_mul(r, r)))), 1U);
+    r = fx_extend<N>(fx_rsqrt<(N > 1 ? N - 1 : 1), Steps>(fx_top<(N > 1 ? N - 1 : 1)>(d)));
+    return fx_rsqrt_step(d, r);
 }
 
 // sqrt(d) for 0 < d < 4 with d >= 2^-62: d * 4^k is in [1, 4), and sqrt(d) = sqrt(d * 4^k) / 2^k.
-template <int N>
+template <int N, int Steps = 2>
 constexpr auto fx_sqrt(const fx<N>& d) noexcept -> fx<N>
 {
     const auto k {static_cast<unsigned>(countl_zero(d.w[N - 1]) / 2)};
     const auto m {k == 0U ? d : fx_shl(d, 2U * k)};
+
+    // One word: r = 1 / sqrt(m) to 34 bits from below, s = m * r, and s + r * (m - s^2) / 2 with m - s^2 >= 0.
+    // With Steps = 1, r has 17 bits and the result about 33.
+    BOOST_DECIMAL_IF_CONSTEXPR (N == 1)
+    {
+        const auto r {fx_rsqrt<N, Steps>(m)};
+        const auto s {fx_mul(m, r)};
+        return fx_shr(fx_add(s, fx_shr(fx_mul(r, fx_sub(m, fx_mul(s, s))), 1U)), k);
+    }
     return fx_shr(fx_mul(m, fx_rsqrt(m)), k);
 }
 
@@ -1048,7 +1060,7 @@ constexpr auto fx_wide_try_round(const fx_wide<2>& r, const bool neg, T& out, co
     return true;
 }
 
-// The same for decimal64_t in one word and units of 2^-62, for |r| >= 0.1: the digits are 19 with exp10 >= -19
+// The same for decimal32_t and decimal64_t in one word and units of 2^-62, for |r| >= 0.1: the digits are 19 with exp10 >= -19
 template <typename T>
 constexpr auto fx_wide_try_round(const fx_wide<1>& r, const bool neg, T& out, const unsigned bits = 6U) noexcept -> bool
 {
