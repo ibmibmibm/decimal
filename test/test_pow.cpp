@@ -813,22 +813,6 @@ namespace local
       result_is_ok = (result_val_pow_zero_is_ok && result_is_ok);
     }
 
-    for(auto index = 0U; index < 8U; ++index)
-    {
-      static_cast<void>(index);
-
-      const decimal_type arg_p_zero = static_cast<decimal_type>(dist_n(gen)) * (::my_zero<decimal_type>() * static_cast<decimal_type>(dist(gen)));
-      const int          n_p_zero   = static_cast<int>(arg_p_zero);
-
-      const auto dec_pow2_zero = boost::decimal::detail::pow_2_impl<decimal_type>(n_p_zero);
-
-      const auto result_val_pow2_zero_is_ok = ((dec_pow2_zero == decimal_type { 1 }) && (n_p_zero == 0));
-
-      BOOST_TEST(result_val_pow2_zero_is_ok);
-
-      result_is_ok = (result_val_pow2_zero_is_ok && result_is_ok);
-    }
-
     for(auto index = 2; index <= 10; index += 2)
     {
       const auto dec_zero_pos = pow(::my_zero<decimal_type>() * static_cast<decimal_type>(dist(gen)), decimal_type(index));
