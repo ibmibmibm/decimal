@@ -32,17 +32,17 @@ constexpr auto asinh_series(const fx<N>& t) noexcept -> fx<N>
 }
 
 // asinh(x) = ln(|x| + sqrt(x^2 + 1)) = ln(v * 10^n10) for |x| >= 1/256. For |x| >= 1, |x| = u * 10^n10 with u in [0.1, 1),
-// and v = u + sqrt(u^2 + 10^(-2 n10)); below 1, n10 = 0.
-template <int N>
+// and v = u + sqrt(u^2 + 10^(-2 n10)); below 1, n10 = 0. Steps is that of fx_sqrt.
+template <int N, int Steps = 2>
 constexpr auto asinh_v(const boost::int128::uint128_t& sig, const int e, const int p) noexcept -> fx<N>
 {
     if (e + p <= 0)
     {
         const auto u {fx_from_decimal<N>(sig, -e)};
-        return fx_add(u, fx_sqrt(fx_add(fx_one<N>(), fx_mul(u, u))));
+        return fx_add(u, fx_sqrt<N, Steps>(fx_add(fx_one<N>(), fx_mul(u, u))));
     }
     const auto u {fx_from_decimal<N>(sig, p)};
-    return fx_add(u, fx_sqrt(fx_add(fx_mul(u, u), fx_from_decimal<N>(1U, 2 * (e + p)))));
+    return fx_add(u, fx_sqrt<N, Steps>(fx_add(fx_mul(u, u), fx_from_decimal<N>(1U, 2 * (e + p)))));
 }
 
 // asinh of a finite x != 0, rounded once in the current mode
@@ -71,6 +71,16 @@ constexpr auto asinh_fixed(const T x) noexcept -> T
         T r {};
         if ((words == 3 ? decimal_at_least(sig, e, p, 20U, 0) : decimal_at_least(sig, e, p, 12U, 1))
             && fx_wide_try_round(log_wide_of(asinh_v<words == 3 ? 2 : 1>(sig, e, p), n10), neg, r, 8U))
+        {
+            return r;
+        }
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        // A first try with one Newton step fewer in the sqrt, within 2^28 units of 2^-62 of the full value for every
+        // decimal32_t x, for |x| >= 0.11, where the result is above 0.1
+        T r {};
+        if (decimal_at_least(sig, e, p, 11U, 0) && fx_wide_try_round(log_wide_of(asinh_v<1, 1>(sig, e, p), n10), neg, r, 29U))
         {
             return r;
         }
