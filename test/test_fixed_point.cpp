@@ -49,18 +49,59 @@ auto to_big(const fx<N>& a) -> big
     return r;
 }
 
+template <int N>
+auto to_big(const detail::fx_wide<N>& a) -> big
+{
+    big r {};
+    for (int i {}; i <= N; ++i)
+    {
+        r.d[2 * i] = static_cast<std::uint32_t>(a.w[i]);
+        r.d[2 * i + 1] = static_cast<std::uint32_t>(a.w[i] >> 32U);
+    }
+    return r;
+}
+
+// a of at most six words times b of at most five words
 auto big_product(const big& a, const big& b) -> big
 {
     big r {};
-    for (int i {}; i < 11; ++i)
+    for (int i {}; i < 12; ++i)
     {
         std::uint64_t c {};
-        for (int j {}; j < 11; ++j)
+        for (int j {}; j < 10; ++j)
         {
             c += static_cast<std::uint64_t>(a.d[i]) * b.d[j] + r.d[i + j];
             r.d[i + j] = static_cast<std::uint32_t>(c);
             c >>= 32U;
         }
+        r.d[i + 10] = static_cast<std::uint32_t>(c);
+    }
+    return r;
+}
+
+// a * n, for a product that fits
+auto big_times(const big& a, const std::uint32_t n) -> big
+{
+    big r {};
+    std::uint64_t c {};
+    for (int i {}; i < 22; ++i)
+    {
+        c += static_cast<std::uint64_t>(a.d[i]) * n;
+        r.d[i] = static_cast<std::uint32_t>(c);
+        c >>= 32U;
+    }
+    return r;
+}
+
+auto big_plus(const big& a, const big& b) -> big
+{
+    big r {};
+    std::uint64_t c {};
+    for (int i {}; i < 22; ++i)
+    {
+        c += static_cast<std::uint64_t>(a.d[i]) + b.d[i];
+        r.d[i] = static_cast<std::uint32_t>(c);
+        c >>= 32U;
     }
     return r;
 }
@@ -110,6 +151,19 @@ auto big_minus(const big& a, const big& b) -> big
         borrow = (t >> 32U) & 1U;
     }
     return r;
+}
+
+// Whether the low digits of a and b are equal: sums and differences of wide values drop the words above
+auto big_same(const big& a, const big& b, const int digits = 22) -> bool
+{
+    for (int i {}; i < digits; ++i)
+    {
+        if (a.d[i] != b.d[i])
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 // A value below 2, in which the two integer bits of the top word leave a product below 4
@@ -290,12 +344,126 @@ void test_round_tiny_all()
     test_round_tiny<decimal128_t>(uint128_t {UINT64_C(25)} * detail::pow10(static_cast<uint128_t>(37)), -6214, 2U, true);
 }
 
+// A wide value of N + 1 words with top_bits bits in the top word, so that 64 bits give both signs
+template <int N>
+auto next_wide(const unsigned top_bits) -> detail::fx_wide<N>
+{
+    detail::fx_wide<N> r {};
+    for (int i {}; i <= N; ++i)
+    {
+        r.w[i] = next_pattern();
+    }
+    r.w[N] = top_bits == 0U ? 0U : r.w[N] >> (64U - top_bits);
+    return r;
+}
+
+// The sums, differences and negations in two's complement, modulo 2^(64(N + 1))
+template <int N>
+void test_wide_add()
+{
+    const int digits {2 * (N + 1)};
+    for (int i {}; i < 4000; ++i)
+    {
+        const auto a {next_wide<N>(64U)};
+        const auto b {next_wide<N>(64U)};
+        BOOST_TEST(big_same(to_big(detail::fx_wide_add(a, b)), big_plus(to_big(a), to_big(b)), digits));
+        BOOST_TEST(big_same(to_big(detail::fx_wide_add(a, b, false)), big_plus(to_big(a), to_big(b)), digits));
+        BOOST_TEST(big_same(to_big(detail::fx_wide_add(a, b, true)), big_minus(to_big(a), to_big(b)), digits));
+        const auto minus_a {big_minus(big {}, to_big(a))};
+        BOOST_TEST(big_same(to_big(detail::fx_wide_negate(a)), minus_a, digits));
+        bool neg {};
+        const auto abs_a {detail::fx_wide_abs(a, neg)};
+        BOOST_TEST_EQ(neg, (a.w[N] >> 63U) != 0U);
+        BOOST_TEST(big_same(to_big(abs_a), neg ? minus_a : to_big(a), digits));
+    }
+}
+
+// The shifts move bits over the word boundaries, fx_wide_mul is the floor of the full product, and fx_wide_int and
+// fx_widen keep the scale of fx<N>
+template <int N>
+void test_wide_shift_mul()
+{
+    for (int i {}; i < 4000; ++i)
+    {
+        const auto s {static_cast<unsigned>(1U + next_word() % 63U)};
+        const auto low {next_wide<N>(s)};
+        BOOST_TEST(big_same(to_big(detail::fx_wide_shr(low, s)), big_shr(to_big(low), static_cast<int>(s))));
+
+        const auto fits {next_wide<N>(63U - s)};
+        const auto up {detail::fx_wide_shl(fits, s)};
+        BOOST_TEST(big_same(big_shr(to_big(up), static_cast<int>(s)), to_big(fits)));
+        BOOST_TEST_EQ(up.w[0] << (64U - s), UINT64_C(0));
+
+        const auto a {next_wide<N>(61U)};
+        const auto c {next_fx<N>()};
+        const auto product {big_shr(big_product(to_big(a), to_big(c)), 64 * N - 2)};
+        BOOST_TEST(big_same(to_big(detail::fx_wide_mul(a, c)), product));
+
+        const auto n {next_pattern()};
+        big n_big {};
+        n_big.d[0] = static_cast<std::uint32_t>(n);
+        n_big.d[1] = static_cast<std::uint32_t>(n >> 32U);
+        const auto whole {to_big(detail::fx_wide_int<N>(n))};
+        BOOST_TEST(big_same(big_shr(whole, 64 * N - 2), n_big));
+        BOOST_TEST(big_same(whole, big {}, 2 * N - 2));
+        BOOST_TEST_EQ(whole.d[2 * N - 2], UINT32_C(0));
+        BOOST_TEST_EQ(whole.d[2 * N - 1] << 2U, UINT32_C(0));
+        BOOST_TEST(big_same(to_big(detail::fx_widen(c)), to_big(c)));
+    }
+}
+
+// fx_wide_digits gives floor(|v| * 10^k) with 37 or 38 digits, or 18 or 19 in one word, for |v| of each size from
+// 2^-9 to 2^63, and flips neg for v < 0
+template <int N>
+void test_wide_digits()
+{
+    using digits_type = detail::fx_digits_t<N>;
+    const digits_type low {detail::pow10(static_cast<digits_type>(detail::fx_scale10(N) - 1))};
+    for (int i {}; i < 4000; ++i)
+    {
+        // The integer part stays below 2^63, which has the 19 digits of one word
+        auto v {next_wide<N>(static_cast<unsigned>(next_word() % 62U))};
+        if (v.w[N] == 0U && (v.w[N - 1] >> 53U) == 0U)
+        {
+            v.w[N - 1] |= UINT64_C(1) << (53U + next_word() % 11U);
+        }
+        for (const bool flip : {false, true})
+        {
+            for (const bool start : {false, true})
+            {
+                bool neg {start};
+                int exp10 {};
+                const auto digits {detail::fx_wide_digits(flip ? detail::fx_wide_negate(v) : v, neg, exp10, 5)};
+                BOOST_TEST_EQ(neg, start != flip);
+                BOOST_TEST(digits >= low && digits / 100U < low);
+
+                auto scaled {to_big(v)};
+                for (int k {exp10}; k < 5; ++k)
+                {
+                    scaled = big_times(scaled, 10U);
+                }
+                const boost::int128::uint128_t wide_digits {digits};
+                big digits_big {};
+                digits_big.d[0] = static_cast<std::uint32_t>(wide_digits.low);
+                digits_big.d[1] = static_cast<std::uint32_t>(wide_digits.low >> 32U);
+                digits_big.d[2] = static_cast<std::uint32_t>(wide_digits.high);
+                digits_big.d[3] = static_cast<std::uint32_t>(wide_digits.high >> 32U);
+                BOOST_TEST(exp10 <= 5);
+                BOOST_TEST(big_same(big_shr(scaled, 64 * N - 2), digits_big));
+            }
+        }
+    }
+}
+
 template <int N>
 void test_words()
 {
     test_mul<N>();
     test_add_sub<N>();
     test_recip<N>();
+    test_wide_add<N>();
+    test_wide_shift_mul<N>();
+    test_wide_digits<N>();
 }
 
 } // namespace

@@ -424,6 +424,54 @@ struct exp_digits
     exp_kind kind;
 };
 
+// 10^t, or 10^-t with neg, for t >= 0 in words + 1 words with the scale of fx. From whole >= bound the result
+// overflows or underflows, and t below 2^-(64 words - 20) cannot change the rounding of 1.
+template <int words, bool Precise = false>
+constexpr auto exp10_wide(const std::uint64_t (&t)[static_cast<std::size_t>(words + 1)], const bool neg, const std::uint64_t bound) noexcept -> exp_digits<words>
+{
+    constexpr int scale10 {fx_scale10(words)};
+    using digits_type = fx_digits_t<words>;
+
+    const std::uint64_t whole {(t[words] << 2U) | (t[words - 1] >> 62U)};
+    if (whole >= bound)
+    {
+        return {0U, 0, neg ? exp_kind::underflow : exp_kind::overflow};
+    }
+    fx<words> f {};
+    bool tiny {whole == 0U && t[0] < (UINT64_C(1) << 18U)};
+    for (int i {}; i < words; ++i)
+    {
+        f.w[i] = t[i];
+        tiny = tiny && (i == 0 || t[i] == 0U);
+    }
+    f.w[words - 1] &= (UINT64_C(1) << 62U) - 1U;
+    if (tiny)
+    {
+        return {0U, 0, neg ? exp_kind::below_one : exp_kind::above_one};
+    }
+
+    auto exp10 {static_cast<int>(whole)};
+    if (neg)
+    {
+        exp_negate(exp10, f);
+    }
+    const auto r10 {exp10_frac<words, Precise>(f)};
+    return {static_cast<digits_type>(exp10_digits(r10, scale10)), exp10 - scale10, exp_kind::digits};
+}
+
+// A result of the kind beyond the digits, rounded once in the current mode with the sign neg
+template <typename T, int words>
+constexpr auto exp10_beyond(const exp_kind kind, const bool neg) noexcept -> T
+{
+    constexpr int scale10 {fx_scale10(words)};
+    using digits_type = fx_digits_t<words>;
+
+    return kind == exp_kind::overflow ? T {1U, 2 * std::numeric_limits<T>::max_exponent10, neg}
+         : kind == exp_kind::underflow ? T {1U, -2 * std::numeric_limits<T>::max_exponent10, neg}
+         : kind == exp_kind::above_one ? fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10))), -scale10, neg)
+                                       : just_below_one<T, digits_type>(scale10, neg);
+}
+
 // The bound of the first try of exp in one word, in units of its 19 digits; test_first_try_bounds checks it
 constexpr std::uint64_t exp_word_units {2U};
 
@@ -463,7 +511,7 @@ constexpr auto exp_wide_stage(const boost::int128::uint128_t& sig, const int k, 
     const auto whole {static_cast<std::uint64_t>(wide_whole)};
     if (wide_whole >= exp_bound<T, Base2>())
     {
-        return neg ? T {1, -2 * std::numeric_limits<T>::max_exponent10} : T {1, 2 * std::numeric_limits<T>::max_exponent10};
+        return exp10_beyond<T, words>(neg ? exp_kind::underflow : exp_kind::overflow, false);
     }
     const auto& c {Base2 ? fx_table::log10_2 : fx_table::log10_e};
 
@@ -528,8 +576,6 @@ constexpr auto exp_fixed(const T x) noexcept -> T
 {
     constexpr int p {std::numeric_limits<T>::digits10};
     constexpr int words {fx_words(p)};
-    constexpr int scale10 {fx_scale10(words)};
-    using digits_type = fx_digits_t<words>;
 
     int e {};
     const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
@@ -540,8 +586,7 @@ constexpr auto exp_fixed(const T x) noexcept -> T
     // For |x| < 10^-(p + 1), exp(x) rounds as a value just above or just below 1
     if (k >= 2 * p + 1)
     {
-        return neg ? just_below_one<T, digits_type>(scale10, false)
-                   : fx_round<T>(static_cast<digits_type>(pow10(static_cast<boost::int128::uint128_t>(scale10))), -scale10, false);
+        return exp10_beyond<T, words>(neg ? exp_kind::below_one : exp_kind::above_one, false);
     }
 
     BOOST_DECIMAL_IF_CONSTEXPR (fx_is(words < 3))
