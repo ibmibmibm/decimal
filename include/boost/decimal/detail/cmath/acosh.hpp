@@ -25,14 +25,14 @@ namespace detail {
 namespace log_detail {
 
 // acosh(x) = ln(x + sqrt(x^2 - 1)) for x = u * 2^-s * 10^n10 >= 1 and u in [0.5, 1):
-// ln((u + sqrt(u^2 - 4^s * 10^(-2 n10))) * 2^-s * 10^n10)
-template <int N>
+// ln((u + sqrt(u^2 - 4^s * 10^(-2 n10))) * 2^-s * 10^n10), with the Steps of fx_sqrt
+template <int N, int Steps = 2>
 constexpr auto acosh_ln(const boost::int128::uint128_t& sig, const int p, const int n10) noexcept -> fx_wide<N>
 {
     const unsigned s {asinh_shift(sig, p)};
     const auto u {fx_from_decimal<N>(sig << s, p)};
     const auto c {fx_from_decimal<N>(1U << (2U * s), 2 * n10)};
-    return log_wide_of(fx_add(u, fx_sqrt(fx_sub(fx_mul(u, u), c))), -static_cast<int>(s), n10);
+    return log_wide_of(fx_add(u, fx_sqrt<N, Steps>(fx_sub(fx_mul(u, u), c))), -static_cast<int>(s), n10);
 }
 
 // acosh of a finite x != 0, rounded once in the current mode
@@ -90,6 +90,15 @@ constexpr auto acosh_fixed(const T x) noexcept -> T
         T r {};
         if (decimal_at_least(sig, e, p, words == 3 ? 20U : 11U, 1)
             && fx_wide_try_round(acosh_ln<words == 3 ? 2 : 1>(sig, p, n10), false, r, words == 3 ? 8U : 5U))
+        {
+            return r;
+        }
+    }
+    BOOST_DECIMAL_IF_CONSTEXPR (words == 1)
+    {
+        // The same first try as in asinh, for x >= 1.1
+        T r {};
+        if (decimal_at_least(sig, e, p, 11U, 1) && fx_wide_try_round(acosh_ln<1, 1>(sig, p, n10), false, r, 29U))
         {
             return r;
         }
