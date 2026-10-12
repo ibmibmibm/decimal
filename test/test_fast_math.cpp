@@ -294,6 +294,13 @@ void test_domain_error()
     BOOST_TEST_EQ(acosh(-2_DF), 0_DF);
 }
 
+// The tiny-m path of beta decides without isnan, which fast math turns off
+void test_beta_tiny()
+{
+    BOOST_TEST_EQ(beta(1.000000000000001E-21_DD, 2_DD), 9.999999999999990E+20_DD);
+    BOOST_TEST_EQ(beta(1E-21_DD, 1E+300_DD), 1E+21_DD);
+}
+
 template <typename T>
 void test_non_arithmetic()
 {
@@ -356,6 +363,7 @@ int main()
     test_sqrt_zero<decimal_fast128_t>();
 
     test_domain_error();
+    test_beta_tiny();
 
     return boost::report_errors();
 }
