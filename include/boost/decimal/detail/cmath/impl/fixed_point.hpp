@@ -560,6 +560,24 @@ constexpr auto fx_less(const fx<N>& a, const fx<N>& b) noexcept -> bool
     return a.w[0] < b.w[0];
 }
 
+// A value in N words with a sign
+template <int N>
+struct fx_signed
+{
+    fx<N> m;
+    bool neg;
+};
+
+template <int N>
+constexpr auto fx_signed_add(const fx_signed<N>& a, const fx_signed<N>& b) noexcept -> fx_signed<N>
+{
+    if (a.neg == b.neg)
+    {
+        return {fx_add(a.m, b.m), a.neg};
+    }
+    return fx_less(a.m, b.m) ? fx_signed<N> {fx_sub(b.m, a.m), b.neg} : fx_signed<N> {fx_sub(a.m, b.m), a.neg};
+}
+
 // min(a, 1 - 2^-(64N - 2)): a value that must be below one stays below one.
 template <int N>
 constexpr auto fx_clamp_below_one(const fx<N>& a) noexcept -> fx<N>

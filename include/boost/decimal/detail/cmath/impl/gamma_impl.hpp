@@ -183,6 +183,13 @@ constexpr auto gamma_stirling(const fx_wide<N>& y) noexcept -> fx_wide<N>
     return fx_wide_add(gamma_stirling_head(y, f), fx_widen(gamma_stirling_tail<N>(f)));
 }
 
+// ln gamma(y) for 10 <= y < 10^16 with the head of the Stirling series in two words and its tail in one
+constexpr auto gamma_stirling_one(const fx_wide<2>& y) noexcept -> fx_wide<2>
+{
+    const auto f {gamma_normalize(y)};
+    return fx_wide_add(gamma_stirling_head(y, f), fx_widen(fx_extend<2>(gamma_stirling_tail<1>(f))));
+}
+
 // ln|gamma(x)| = st - ln(c), or ln(c) - st with neg_st, and the sign neg of gamma(x)
 template <int N>
 struct gamma_parts
@@ -1202,6 +1209,20 @@ constexpr auto gamma_lead_round(const boost::int128::uint128_t& sig, const int e
     }
     out = fx_round<T>(static_cast<boost::int128::uint128_t>(qr.quotient) * 10U + 1U, -e - k - 1, neg);
     return true;
+}
+
+// expm1(s) / s = 1 + s / 2! + ... + s^5 / 6! for s = a, or s = -a with neg, and a < 10^-10
+constexpr auto gamma_expm1_ratio(const fx<3>& a, const bool neg) noexcept -> fx<3>
+{
+    const auto one {fx_one<3>()};
+    constexpr std::uint64_t den[5] {120U, 24U, 6U, 2U, 1U};
+    auto t {fx_div_small(one, 720U)};
+    for (const auto d : den)
+    {
+        const auto c {fx_div_small(one, d)};
+        t = neg ? fx_sub(c, fx_mul(a, t)) : fx_add(c, fx_mul(a, t));
+    }
+    return t;
 }
 
 // The same in out for decimal128_t and 10^-50 <= |x| < 10^-16, where 1 / x can be nearer to a rounding boundary than
