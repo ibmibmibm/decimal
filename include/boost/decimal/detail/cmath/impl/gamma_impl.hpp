@@ -185,6 +185,13 @@ constexpr auto gamma_stirling(const fx_wide<N>& y) noexcept -> fx_wide<N>
     return fx_wide_add(gamma_stirling_head(y, f), fx_widen(gamma_stirling_tail<N>(f)));
 }
 
+// ln gamma(y) for 10 <= y < 10^16 with the head of the Stirling series in two words and its tail in one
+constexpr auto gamma_stirling_one(const fx_wide<2>& y) noexcept -> fx_wide<2>
+{
+    const auto f {gamma_normalize(y)};
+    return fx_wide_add(gamma_stirling_head(y, f), fx_widen(fx_extend<2>(gamma_stirling_tail<1>(f))));
+}
+
 // ln|gamma(x)| = st - ln(c), or ln(c) - st with neg_st, and the sign neg of gamma(x)
 template <int N>
 struct gamma_parts
