@@ -484,6 +484,22 @@ constexpr auto fx_sqrt(const fx<N>& d) noexcept -> fx<N>
     return fx_shr(fx_mul(m, fx_rsqrt(m)), k);
 }
 
+// The count of leading zero bits, 64N for zero
+template <int N>
+constexpr auto fx_lead(const fx<N>& a) noexcept -> int
+{
+    int n {};
+    for (int i {N - 1}; i >= 0; --i)
+    {
+        if (a.w[i] != 0U)
+        {
+            return n + countl_zero(a.w[i]);
+        }
+        n += 64;
+    }
+    return n;
+}
+
 // a < b
 template <int N>
 constexpr auto fx_less(const fx<N>& a, const fx<N>& b) noexcept -> bool
