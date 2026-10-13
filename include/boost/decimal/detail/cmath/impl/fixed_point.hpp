@@ -484,6 +484,25 @@ constexpr auto fx_sqrt(const fx<N>& d) noexcept -> fx<N>
     return fx_shr(fx_mul(m, fx_rsqrt(m)), k);
 }
 
+// a * 2^s, truncated, for any s and a * 2^s < 4
+template <int N>
+constexpr auto fx_shift(const fx<N>& a, const int s) noexcept -> fx<N>
+{
+    const int q {(s < 0 ? -s : s) / 64};
+    const auto b {static_cast<unsigned>((s < 0 ? -s : s) % 64)};
+    fx<N> r {};
+    for (int i {}; i < N; ++i)
+    {
+        const int j {s < 0 ? i + q : i - q};
+        r.w[i] = (j >= 0 && j < N) ? a.w[j] : 0U;
+    }
+    if (b == 0U)
+    {
+        return r;
+    }
+    return s < 0 ? fx_shr(r, b) : fx_shl(r, b);
+}
+
 // The count of leading zero bits, 64N for zero
 template <int N>
 constexpr auto fx_lead(const fx<N>& a) noexcept -> int

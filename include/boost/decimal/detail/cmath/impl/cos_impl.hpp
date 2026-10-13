@@ -61,6 +61,20 @@ constexpr auto trig_taylor(const fx<N>& z, const bool use_cos) noexcept -> fx<N>
     return fx_clamp_below_one(s);
 }
 
+// sin(r) / r for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto sinc_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, false) : sinc_fx(z);
+}
+
+// cos(r) for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto cos_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, true) : cos_fx(z);
+}
+
 // sin(|r|), or with use_cos cos(r), with the sign neg, for r != 0. For three words the polynomials are good
 // to 2 units of the 38 digits, thus near a rounding boundary the Taylor series decides.
 template <typename T>

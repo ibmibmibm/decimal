@@ -278,6 +278,10 @@ void test_domain_error()
     BOOST_TEST_EQ(asin(2_DL), 0_DL);
     BOOST_TEST_EQ(acosh(0.5_DD), 0_DD);
     BOOST_TEST_EQ(acosh(-2_DF), 0_DF);
+    BOOST_TEST_EQ(ellint_1(2_DD, 0.5_DD), 0_DD);
+    BOOST_TEST_EQ(comp_ellint_1(-1.5_DF), 0_DF);
+    BOOST_TEST_EQ(ellint_2(1.5_DL, 0.5_DL), 0_DL);
+    BOOST_TEST_EQ(comp_ellint_2(2_DD), 0_DD);
 }
 
 template <typename T>

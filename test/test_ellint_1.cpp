@@ -347,7 +347,7 @@ namespace local
           std::numeric_limits<decimal_type>::epsilon() * 4096
         );
 
-      const volatile auto result_comp_ellint_k_one_is_ok = isnan(comp_ellint_1(arg_k_one));
+      const volatile auto result_comp_ellint_k_one_is_ok = isinf(comp_ellint_1(arg_k_one));
 
       BOOST_TEST(result_ellint_k_one_is_ok);
       BOOST_TEST(result_comp_ellint_k_one_is_ok);
