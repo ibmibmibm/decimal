@@ -486,6 +486,25 @@ constexpr auto fx_sqrt(const fx<N>& d) noexcept -> fx<N>
     return fx_shr(fx_mul(m, fx_rsqrt(m)), k);
 }
 
+// a * 2^s, truncated, for any s and a * 2^s < 4
+template <int N>
+constexpr auto fx_shift(const fx<N>& a, const int s) noexcept -> fx<N>
+{
+    const int q {(s < 0 ? -s : s) / 64};
+    const auto b {static_cast<unsigned>((s < 0 ? -s : s) % 64)};
+    fx<N> r {};
+    for (int i {}; i < N; ++i)
+    {
+        const int j {s < 0 ? i + q : i - q};
+        r.w[i] = (j >= 0 && j < N) ? a.w[j] : 0U;
+    }
+    if (b == 0U)
+    {
+        return r;
+    }
+    return s < 0 ? fx_shr(r, b) : fx_shl(r, b);
+}
+
 // The count of leading zero bits, 64N for zero
 template <int N>
 constexpr auto fx_lead(const fx<N>& a) noexcept -> int
@@ -960,6 +979,20 @@ constexpr auto fx_try_round(const std::uint64_t sig, const int e, const bool neg
     }
     out = fx_round_kept<T>(sig / unit, e + k, neg);
     return true;
+}
+
+// For decimal64_t, sig * 10^e of 37 to 39 digits for a result |r| >= 1 with an error below k units of 2^-62, rounded
+// once in out where it cannot be next to a rounding boundary: 19 digits have an error below k 2^-62 10^-e units, plus 2
+template <typename T>
+constexpr auto fx_try_round_digits(const boost::int128::uint128_t& sig, const int e, const bool neg, const std::uint64_t k, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+
+    const int drop {sig >= pow10(static_cast<sig_type>(38)) ? 20 : sig >= pow10(static_cast<sig_type>(37)) ? 19 : 18};
+    const auto q {impl::divmod_pow10_dispatch(sig, drop, pow10(static_cast<sig_type>(drop))).quotient};
+    const int e10 {e + drop};
+    const auto w {(static_cast<sig_type>(pow10(static_cast<std::uint64_t>(-e10))) * k) >> 62U};
+    return fx_try_round(q.low, e10, neg, w.low + 2U, out);
 }
 
 // N + 1 words in two's complement with the scale of fx<N>: the extra word and the two top bits of word N - 1 hold the

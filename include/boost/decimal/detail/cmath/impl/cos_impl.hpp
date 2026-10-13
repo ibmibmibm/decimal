@@ -73,6 +73,20 @@ constexpr auto trig_taylor(const fx<N>& z, const bool use_cos) noexcept -> fx<N>
     return fx_clamp_below_one(s);
 }
 
+// sin(r) / r for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto sinc_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, false) : sinc_fx(z);
+}
+
+// cos(r) for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto cos_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, true) : cos_fx(z);
+}
+
 // The signs of sin(x) and cos(x) for x = n*pi/2 + r, where the sign of sin(r) is r.neg and cos(r) > 0
 template <int N>
 constexpr auto sin_neg(const trig_arg<N>& r) noexcept -> bool
