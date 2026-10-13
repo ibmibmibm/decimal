@@ -172,13 +172,10 @@ struct exp_mantissa
     unsigned a;
 };
 
-// 10^f = 2^(a + i/16 + j/256) * exp(-v ln(2)) for 0 <= f <= 1 and 0 < v <= 1/256. In one word, m has a relative error
-// below 6.4 units of 2^-62 plus ln(10) times the error of f.
+// 2^t = 2^(a + i/16 + j/256) * exp(-v ln(2)) for 0 <= t < 4 with t = a + i/16 + (j - 1)/256 + r and v = 1/256 - r
 template <int words, bool Precise = false>
-constexpr auto exp10_frac(const fx<words>& f) noexcept -> exp_mantissa<words>
+constexpr auto exp2_frac(fx<words> t) noexcept -> exp_mantissa<words>
 {
-    // t = f * log2(10) = a + i/16 + (j - 1)/256 + r, and v = 1/256 - r
-    auto t {fx_mul(f, fx_top<words>(fx_table::log2_10))};
     const auto a {static_cast<unsigned>(t.w[words - 1] >> 62U)};
     const auto i {static_cast<std::size_t>((t.w[words - 1] >> 58U) & 15U)};
     const auto j {static_cast<std::size_t>((t.w[words - 1] >> 54U) & 15U) + 1U};
@@ -190,6 +187,14 @@ constexpr auto exp10_frac(const fx<words>& f) noexcept -> exp_mantissa<words>
     const auto coarse {fx_mul(fx_top<words>(fx_table::pow2[i]), fx_top<words>(fx_table::pow2_fine[j]))};
     const auto z {fx_mul(v, fx_top<words>(fx_table::ln2))};
     return {fx_mul(coarse, exp_neg_series_of(z, std::integral_constant<bool, Precise> {})), a};
+}
+
+// 10^f = 2^t for t = f * log2(10) and 0 <= f <= 1. In one word, m has a relative error below 6.4 units of 2^-62 plus
+// ln(10) times the error of f.
+template <int words, bool Precise = false>
+constexpr auto exp10_frac(const fx<words>& f) noexcept -> exp_mantissa<words>
+{
+    return exp2_frac<words, Precise>(fx_mul(f, fx_top<words>(fx_table::log2_10)));
 }
 
 // For decimal32_t and decimal64_t, m * s * 10^e10 for an exact m and s with an error below err units of 2^-62, rounded
