@@ -10,10 +10,10 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/cmath/impl/polynomial_impl.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
-#include <utility>
 #include <type_traits>
 #include <limits>
 #endif
@@ -23,16 +23,7 @@ namespace decimal {
 
 namespace detail {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T1,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T2,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T3>
-constexpr auto legendre_next(const unsigned l, const T1 x, const T2 Pl, const T3 Plm1) noexcept
-{
-    using result_type = promote_args_t<T1, T2, T3>;
-    return ((2 * l + 1) * static_cast<result_type>(x) * static_cast<result_type>(Pl) - l * static_cast<result_type>(Plm1)) / (l + 1);
-}
-
-// Implement Legendre P and Q polynomials via recurrence:
+// The Legendre polynomial P_l(x)
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
 constexpr auto legendre_impl(const unsigned l, const T x) noexcept
 {
@@ -47,28 +38,24 @@ constexpr auto legendre_impl(const unsigned l, const T x) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     else if (isnan(x))
     {
-        return x;
+        return issignaling(x) ? nan_conversion(x) : x;
     }
     #endif
 
-    T p0 {1};
-    T p1 {x};
-
-    if (l == 0)
+    // P_0 = 1, P_l(1) = 1 and P_l(-1) = (-1)^l, and P_1(x) = x with +0 for a zero x as from the recurrence
+    if (l == 0U || x == 1)
     {
-        return p0;
+        return T {1};
     }
-
-    unsigned n = 1;
-
-    while (n < l)
+    if (x == -1)
     {
-        std::swap(p0, p1);
-        p1 = static_cast<T>(legendre_next(n, x, p0, p1));
-        ++n;
+        return (l & 1U) != 0U ? T {-1} : T {1};
     }
-
-    return p1;
+    if (l == 1U)
+    {
+        return x == 0 ? T {0} : x;
+    }
+    return poly_detail::poly_fixed(poly_detail::poly_kind::legendre, l, 0U, x);
 }
 
 } //namespace detail

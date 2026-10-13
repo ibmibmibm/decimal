@@ -11,10 +11,10 @@
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/cmath/impl/polynomial_impl.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
-#include <cstdint>
 #endif
 
 namespace boost {
@@ -22,37 +22,34 @@ namespace decimal {
 
 namespace detail {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T1,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T2,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T3>
-constexpr auto laguerre_next(const unsigned n, const T1 x, const T2 Ln, const T3 Lnm1)
-{
-    using promoted_type = promote_args_t<T1, T2, T3>;
-    return ((2 * n + 1 - static_cast<promoted_type>(x)) * static_cast<promoted_type>(Ln) - n * static_cast<promoted_type>(Lnm1)) / (n + 1);
-}
-
-// Implement Laguerre polynomials via recurrence:
+// The Laguerre polynomial of degree n, and of order m for assoc_laguerre
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
-constexpr auto laguerre_impl(const unsigned n, const T x)
+constexpr auto laguerre_impl(const unsigned n, const T x, const unsigned m = 0U)
 {
-    T p0 {UINT64_C(1)};
-    T p1 {UINT64_C(1) - x};
-
-    if (n == 0)
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (isnan(x))
     {
-        return p0;
+        return issignaling(x) ? nan_conversion(x) : x;
     }
-
-    unsigned c = 1;
-
-    while(c < n)
+    if (isinf(x))
     {
-        std::swap(p0, p1);
-        p1 = laguerre_next(c, x, p0, p1);
-        ++c;
+        // (-x)^n / n! leads
+        const T a {signbit(x) ? -x : x};
+        return n == 0U ? T {1} : (signbit(x) || (n & 1U) == 0U ? a : -a);
     }
+    #endif
 
-    return p1;
+    if (n == 0U || (m == 0U && x == 0))
+    {
+        return T {1};
+    }
+    // L_1^m(x) = m + 1 - x takes one rounding where m + 1 has 7 digits at most, and a zero result is +0 as from the recurrence
+    if (n == 1U && m < 9999999U)
+    {
+        const T r {T {m + 1U} - x};
+        return r == 0 ? T {0} : r;
+    }
+    return poly_detail::poly_fixed(poly_detail::poly_kind::laguerre, n, m, x);
 }
 
 } //namespace detail

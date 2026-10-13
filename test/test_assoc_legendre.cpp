@@ -62,7 +62,8 @@ void test()
                 const auto val1 {dist(rng)};
                 Dec d1 {val1};
 
-                auto ret_val {boost::math::legendre_p(static_cast<int>(n), static_cast<int>(m), val1)};
+                // C++17 leaves out the factor (-1)^m of Boost.Math
+                auto ret_val {(m % 2U == 0U ? 1.0F : -1.0F) * boost::math::legendre_p(static_cast<int>(n), static_cast<int>(m), val1)};
                 auto ret_dec {static_cast<float>(assoc_legendre(n, m, d1))};
 
                 if (!BOOST_TEST(std::fabs(ret_val - ret_dec) < 200*std::numeric_limits<float>::epsilon()))
