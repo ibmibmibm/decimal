@@ -167,6 +167,7 @@ run github_issue_gamma.cpp ;
 run github_issue_beta.cpp ;
 run github_issue_ellint.cpp ;
 run github_issue_zeta.cpp ;
+run github_issue_polynomial.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
