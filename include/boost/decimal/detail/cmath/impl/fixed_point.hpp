@@ -1077,6 +1077,14 @@ constexpr auto fx_try_round(const std::uint64_t sig, const int e, const bool neg
     return true;
 }
 
+// a u / 2^64 for a signed a, rounded on the low word
+BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_mul_signed(const std::uint64_t a, const std::uint64_t u) noexcept -> std::uint64_t
+{
+    std::uint64_t hi {};
+    const std::uint64_t lo {boost::int128::detail::umul(a, u, hi)};
+    return (hi - ((a >> 63U) != 0U ? u : 0U)) + (lo >> 63U);
+}
+
 // The polynomial with the words c[first] to c[last - 1], two's complement times 2^62 from the constant term, at
 // u / 2^64 by Horner's rule with rounded products, where the partial sums stay below 2
 template <std::size_t M>
@@ -1085,12 +1093,27 @@ constexpr auto fx_poly_signed(const std::uint64_t (&c)[M], const int first, cons
     std::uint64_t acc {c[static_cast<std::size_t>(last - 1)]};
     for (int k {last - 2}; k >= first; --k)
     {
-        // The high word of acc u for a signed acc, rounded on the low word
-        std::uint64_t hi {};
-        const std::uint64_t lo {boost::int128::detail::umul(acc, u, hi)};
-        acc = c[static_cast<std::size_t>(k)] + (hi - ((acc >> 63U) != 0U ? u : 0U)) + (lo >> 63U);
+        acc = c[static_cast<std::size_t>(k)] + fx_mul_signed(acc, u);
     }
     return acc;
+}
+
+// fx_poly_signed for an even number of terms as e(v) + u o(v) with v = u^2 / 2^64, where the even and the odd terms
+// run in two chains side by side, and the partial sums of both stay below 2
+template <std::size_t M>
+constexpr auto fx_poly_split(const std::uint64_t (&c)[M], const int first, const int last, const std::uint64_t u) noexcept -> std::uint64_t
+{
+    std::uint64_t hi {};
+    const std::uint64_t lo {boost::int128::detail::umul(u, u, hi)};
+    const std::uint64_t v {hi + (lo >> 63U)};
+    std::uint64_t odd {c[static_cast<std::size_t>(last - 1)]};
+    std::uint64_t even {c[static_cast<std::size_t>(last - 2)]};
+    for (int k {last - 3}; k > first; k -= 2)
+    {
+        odd = c[static_cast<std::size_t>(k)] + fx_mul_signed(odd, v);
+        even = c[static_cast<std::size_t>(k - 1)] + fx_mul_signed(even, v);
+    }
+    return even + fx_mul_signed(odd, u);
 }
 
 // For decimal32_t and decimal64_t, sig * 10^e of 18 to 20 digits from one word with an error below err units of 2^-62,

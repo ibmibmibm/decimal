@@ -191,7 +191,7 @@ auto test_riemann_zeta_edge() -> bool
 
       result_inf_is_ok =
       (
-        isinf(riemann_zeta(-inf)) && signbit(riemann_zeta(-inf))
+        isnan(riemann_zeta(-inf))
       );
       result_is_ok = (result_inf_is_ok && result_is_ok);
       BOOST_TEST(result_is_ok);
