@@ -11,10 +11,10 @@
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/cmath/impl/polynomial_impl.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
-#include <cstdint>
 #endif
 
 namespace boost {
@@ -22,37 +22,32 @@ namespace decimal {
 
 namespace detail {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T1,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T2,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T3>
-constexpr auto hermite_next(const unsigned n, const T1 x, const T2 Hn, const T3 Hnm1)
-{
-    using promoted_type = promote_args_t<T1, T2, T3>;
-    return 2 * static_cast<promoted_type>(x) * static_cast<promoted_type>(Hn) - 2 * n * static_cast<promoted_type>(Hnm1);
-}
-
 template <typename T>
 constexpr auto hermite_impl(const unsigned n, const T x) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    T p0 {UINT64_C(1)};
-    T p1 {UINT64_C(2) * x};
-
-    if (n == 0)
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (isnan(x))
     {
-        return p0;
+        return x;
     }
-
-    unsigned c = 1;
-
-    while (c < n)
+    if (isinf(x))
     {
-        std::swap(p0, p1);
-        p1 = static_cast<T>(hermite_next(c, x, p0, p1));
-        ++c;
+        // (2x)^n leads
+        return n == 0U ? T {1} : (signbit(x) && (n & 1U) == 0U ? -x : x);
     }
+    #endif
 
-    return p1;
+    if (n == 0U)
+    {
+        return T {1};
+    }
+    // H_1(x) = 2x takes one rounding, and a zero x gives +0 as the recurrence does
+    if (n == 1U)
+    {
+        return x == 0 ? T {0} : x + x;
+    }
+    return poly_detail::poly_fixed(poly_detail::poly_kind::hermite, n, 0U, x);
 }
 
 } //namespace detail
