@@ -9,16 +9,10 @@
 
 #include <boost/decimal/fwd.hpp> // NOLINT(llvm-include-order)
 #include <boost/decimal/detail/cmath/impl/ellint_impl.hpp>
-#include <boost/decimal/detail/cmath/atan.hpp>
 #include <boost/decimal/detail/cmath/fabs.hpp>
-#include <boost/decimal/detail/cmath/log.hpp>
-#include <boost/decimal/detail/cmath/sin.hpp>
-#include <boost/decimal/detail/cmath/sqrt.hpp>
-#include <boost/decimal/detail/cmath/tan.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
-#include <boost/decimal/numbers.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <limits>
@@ -28,147 +22,13 @@
 namespace boost {
 namespace decimal {
 
-namespace detail {
-
-template <typename T>
-constexpr auto ellint_2_impl(const T m, const T phi) noexcept
-    BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
-{
-  constexpr T one { 1 };
-
-  T result { };
-
-  const auto fpc_m   = fpclassify(m);
-  const auto fpc_phi = fpclassify(phi);
-
-  if((fpc_m == FP_ZERO) && (fpc_phi == FP_NORMAL))
-  {
-    result = phi;
-  }
-  else if((fpc_phi == FP_ZERO) && (fpc_m == FP_NORMAL))
-  {
-    constexpr T zero { 0 };
-
-    result = zero;
-  }
-  else if((fabs(m) > one) || (fpc_phi != FP_NORMAL) || (fpc_m != FP_NORMAL))
-  {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    result = std::numeric_limits<T>::quiet_NaN();
-    #else
-    result = T{0};
-    #endif
-  }
-  else if(signbit(phi))
-  {
-    result = -ellint_2_impl(m, -phi);
-  }
-  else if(signbit(m))
-  {
-    result = ellint_2_impl(-m, phi);
-  }
-  else
-  {
-    constexpr T small_phi_limit =
-          std::numeric_limits<T>::digits10 < 10 ? T { 1, -2 }
-        : std::numeric_limits<T>::digits10 < 20 ? T { 1, -3 }
-        :                                         T { 1, -5 };
-
-    if (phi < small_phi_limit)
-    {
-      // PadeApproximant[EllipticE[phi, m2], {phi, 0, {4, 3}}]
-      // FullSimplify[%]
-
-      const T phi_sq { phi * phi };
-
-      const T m2 { m * m };
-
-      const T top { phi * (-60 + (-12 + 19 * m2) * phi_sq) };
-      const T bot { -60 + 3 * (-4 + 3 * m2) * phi_sq };
-
-      result = top / bot;
-    }
-    else
-    {
-      constexpr T my_pi_half { numbers::pi_v<T> / 2 };
-
-      int k_pi = static_cast<int>(phi / numbers::pi_v<T>);
-
-      T phi_scaled = phi - (k_pi * numbers::pi_v<T>);
-
-      const bool b_medium_phi_scale_and_negate { phi_scaled > my_pi_half };
-
-      if(b_medium_phi_scale_and_negate)
-      {
-        ++k_pi;
-
-        phi_scaled = -(phi_scaled - numbers::pi_v<T>);
-      }
-
-      T Fpm { };
-      T Km  { };
-      T Em  { };
-
-      const T m2 { m * m };
-
-      detail::ellint_detail::elliptic_series::agm(phi_scaled, m2, Fpm, Km, &Em, &result);
-
-      if(b_medium_phi_scale_and_negate)
-      {
-        result = -result;
-      }
-
-      result += ((k_pi * Em) * 2);
-    }
-  }
-
-  return result;
-}
-
-template <typename T>
-constexpr auto comp_ellint_2_impl(const T m) noexcept
-    BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
-{
-  constexpr T one  { 1 };
-
-  T result { };
-
-  const auto fpc_m   = fpclassify(m);
-
-  if(fpc_m == FP_ZERO)
-  {
-    result = numbers::pi_v<T> / 2;
-  }
-  else if((fabs(m) > one) || (fpc_m != FP_NORMAL))
-  {
-    result = std::numeric_limits<T>::quiet_NaN();
-  }
-  else if(signbit(m))
-  {
-    result = comp_ellint_2_impl(-m);
-  }
-  else
-  {
-    constexpr T zero { 0 };
-
-    T Fpm { };
-    T Km  { };
-
-    detail::ellint_detail::elliptic_series::agm(zero, m * m, Fpm, Km, &result, static_cast<T*>(nullptr));
-  }
-
-  return result;
-}
-
-} //namespace detail
-
 BOOST_DECIMAL_EXPORT template <typename T>
 constexpr auto ellint_2(const T k, const T phi) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
     using evaluation_type = detail::evaluation_type_t<T>;
 
-    return static_cast<T>(detail::ellint_2_impl(static_cast<evaluation_type>(k), static_cast<evaluation_type>(phi)));
+    return static_cast<T>(detail::ellint_detail::ellint_checked(static_cast<evaluation_type>(k), static_cast<evaluation_type>(phi), detail::ellint_detail::ellint_kind::second));
 }
 
 BOOST_DECIMAL_EXPORT template <typename T>
@@ -177,7 +37,7 @@ constexpr auto comp_ellint_2(const T k) noexcept
 {
     using evaluation_type = detail::evaluation_type_t<T>;
 
-    return static_cast<T>(detail::comp_ellint_2_impl(static_cast<evaluation_type>(k)));
+    return static_cast<T>(detail::ellint_detail::comp_ellint_checked(static_cast<evaluation_type>(k), detail::ellint_detail::ellint_kind::second));
 }
 
 } //namespace decimal

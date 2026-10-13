@@ -7,6 +7,7 @@
 #include <boost/decimal.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <cstdint>
+#include <limits>
 
 using namespace boost::decimal;
 using boost::int128::uint128_t;
@@ -230,7 +231,7 @@ void test_recip()
     for (int i {}; i < 2000; ++i)
     {
         auto d {next_fx<N>()};
-        d.w[N - 1] |= UINT64_C(1) << 61U;
+        d.w[N - 1] |= UINT64_C(1) << ((i & 1) != 0 ? 62U : 61U);
         const auto r {detail::fx_recip(d)};
         const auto product {big_product(to_big(d), to_big(r))};
         const int one_bit {2 * (64 * N - 2)};
@@ -455,12 +456,176 @@ void test_wide_digits()
     }
 }
 
+// fx_shift moves by any count of bits, also by whole words and past the width: a shift down truncates
+template <int N>
+void test_shift()
+{
+    for (int i {}; i < 500; ++i)
+    {
+        const auto a {next_fx<N>()};
+        for (const int s : {0, 1, 31, 63, 64, 65, 127, 128, 64 * N - 1, 64 * N, 64 * N + 1})
+        {
+            const auto down {detail::fx_shift(a, -s)};
+            BOOST_TEST(big_same(to_big(down), big_shr(to_big(a), s)));
+            const auto up {detail::fx_shift(down, s)};
+            BOOST_TEST(big_same(big_shr(to_big(up), s), to_big(down)));
+            BOOST_TEST(!big_less(to_big(a), to_big(up)));
+            BOOST_TEST(big_less(big_minus(to_big(a), to_big(up)), big_bit(s)));
+        }
+        // The extreme counts give zero
+        const auto zero {big_shr(to_big(a), 64 * N)};
+        BOOST_TEST(big_same(to_big(detail::fx_shift(a, (std::numeric_limits<int>::min)())), zero));
+        BOOST_TEST(big_same(to_big(detail::fx_shift(a, (std::numeric_limits<int>::max)())), zero));
+    }
+}
+
+// For d in [1, 4), d r^2 with r = fx_rsqrt(d) is within 2^12 units of 1. For 2^-62 <= d < 4, the square of fx_sqrt(d)
+// is within 2^12 units of d. The top words go from all zeros below the range bits to all ones.
+template <int N>
+void test_roots()
+{
+    const int unit_bit {64 * N - 2};
+    const auto limit {big_bit(12)};
+    for (int i {}; i < 2000; ++i)
+    {
+        auto d {next_fx<N>()};
+        d.w[N - 1] |= UINT64_C(1) << ((i & 1) != 0 ? 63U : 62U);
+        const auto r {to_big(detail::fx_rsqrt(d))};
+        const auto product {big_product(big_shr(big_product(to_big(d), r), unit_bit), r)};
+        const auto one {big_bit(2 * unit_bit)};
+        const auto err {big_shr(big_less(product, one) ? big_minus(one, product) : big_minus(product, one), unit_bit)};
+        BOOST_TEST(big_less(err, limit));
+
+        const auto low {detail::fx_shift(d, -static_cast<int>(next_word() % 62U))};
+        const auto root {to_big(detail::fx_sqrt(low))};
+        const auto square {big_shr(big_product(root, root), unit_bit)};
+        const auto wanted {to_big(low)};
+        BOOST_TEST(big_less(big_less(square, wanted) ? big_minus(wanted, square) : big_minus(square, wanted), limit));
+    }
+}
+
+template <int W>
+auto to_big(const detail::big_int<W>& a) -> big
+{
+    big r {};
+    for (int i {}; i < a.len; ++i)
+    {
+        r.d[2 * i] = static_cast<std::uint32_t>(a.w[i]);
+        r.d[2 * i + 1] = static_cast<std::uint32_t>(a.w[i] >> 32U);
+    }
+    return r;
+}
+
+// A value v * 10^j of at most five words, and the same value from the reference arithmetic in ref
+auto next_big_int(big& ref) -> detail::big_int<11>
+{
+    const uint128_t v {next_pattern(), next_pattern()};
+    const auto j {static_cast<int>(next_word() % 40U)};
+    detail::big_int<11> a {};
+    detail::big_set(a, v, j);
+    ref = big {};
+    ref.d[0] = static_cast<std::uint32_t>(v.low);
+    ref.d[1] = static_cast<std::uint32_t>(v.low >> 32U);
+    ref.d[2] = static_cast<std::uint32_t>(v.high);
+    ref.d[3] = static_cast<std::uint32_t>(v.high >> 32U);
+    for (int k {}; k < j; ++k)
+    {
+        ref = big_times(ref, 10U);
+    }
+    BOOST_TEST(a.ok && !a.neg && (a.len == 0 || a.w[a.len - 1] != 0U));
+    BOOST_TEST(big_same(to_big(a), ref));
+    return a;
+}
+
+// The exact integers against the reference arithmetic: the result can be the first term of a sum
+void test_big_int()
+{
+    using detail::big_int;
+    for (int i {}; i < 2000; ++i)
+    {
+        big ra {};
+        big rb {};
+        auto a {next_big_int(ra)};
+        const auto b {next_big_int(rb)};
+        big_int<11> r {};
+        detail::big_mul(a, b, r);
+        BOOST_TEST(r.ok && !r.neg && big_same(to_big(r), big_product(ra, rb)));
+        BOOST_TEST_EQ(detail::big_cmp(a, b), big_less(ra, rb) ? -1 : big_less(rb, ra) ? 1 : 0);
+
+        const bool below {big_less(ra, rb)};
+        const auto diff {below ? big_minus(rb, ra) : big_minus(ra, rb)};
+        detail::big_add(a, b, false, r);
+        BOOST_TEST(r.ok && !r.neg && big_same(to_big(r), big_plus(ra, rb)));
+        detail::big_add(a, b, true, r);
+        BOOST_TEST(r.ok && big_same(to_big(r), diff) && (r.len == 0 || (r.neg == below && r.w[r.len - 1] != 0U)));
+        a.neg = true;
+        detail::big_add(a, b, false, r);
+        BOOST_TEST(r.ok && big_same(to_big(r), diff) && (r.len == 0 || r.neg != below));
+        detail::big_add(a, b, true, r);
+        BOOST_TEST(r.ok && r.neg && big_same(to_big(r), big_plus(ra, rb)));
+        detail::big_add(a, b, false, a);
+        BOOST_TEST(a.ok && big_same(to_big(a), diff));
+
+        auto c {next_big_int(ra)};
+        const std::uint64_t f {next_pattern() | 1U};
+        big rf {};
+        rf.d[0] = static_cast<std::uint32_t>(f);
+        rf.d[1] = static_cast<std::uint32_t>(f >> 32U);
+        detail::big_mul_u(c, f);
+        BOOST_TEST(c.ok && big_same(to_big(c), big_product(ra, rf)));
+    }
+
+    // Zero has no words: as a value, as a factor and as a difference
+    big_int<4> zero {};
+    big_int<4> x {};
+    big_int<4> y {};
+    detail::big_set(zero, 0U, 5);
+    detail::big_set(x, UINT64_MAX, 0);
+    BOOST_TEST(zero.ok && zero.len == 0);
+    detail::big_mul(zero, x, y);
+    BOOST_TEST(y.ok && y.len == 0);
+    detail::big_add(x, x, true, y);
+    BOOST_TEST(y.ok && y.len == 0);
+
+    // A carry into a new word and a borrow from it
+    detail::big_set(y, 1U, 0);
+    detail::big_add(x, y, false, x);
+    BOOST_TEST(x.ok && x.len == 2 && x.w[0] == 0U && x.w[1] == 1U);
+    detail::big_add(x, y, true, x);
+    BOOST_TEST(x.ok && x.len == 1 && x.w[0] == UINT64_MAX);
+
+    // A result that does not fit clears ok, and each later result keeps that
+    big_int<2> full {};
+    big_int<2> out {};
+    detail::big_set(full, uint128_t {UINT64_MAX, UINT64_MAX}, 0);
+    BOOST_TEST(full.ok && full.len == 2);
+    detail::big_add(full, full, true, out);
+    BOOST_TEST(!out.ok);
+    detail::big_mul(full, full, out);
+    BOOST_TEST(!out.ok);
+    detail::big_mul_u(full, 2U);
+    BOOST_TEST(!full.ok);
+    detail::big_mul_u(full, 1U);
+    detail::big_mul_pow10(full, 3);
+    BOOST_TEST(!full.ok);
+    big_int<2> one {};
+    detail::big_set(one, 1U, 0);
+    detail::big_mul(full, one, out);
+    BOOST_TEST(!out.ok);
+    detail::big_add(one, full, false, out);
+    BOOST_TEST(!out.ok);
+    detail::big_set(full, 1U, 39);
+    BOOST_TEST(!full.ok);
+}
+
 template <int N>
 void test_words()
 {
     test_mul<N>();
     test_add_sub<N>();
     test_recip<N>();
+    test_shift<N>();
+    test_roots<N>();
     test_wide_add<N>();
     test_wide_shift_mul<N>();
     test_wide_digits<N>();
@@ -476,6 +641,7 @@ int main()
     test_words<4>();
     test_words<5>();
     test_near_boundary();
+    test_big_int();
     test_round_all<decimal32_t>();
     test_round_all<decimal64_t>();
     test_round_all<decimal128_t>();

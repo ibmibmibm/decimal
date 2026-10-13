@@ -37,6 +37,12 @@ constexpr auto cos_poly(const fx<3>& z) noexcept -> fx<3>
     return fx_alternating_split<fx_table::cos_d128_mid_shift, fx_table::cos_d128_tail_shift>(z, fx_table::cos_d128_head, fx_table::cos_d128_mid, fx_table::cos_d128_tail);
 }
 
+// The polynomial of decimal64_t in one word
+constexpr auto cos_poly_top(const fx<1>& z) noexcept -> fx<1>
+{
+    return fx_alternating_top<fx_table::cos_d64_shift>(z, fx_table::cos_d64_head, fx_table::cos_d64_tail);
+}
+
 // The polynomial of decimal128_t in two words
 constexpr auto cos_poly_top(const fx<2>& z) noexcept -> fx<2>
 {
@@ -71,6 +77,20 @@ constexpr auto trig_taylor(const fx<N>& z, const bool use_cos, const std::uint64
         s = fx_sub(fx_one<N>(), fx_div_small(fx_mul(z, s), (2U * k - c) * (2U * k + 1U - c)));
     }
     return fx_clamp_below_one(s);
+}
+
+// sin(r) / r for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto sinc_fx_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, false) : sinc_fx(z);
+}
+
+// cos(r) for z = r^2 from the Taylor series with taylor, or else from the polynomial
+template <int N>
+constexpr auto cos_fx_of(const fx<N>& z, const bool taylor) noexcept -> fx<N>
+{
+    return taylor ? trig_taylor(z, true) : cos_fx(z);
 }
 
 // The signs of sin(x) and cos(x) for x = n*pi/2 + r, where the sign of sin(r) is r.neg and cos(r) > 0

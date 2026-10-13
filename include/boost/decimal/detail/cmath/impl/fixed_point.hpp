@@ -721,6 +721,18 @@ constexpr auto fx_alternating_split(const fx<N>& z, const fx<N> (&head)[M], cons
     return s;
 }
 
+// fx_alternating_split in one word, with the top word of each head term
+template <int Shift, std::size_t M, std::size_t K>
+constexpr auto fx_alternating_top(const fx<1>& z, const fx<2> (&head)[M], const std::uint64_t (&tail)[K]) noexcept -> fx<1>
+{
+    fx<1> s {{fx_tail_sum(z.w[0], tail) >> Shift}};
+    for (std::size_t i {M}; i-- > 0U;)
+    {
+        s = fx_sub(fx_top<1>(head[i]), fx_mul(z, s));
+    }
+    return s;
+}
+
 // The high 128 bits of a * b.
 constexpr auto fx_mul_high(const boost::int128::uint128_t& a, const boost::int128::uint128_t& b) noexcept -> boost::int128::uint128_t
 {
@@ -1066,6 +1078,40 @@ constexpr auto fx_try_round(const std::uint64_t sig, const int e, const bool neg
     }
     out = fx_round_kept<T>(sig / unit, e + k, neg);
     return true;
+}
+
+// The polynomial with the words c[first] to c[last - 1], two's complement times 2^62 from the constant term, at
+// u / 2^64 by Horner's rule with rounded products, where the partial sums stay below 2
+template <std::size_t M>
+constexpr auto fx_poly_signed(const std::uint64_t (&c)[M], const int first, const int last, const std::uint64_t u) noexcept -> std::uint64_t
+{
+    std::uint64_t acc {c[static_cast<std::size_t>(last - 1)]};
+    for (int k {last - 2}; k >= first; --k)
+    {
+        // The high word of acc u for a signed acc, rounded on the low word
+        std::uint64_t hi {};
+        const std::uint64_t lo {boost::int128::detail::umul(acc, u, hi)};
+        acc = c[static_cast<std::size_t>(k)] + (hi - ((acc >> 63U) != 0U ? u : 0U)) + (lo >> 63U);
+    }
+    return acc;
+}
+
+// For decimal32_t and decimal64_t, sig * 10^e of 18 to 20 digits from one word with an error below err units of 2^-62,
+// rounded once in out away from a rounding boundary: 19 digits have an error below err 2^-62 10^-e units, plus 2
+template <typename T>
+constexpr auto fx_try_round_word(const boost::int128::uint128_t& sig, const int e, const bool neg, const std::uint64_t err, T& out) noexcept -> bool
+{
+    using sig_type = boost::int128::uint128_t;
+
+    const int drop {sig >= pow10(static_cast<sig_type>(19)) ? 1 : 0};
+    const auto q {drop != 0 ? sig / 10U : sig};
+    if (q < pow10(static_cast<sig_type>(18)))
+    {
+        return false;
+    }
+    const int e10 {e + drop};
+    const auto w {(static_cast<sig_type>(pow10(static_cast<std::uint64_t>(-e10))) * err) >> 62U};
+    return fx_try_round(q.low, e10, neg, w.low + 2U, out);
 }
 
 // N + 1 words in two's complement with the scale of fx<N>: the extra word and the two top bits of word N - 1 hold the
