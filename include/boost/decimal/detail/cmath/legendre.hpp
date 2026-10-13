@@ -9,11 +9,12 @@
 
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/cmath/impl/polynomial_impl.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
-#include <utility>
 #include <type_traits>
 #include <limits>
 #endif
@@ -23,20 +24,21 @@ namespace decimal {
 
 namespace detail {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T1,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T2,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T3>
-constexpr auto legendre_next(const unsigned l, const T1 x, const T2 Pl, const T3 Plm1) noexcept
-{
-    using result_type = promote_args_t<T1, T2, T3>;
-    return ((2 * l + 1) * static_cast<result_type>(x) * static_cast<result_type>(Pl) - l * static_cast<result_type>(Plm1)) / (l + 1);
-}
-
-// Implement Legendre P and Q polynomials via recurrence:
+// The Legendre polynomial P_l(x)
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
 constexpr auto legendre_impl(const unsigned l, const T x) noexcept
 {
-    if (x < -1 || x > 1 || l > 128)
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (isnan(x) && l <= 128)
+    {
+        return detail::check_non_finite(x);
+    }
+    #endif
+
+    int e {};
+    const auto sig {static_cast<boost::int128::uint128_t>(frexp10(x, &e))};
+    const int c {poly_detail::poly_versus_one(sig, e, precision_v<T>)};
+    if (c > 0 || l > 128)
     {
         #ifndef BOOST_DECIMAL_FAST_MATH
         return std::numeric_limits<T>::quiet_NaN();
@@ -44,31 +46,21 @@ constexpr auto legendre_impl(const unsigned l, const T x) noexcept
         return T{0};
         #endif
     }
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    else if (isnan(x))
+
+    // P_0 = 1, P_l(1) = 1 and P_l(-1) = (-1)^l, and P_1(x) = x with +0 for a zero x as from the recurrence
+    if (l == 0U || (c == 0 && !signbit(x)))
     {
-        return x;
+        return T {1};
     }
-    #endif
-
-    T p0 {1};
-    T p1 {x};
-
-    if (l == 0)
+    if (c == 0)
     {
-        return p0;
+        return (l & 1U) != 0U ? T {-1} : T {1};
     }
-
-    unsigned n = 1;
-
-    while (n < l)
+    if (l == 1U)
     {
-        std::swap(p0, p1);
-        p1 = static_cast<T>(legendre_next(n, x, p0, p1));
-        ++n;
+        return sig == 0U ? T {0} : x;
     }
-
-    return p1;
+    return poly_detail::poly_fixed(poly_detail::poly_kind::legendre, l, 0U, x);
 }
 
 } //namespace detail
