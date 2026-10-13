@@ -498,6 +498,21 @@ The following functions have been implemented for decimal types:
 | https://en.cppreference.com/w/cpp/numeric/special_functions/riemann_zeta[riemann_zeta] | Computes the Riemann Zeta function
 |===
 
+`assoc_legendre` follows the C++ special-function convention and leaves out the Condon-Shortley phase, the factor `(-1)^m`.
+Earlier versions of this library and Boost.Math include this factor.
+If you need the earlier sign, multiply the result by `(-1)^m`.
+For example, `assoc_legendre(1, 1, 0.5_DF)` is now `0.8660254_DF`, and the earlier value is `-0.8660254_DF`.
+
+The C++ standard makes the effect of `hermite`, `laguerre` and `assoc_laguerre` implementation-defined for `n` of 128 and above, and for `assoc_laguerre` also for `m` of 128 and above.
+This library accepts these values for `n` up to 65535.
+For a larger `n`, the result is a NaN.
+Next to a rounding boundary or a root, these functions decide the result with exact integers of up to 36864 bits.
+This step needs about 24 KB of stack for each of the decimal types, and `legendre` and `assoc_legendre` take the same step.
+With GCC 8 and earlier, this step is not a constant expression, so a call that needs it does not compile where a constant expression is necessary.
+With a long significand, these integers do not fit from about degree 280 for `decimal128_t`, 500 for `decimal64_t` and 820 for `decimal32_t`.
+The degree is lower for a very small `x`.
+For these arguments the result comes from a 256-bit or 320-bit approximation, and the library does not guarantee correct rounding.
+
 [source, c++]
 ----
 

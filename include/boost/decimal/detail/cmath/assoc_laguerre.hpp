@@ -15,7 +15,6 @@
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
-#include <cstdint>
 #endif
 
 namespace boost {
@@ -23,44 +22,11 @@ namespace decimal {
 
 namespace detail {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T1,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T2,
-          BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T3>
-constexpr auto assoc_laguerre_next(const unsigned n, const unsigned l, const T1 x, const T2 Pl, const T3 Plm1)
-{
-    using promoted_type = promote_args_t<T1, T2, T3>;
-    return ((2 * n + l + 1 - static_cast<promoted_type>(x)) * static_cast<promoted_type>(Pl) - (n + l) * static_cast<promoted_type>(Plm1)) / (n+1);
-}
-
 template <typename T>
 constexpr auto assoc_laguerre_impl(const unsigned n, const unsigned m, const T x)
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    // Special cases:
-    if(m == 0)
-    {
-        return boost::decimal::laguerre(n, x);
-    }
-
-    T p0 {UINT64_C(1)};
-
-    if(n == 0)
-    {
-        return p0;
-    }
-
-    T p1 {m + 1 - x};
-
-    unsigned c {1U};
-
-    while(c < n)
-    {
-        std::swap(p0, p1);
-        p1 = static_cast<T>(assoc_laguerre_next(c, m, x, p0, p1));
-        ++c;
-    }
-
-    return p1;
+    return laguerre_impl(n, x, m);
 }
 
 } //namespace detail
