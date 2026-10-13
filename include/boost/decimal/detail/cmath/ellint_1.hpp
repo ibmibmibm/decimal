@@ -9,16 +9,11 @@
 
 #include <boost/decimal/fwd.hpp> // NOLINT(llvm-include-order)
 #include <boost/decimal/detail/cmath/impl/ellint_impl.hpp>
-#include <boost/decimal/detail/cmath/atan.hpp>
 #include <boost/decimal/detail/cmath/fabs.hpp>
-#include <boost/decimal/detail/cmath/log.hpp>
-#include <boost/decimal/detail/cmath/sin.hpp>
-#include <boost/decimal/detail/cmath/sqrt.hpp>
-#include <boost/decimal/detail/cmath/tan.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/config.hpp>
-#include <boost/decimal/numbers.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <limits>
@@ -31,135 +26,68 @@ namespace decimal {
 namespace detail {
 
 template <typename T>
-constexpr auto ellint_1_impl(const T m, const T phi) noexcept
+constexpr auto ellint_1_impl(const T k, const T phi) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-  constexpr T one { 1 };
-
-  T result { };
-
-  const auto fpc_m   = fpclassify(m);
-  const auto fpc_phi = fpclassify(phi);
-
-  if((fpc_m == FP_ZERO) && (fpc_phi == FP_NORMAL))
-  {
-    result = phi;
-  }
-  else if((fpc_phi == FP_ZERO) && (fpc_m == FP_NORMAL))
-  {
-    constexpr T zero { 0 };
-
-    result = zero;
-  }
-  else if((fabs(m) > one) || (fpc_phi != FP_NORMAL) || (fpc_m != FP_NORMAL))
-  {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    result = std::numeric_limits<T>::quiet_NaN();
-    #else
-    result = T{0};
+    if (isnan(k) || isnan(phi))
+    {
+        return detail::check_non_finite(k, phi);
+    }
     #endif
-  }
-  else if(signbit(phi))
-  {
-    result = -ellint_1_impl(m, -phi);
-  }
-  else if(signbit(m))
-  {
-    result = ellint_1_impl(-m, phi);
-  }
-  else
-  {
-    constexpr T small_phi_limit =
-          std::numeric_limits<T>::digits10 < 10 ? T { 1, -2 }
-        : std::numeric_limits<T>::digits10 < 20 ? T { 1, -3 }
-        :                                         T { 1, -5 };
 
-    if (phi < small_phi_limit)
+    const auto x {ellint_detail::ellint_args_of(k, phi)};
+    if (x.band == 5U && ellint_detail::ellint_above_one(x.ks(), x.ke, precision_v<T>))
     {
-      // PadeApproximant[EllipticF[phi, m2], {phi, 0, {4, 3}}]
-      // FullSimplify[%]
-
-      const T phi_sq { phi * phi };
-
-      const T m2 { m * m };
-
-      const T top { phi * (-60 + (-12 + 17 * m2) * phi_sq) };
-      const T bot { -60 + 3 * (-4 + 9 * m2) * phi_sq };
-
-      result = top / bot;
+        #ifndef BOOST_DECIMAL_FAST_MATH
+        return std::numeric_limits<T>::quiet_NaN();
+        #else
+        return T {0};
+        #endif
     }
-    else
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    // The integral grows without bound in phi
+    if (isinf(phi))
     {
-      constexpr T my_pi_half { numbers::pi_v<T> / 2 };
-
-      int k_pi = static_cast<int>(phi / numbers::pi_v<T>);
-
-      T phi_scaled = phi - (k_pi * numbers::pi_v<T>);
-
-      const bool b_medium_phi_scale_and_negate { phi_scaled > my_pi_half };
-
-      if(b_medium_phi_scale_and_negate)
-      {
-        ++k_pi;
-
-        phi_scaled = -(phi_scaled - numbers::pi_v<T>);
-      }
-
-      T Km { };
-
-      const T m2 { m * m };
-
-      const bool m2_is_one { m2 == one };
-
-      detail::ellint_detail::elliptic_series::agm(phi_scaled, m2, result, Km, static_cast<T*>(nullptr), static_cast<T*>(nullptr));
-
-      if(b_medium_phi_scale_and_negate)
-      {
-        result = -result;
-      }
-
-      if(!m2_is_one)
-      {
-        result += ((k_pi * Km) * 2);
-      }
+        return phi;
     }
-  }
+    #endif
 
-  return result;
+    if (x.ks() == 0U || x.ps() == 0U)
+    {
+        return phi;
+    }
+    return ellint_detail::ellint_fixed<T>(x, ellint_detail::ellint_kind::first, signbit(phi));
 }
 
 template <typename T>
-constexpr auto comp_ellint_1_impl(const T m) noexcept
+constexpr auto comp_ellint_1_impl(const T k) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-  constexpr T one  { 1 };
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (isnan(k))
+    {
+        return detail::check_non_finite(k);
+    }
+    #endif
 
-  T result { };
-
-  const auto fpc_m   = fpclassify(m);
-
-  if(fpc_m == FP_ZERO)
-  {
-    result = numbers::pi_v<T> / 2;
-  }
-  else if((fabs(m) > one) || (fpc_m != FP_NORMAL))
-  {
-    result = std::numeric_limits<T>::quiet_NaN();
-  }
-  else if(signbit(m))
-  {
-    result = comp_ellint_1_impl(-m);
-  }
-  else
-  {
-    constexpr T zero { 0 };
-
-    T Fpm { };
-
-    detail::ellint_detail::elliptic_series::agm(zero, m * m, Fpm, result, static_cast<T*>(nullptr), static_cast<T*>(nullptr));
-  }
-
-  return result;
+    int e {};
+    const auto sig {static_cast<boost::int128::uint128_t>(frexp10(k, &e))};
+    const auto band {ellint_detail::ellint_band(sig, e, precision_v<T>)};
+    if (band == 5U && ellint_detail::ellint_above_one(sig, e, precision_v<T>))
+    {
+        #ifndef BOOST_DECIMAL_FAST_MATH
+        return std::numeric_limits<T>::quiet_NaN();
+        #else
+        return T {0};
+        #endif
+    }
+    // K has a pole at k = 1
+    if (band == 5U)
+    {
+        return std::numeric_limits<T>::infinity();
+    }
+    return ellint_detail::comp_ellint_fixed<T>(sig, e, band, ellint_detail::ellint_kind::first);
 }
 
 } //namespace detail
