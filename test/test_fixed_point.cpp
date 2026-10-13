@@ -618,6 +618,21 @@ void test_big_int()
     BOOST_TEST(!full.ok);
 }
 
+// floor(z log10(2)) from the digits of 2^z, and for binary exponents far past those of the decimal types
+void test_floor_log10_2()
+{
+    uint128_t v {1U};
+    int digits {1};
+    for (int z {}; z < 127; ++z, v <<= 1U)
+    {
+        digits += v >= detail::pow10(static_cast<uint128_t>(digits)) ? 1 : 0;
+        BOOST_TEST_EQ(detail::fx_floor_log10_2(z), digits - 1);
+        BOOST_TEST_EQ(detail::fx_floor_log10_2(-z), z == 0 ? 0 : -digits);
+    }
+    BOOST_TEST_EQ(detail::fx_floor_log10_2(100000000), 30102999);
+    BOOST_TEST_EQ(detail::fx_floor_log10_2(-100000000), -30103000);
+}
+
 template <int N>
 void test_words()
 {
@@ -642,6 +657,7 @@ int main()
     test_words<5>();
     test_near_boundary();
     test_big_int();
+    test_floor_log10_2();
     test_round_all<decimal32_t>();
     test_round_all<decimal64_t>();
     test_round_all<decimal128_t>();

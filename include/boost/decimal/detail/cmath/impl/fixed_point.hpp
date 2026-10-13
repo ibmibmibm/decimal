@@ -189,12 +189,11 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_shr_words(const fx_span<std::uint64
     }
 }
 
-// floor(z * log10(2)) for |z| <= 1650, and at most one less above: 78913 / 2^18 is just below log10(2)
+// floor(z * log10(2)) for |z| <= 70000, and at most one nearer to 0 above: 1292913986 / 2^32 is just below log10(2)
 constexpr auto fx_floor_log10_2(const int z) noexcept -> int
 {
-    // In 64 bits, as z * 78913 passes 32 bits from |z| = 27214 on
     const std::int64_t w {z};
-    return static_cast<int>(w >= 0 ? (w * 78913) >> 18 : -((-w * 78913 + 262143) >> 18));
+    return static_cast<int>(w >= 0 ? (w * INT64_C(1292913986)) >> 32 : -((-w * INT64_C(1292913986) + INT64_C(4294967295)) >> 32));
 }
 
 // The integer n < 4 in N words
