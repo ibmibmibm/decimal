@@ -29,6 +29,12 @@ constexpr auto sin_poly(const fx<3>& z) noexcept -> fx<3>
     return fx_alternating_split<fx_table::sin_d128_mid_shift, fx_table::sin_d128_tail_shift>(z, fx_table::sin_d128_head, fx_table::sin_d128_mid, fx_table::sin_d128_tail);
 }
 
+// The polynomial of decimal64_t in one word
+constexpr auto sin_poly_top(const fx<1>& z) noexcept -> fx<1>
+{
+    return fx_alternating_top<fx_table::sin_d64_shift>(z, fx_table::sin_d64_head, fx_table::sin_d64_tail);
+}
+
 // The polynomial of decimal128_t in two words
 constexpr auto sin_poly_top(const fx<2>& z) noexcept -> fx<2>
 {
