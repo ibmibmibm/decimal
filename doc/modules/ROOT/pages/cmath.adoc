@@ -367,7 +367,7 @@ constexpr long long llrint(DecimalType x) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/ilogb[ilogb] | Extracts `int` exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/logb[logb] | Extracts Decimal Type exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/nextafter[nextafter] | Next representable decimal type value
-| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttowards] | Next representable decimal type value towards a `long double`
+| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttoward] | Next representable decimal type value towards a `long double`
 | https://en.cppreference.com/w/cpp/numeric/math/copysign[copysign] | Copies the sign of a decimal value
 |===
 
@@ -403,7 +403,7 @@ template <typename DecimalType>
 constexpr DecimalType nextafter(DecimalType from, DecimalType to) noexcept;
 
 template <typename DecimalType>
-constexpr DecimalType nexttoward(DecimalType from, long double to) noexcept;
+BOOST_DECIMAL_CXX20_CONSTEXPR DecimalType nexttoward(DecimalType from, long double to) noexcept;
 
 template <typename DecimalType>
 constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
