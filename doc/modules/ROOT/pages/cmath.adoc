@@ -8,11 +8,19 @@ https://www.boost.org/LICENSE_1_0.txt
 = `<cmath>` Support
 :idprefix: cmath_
 
-Decimal contains overloads for all functions from `<cmath>`, and they have the same handling as built-in floating point types.
-They are also all constexpr with pass:[C++14] unlike the built-in floating point types which require either pass:[C++23] or 26.
+Decimal contains overloads for all functions from `<cmath>`, and they have the same handling as built-in floating point types, except for the <<cmath_differences,differences>> below.
+They are also all constexpr with pass:[C++14] unlike the built-in floating point types which require either pass:[C++23] or 26, except `nexttoward`, as the <<cmath_differences,differences>> below say.
 Additionally, all functions are marked `noexcept`.
 
 All of these functions are impacted by the global rounding mode as described in xref:cfenv.adoc[rounding modes] as well as the `DEC_FLT_EVAL_METHOD` from xref:cfloat.adoc[evaluation methods].
+
+[#cmath_differences]
+== Differences from the Built-in Types
+
+`nexttoward` is available only if the library can read the bits of `long double`: the IEEE 754 binary64 and binary128 formats, and the 80-bit x87 format.
+Without that support, as for the double-double `long double` of IBM, it is not declared.
+`nexttoward` is `constexpr` only if the compiler can read the bits of a `long double` in a constant expression.
+This needs `std::bit_cast` from pass:[C++20], and the library does not use it with Clang 10 or on 32-bit x86.
 
 == Basic Operations
 [#basic_cmath_ops]
@@ -367,7 +375,7 @@ constexpr long long llrint(DecimalType x) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/ilogb[ilogb] | Extracts `int` exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/logb[logb] | Extracts Decimal Type exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/nextafter[nextafter] | Next representable decimal type value
-| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttowards] | Next representable decimal type value towards a `long double`
+| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttoward] | Next representable decimal type value towards a `long double`
 | https://en.cppreference.com/w/cpp/numeric/math/copysign[copysign] | Copies the sign of a decimal value
 |===
 
@@ -403,7 +411,7 @@ template <typename DecimalType1, typename DecimalType2>
 constexpr auto nextafter(DecimalType1 from, DecimalType2 to) noexcept;
 
 template <typename DecimalType>
-constexpr DecimalType nexttoward(DecimalType from, long double to) noexcept;
+BOOST_DECIMAL_CXX20_CONSTEXPR DecimalType nexttoward(DecimalType from, long double to) noexcept;
 
 template <typename DecimalType>
 constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
@@ -415,6 +423,8 @@ constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
 If `from` and `to` have different types, `nextafter` converts both to the promoted type, as mixed arithmetic does, and returns the next value of that type.
 For example, `nextafter(decimal32_t {1}, decimal64_t {2})` returns `decimal64_t` 1.000000000000001.
 The conversion comes first, so a value that the promoted type can not hold changes: `decimal_fast32_t` has no subnormal values, so `nextafter(decimal_fast32_t {0}, 1e-100_DF)` returns zero.
+
+The <<cmath_differences,differences>> above give the restrictions of `nexttoward`.
 
 [#cmath_classification]
 == Classification and Comparison
