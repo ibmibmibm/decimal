@@ -76,7 +76,7 @@ void test_compute_float64()
     BOOST_TEST_EQ(compute_float64(-325, 5U * dist(gen), false, success), 0.0);
     BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, false, success), 0.0);
     BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, true, success), 0.0);
-    BOOST_TEST_EQ(compute_float64(300, UINT64_MAX, false, success), 0.0 * static_cast<double>(dist(gen)));
+    BOOST_TEST_EQ(compute_float64(300, UINT64_MAX, false, success), HUGE_VAL * static_cast<double>(dist(gen)));
 
     // Composite
     BOOST_TEST_EQ(compute_float64(10 * static_cast<std::int64_t>(dist(gen)), 123456789, false, success), 123456789e10);

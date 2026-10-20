@@ -7,7 +7,6 @@
 #define BOOST_DECIMAL_DETAIL_TO_FLOAT_HPP
 
 #include <boost/decimal/detail/config.hpp>
-#include <boost/decimal/detail/shrink_significand.hpp>
 #include <boost/decimal/detail/fast_float/compute_float32.hpp>
 #include <boost/decimal/detail/fast_float/compute_float64.hpp>
 #include <boost/decimal/detail/fast_float/compute_float80_128.hpp>
@@ -36,8 +35,6 @@ template <typename Decimal, typename TargetType>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
     BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType)
 {
-    bool success {};
-
     auto fp_class = fpclassify(val);
 
     switch (fp_class)
@@ -53,7 +50,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
         case FP_ZERO:
             return val.isneg() ? -TargetType{0} : TargetType{0};
         default:
-            static_cast<void>(success);
+            break;
     }
 
     // The casts to result are redundant, but in pre C++17 modes MSVC warns about implicit conversions
@@ -61,41 +58,29 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
 
     auto sig {val.full_significand()};
     auto exp {val.biased_exponent()};
-    std::uint64_t new_sig {};
 
-    BOOST_DECIMAL_IF_CONSTEXPR (std::numeric_limits<typename Decimal::significand_type>::digits10 > std::numeric_limits<std::uint64_t>::digits10)
+    #if BOOST_DECIMAL_LDBL_BITS == 64
+    constexpr bool binary64_long_double {true};
+    #else
+    constexpr bool binary64_long_double {false};
+    #endif
+
+    BOOST_DECIMAL_IF_CONSTEXPR (!std::is_same<TargetType, long double>::value || binary64_long_double)
     {
-        new_sig = detail::shrink_significand<std::uint64_t>(sig, exp);
+        // Rounds the exact value once, also to a subnormal value or to infinity
+        using binary_type = std::conditional_t<std::is_same<TargetType, float>::value, float, double>;
+        const auto wide_sig {static_cast<int128::uint128_t>(sig)};
+        binary_type value {};
+        if (wide_sig.high != 0U || !detail::fast_float::clinger_fast_path(exp, wide_sig.low, val.isneg(), value))
+        {
+            value = detail::fast_float::to_binary<binary_type>(detail::fast_float::compute_float_wide<binary_type>(exp, wide_sig), val.isneg());
+        }
+        result = static_cast<TargetType>(value);
     }
     else
     {
-        new_sig = static_cast<std::uint64_t>(sig);
-    }
-
-    BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<TargetType, float>::value)
-    {
-        result = static_cast<TargetType>(detail::fast_float::compute_float32(exp, new_sig, val.isneg(), success));
-    }
-    else BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<TargetType, double>::value)
-    {
-        result = static_cast<TargetType>(detail::fast_float::compute_float64(exp, new_sig, val.isneg(), success));
-    }
-    else BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<TargetType, long double>::value)
-    {
-        #if BOOST_DECIMAL_LDBL_BITS == 64
-        result = static_cast<TargetType>(detail::fast_float::compute_float64(exp, new_sig, val.isneg(), success));
-        #elif BOOST_DECIMAL_LDBL_BITS == 80
-        result = static_cast<TargetType>(detail::fast_float::compute_float80_128(exp, new_sig, val.isneg(), success));
-        #else
-        static_cast<void>(new_sig);
+        bool success {};
         result = static_cast<TargetType>(detail::fast_float::compute_float80_128(exp, sig, val.isneg(), success));
-        #endif
-    }
-
-    if (BOOST_DECIMAL_UNLIKELY(!success))
-    {
-        errno = EINVAL;
-        return 0;
     }
 
     return result;

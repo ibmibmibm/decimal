@@ -2225,8 +2225,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t::operator double() const noexcept
 #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t::operator long double() const noexcept
 {
-    // Double already has more range and precision than a decimal32_t will ever be able to provide
-    return static_cast<long double>(to_float<decimal32_t, double>(*this));
+    return to_float<decimal32_t, long double>(*this);
 }
 #endif
 

@@ -19,30 +19,11 @@ namespace decimal {
 namespace detail {
 namespace fast_float {
 
-BOOST_DECIMAL_CXX20_CONSTEXPR auto compute_float32(std::int64_t power, std::uint64_t i, bool negative, bool& success) noexcept -> float
+// i * 10^power, negated if negative
+BOOST_DECIMAL_CXX20_CONSTEXPR auto compute_float32(const std::int64_t power, const std::uint64_t i, const bool negative, bool& success) noexcept -> float
 {
-    const double d = compute_float64(power, i, negative, success);
-    float return_val {};
-
-    if (BOOST_DECIMAL_LIKELY(success))
-    {
-        return_val = static_cast<float>(d);
-
-        // Some compilers (e.g. Intel) will optimize std::isinf to always false depending on compiler flags
-        //
-        // From Intel(R) oneAPI DPC++/C++ Compiler 2023.0.0 (2023.0.0.20221201)
-        // warning: comparison with infinity always evaluates to false in fast floating point modes [-Wtautological-constant-compare]
-        // if (std::isinf(return_val))
-
-        const auto abs_return_val = return_val < 0 ? -return_val : return_val;
-        if (abs_return_val > (std::numeric_limits<float>::max)())
-        {
-            return_val = negative ? -HUGE_VALF : HUGE_VALF;
-            success = true;
-        }
-    }
-
-    return return_val;
+    success = true;
+    return to_binary<float>(compute_float<float>(power, i), negative);
 }
 
 } // namespace fast_float
