@@ -16,6 +16,7 @@
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/u256.hpp>
+#include <boost/decimal/detail/add_impl.hpp>
 #include "int128.hpp"
 #include <boost/decimal/detail/attributes.hpp>
 
@@ -66,74 +67,47 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto equality_impl(Decim
     const auto& lhs_sig {lhs_components.sig};
     const auto& rhs_sig {rhs_components.sig};
 
-    // Step 4: Check signs
-    if (lhs_components.sign != rhs_components.sign)
+    // Step 4: Zeros from any cohort and of any sign compare equal (IEEE 754-2008 3.5.1), and
+    // a zero never equals a nonzero value
+    if (BOOST_DECIMAL_UNLIKELY(lhs_sig == 0U || rhs_sig == 0U))
     {
-        return (lhs_sig == 0U && rhs_sig == 0U);
-    }
-
-    // Step 4b: Same-sign zeros from any cohort compare equal regardless of their exponents
-    // (IEEE 754-2008 3.5.1). Without this, two zeros with delta_exp greater than the type's
-    // precision would fall through to the early-return below and wrongly compare unequal.
-    if (lhs_sig == 0U && rhs_sig == 0U)
-    {
-        return true;
+        return lhs_sig == rhs_sig;
     }
 
     // Step 5: Check the exponents
     // If the difference is greater than we can represent in the significand than we can assume they are different
-    const auto lhs_exp {lhs_components.exp};
-    const auto rhs_exp {rhs_components.exp};
-
-    const auto delta_exp {lhs_exp - rhs_exp};
+    const auto delta_exp {lhs_components.exp - rhs_components.exp};
 
     if (BOOST_DECIMAL_UNLIKELY(delta_exp > detail::precision_v<DecimalType> || delta_exp < -detail::precision_v<DecimalType>))
     {
         return false;
     }
 
-    // Step 6: Normalize the significand and compare
+    // Step 6: Scale the significand with the larger exponent. Random signs and exponents
+    // mispredict a branch, so the operands are selected and the signs test last.
+    const bool same_sign {lhs_components.sign == rhs_components.sign};
+    const bool lhs_larger {delta_exp > 0};
+    const auto scale {delta_exp < 0 ? -delta_exp : delta_exp};
+    const comp_type larger_sig {detail::select_bits(lhs_larger, lhs_sig, rhs_sig)};
+    const comp_type smaller_sig {detail::select_bits(lhs_larger, rhs_sig, lhs_sig)};
+
     BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
     {
-        // The significand with the larger exponent is scaled when the product fits, which needs no
-        // digit count for a small delta. Else it has more digits than any significand.
+        // The product fits, which needs no digit count for a small delta, or else it has more
+        // digits than any significand
         constexpr auto max_delta_diff {std::numeric_limits<comp_type>::digits10 - detail::precision_v<DecimalType>};
         constexpr auto max_digits {std::numeric_limits<comp_type>::digits10};
-        if (delta_exp > 0)
+        if (scale > max_delta_diff && detail::num_digits(larger_sig) + scale > max_digits)
         {
-            if (delta_exp > max_delta_diff && detail::num_digits(lhs_sig) + delta_exp > max_digits)
-            {
-                return false;
-            }
-            return lhs_sig * detail::pow10(static_cast<comp_type>(delta_exp)) == rhs_sig;
+            return false;
         }
-        else if (delta_exp < 0)
-        {
-            if (delta_exp < -max_delta_diff && detail::num_digits(rhs_sig) - delta_exp > max_digits)
-            {
-                return false;
-            }
-            return lhs_sig == rhs_sig * detail::pow10(static_cast<comp_type>(-delta_exp));
-        }
-
-        return lhs_sig == rhs_sig;
+        return static_cast<bool>(static_cast<unsigned>(same_sign) & static_cast<unsigned>(larger_sig * detail::pow10(static_cast<comp_type>(scale)) == smaller_sig));
     }
     else
     {
         using promoted_sig_type = std::conditional_t<std::is_same<typename DecimalType::significand_type, std::uint32_t>::value, std::uint64_t, int128::uint128_t>;
-        promoted_sig_type promotes_lhs {lhs_sig};
-        promoted_sig_type promotes_rhs {rhs_sig};
-
-        if (delta_exp > 0)
-        {
-            promotes_lhs *= detail::pow10(static_cast<promoted_sig_type>(delta_exp));
-        }
-        else if (delta_exp < 0)
-        {
-            promotes_rhs *= detail::pow10(static_cast<promoted_sig_type>(-delta_exp));
-        }
-
-        return promotes_lhs == promotes_rhs;
+        const promoted_sig_type product {static_cast<promoted_sig_type>(larger_sig) * static_cast<promoted_sig_type>(detail::pow10(static_cast<comp_type>(scale)))};
+        return static_cast<bool>(static_cast<unsigned>(same_sign) & static_cast<unsigned>(product == static_cast<promoted_sig_type>(smaller_sig)));
     }
 }
 
@@ -186,10 +160,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto equal_parts_impl(T1 lhs_sig, U1 lhs_exp, bool 
     BOOST_DECIMAL_ASSERT(lhs_sig >= 0U);
     BOOST_DECIMAL_ASSERT(rhs_sig >= 0U);
 
-    if (lhs_sig == 0U && rhs_sig == 0U)
+    if (lhs_sig == 0U || rhs_sig == 0U)
     {
-        // +0 == -0
-        return true;
+        // +0 == -0, and a zero never equals a nonzero value
+        return lhs_sig == rhs_sig;
     }
 
     // We con compare signs right away
