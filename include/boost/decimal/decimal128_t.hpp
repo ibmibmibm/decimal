@@ -1767,7 +1767,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t lhs, const Intege
 
     auto positive_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(positive_rhs, exp_rhs);
+    detail::normalize<decimal128_t>(positive_rhs, exp_rhs, rhs < 0);
     const detail::decimal128_t_components rhs_components {positive_rhs, exp_rhs, rhs < 0};
 
     return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
@@ -1876,7 +1876,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t lhs, const Intege
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal128_t>(sig_rhs, exp_rhs, rhs < 0);
     const detail::decimal128_t_components rhs_components {sig_rhs, exp_rhs, !(rhs < 0)};
 
     return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
@@ -1943,36 +1943,8 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    using exp_type = decimal128_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs))
-    {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
-        {
-            return signbit(lhs) ? lhs : -lhs;
-        }
-        else if (isinf(lhs) && (signbit(lhs) == (rhs < 0)))
-        {
-            return signbit(lhs) ? -lhs : lhs;
-        }
-
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto lhs_sig {lhs.full_significand()};
-    auto lhs_exp {lhs.biased_exponent()};
-    detail::expand_significand<decimal128_t>(lhs_sig, lhs_exp);
-
-    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
-    exp_type rhs_exp {0};
-    detail::normalize<decimal128_t>(rhs_sig, rhs_exp);
-
-    return detail::d128_mul_impl<decimal128_t>(
-            lhs_sig, lhs_exp, lhs.isneg(),
-            rhs_sig, rhs_exp, (rhs < 0));
-
+    // The integer converts to decimal128_t first, as in C
+    return lhs * decimal128_t{rhs};
 }
 
 template <typename Integer>
@@ -2024,7 +1996,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
     auto lhs_components {lhs.to_components()};
     detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
 
-    const detail::decimal128_t_components rhs_components {detail::make_positive_unsigned(rhs), 0, rhs < 0};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    decimal128_t::biased_exponent_type rhs_exp {0};
+    detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
+    const detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
 
     return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
 }
@@ -2058,7 +2033,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     auto rhs_components {rhs.to_components()};
     detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
 
-    const detail::decimal128_t_components lhs_components {detail::make_positive_unsigned(lhs), 0, lhs < 0};
+    auto lhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(lhs))};
+    decimal128_t::biased_exponent_type lhs_exp {0};
+    detail::normalize<decimal128_t>(lhs_sig, lhs_exp, lhs < 0);
+    const detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs < 0};
 
     return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
 }

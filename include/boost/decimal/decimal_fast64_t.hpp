@@ -27,7 +27,6 @@
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/quantize_impl.hpp>
-#include <boost/decimal/detail/shrink_significand.hpp>
 #include <boost/decimal/detail/cmath/isfinite.hpp>
 #include <boost/decimal/detail/cmath/fpclassify.hpp>
 #include <boost/decimal/detail/cmath/abs.hpp>
@@ -1271,7 +1270,7 @@ constexpr auto operator+(const decimal_fast64_t lhs, const Integer rhs) noexcept
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
 
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal_fast64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal_fast64_t>(
@@ -1364,7 +1363,7 @@ constexpr auto operator-(const decimal_fast64_t lhs, const Integer rhs) noexcept
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
 
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal_fast64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal_fast64_t>(
@@ -1395,7 +1394,7 @@ constexpr auto operator-(const Integer lhs, const decimal_fast64_t rhs) noexcept
     auto sig_lhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
 
     exp_type exp_lhs {0};
-    detail::normalize<decimal64_t>(sig_lhs, exp_lhs);
+    detail::normalize<decimal64_t>(sig_lhs, exp_lhs, lhs < 0);
     const auto final_sig_lhs {static_cast<decimal_fast64_t::significand_type>(sig_lhs)};
 
     return detail::add_impl<decimal_fast64_t>(
@@ -1447,7 +1446,11 @@ constexpr auto operator*(const decimal_fast64_t lhs, const Integer rhs) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (not_finite(lhs))
     {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
+        if (isinf(lhs) && rhs == 0)
+        {
+            return direct_init_d64(detail::d64_fast_qnan, 0, false);
+        }
+        else if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
         {
             return signbit(lhs) ? lhs : -lhs;
         }
@@ -1462,7 +1465,7 @@ constexpr auto operator*(const decimal_fast64_t lhs, const Integer rhs) noexcept
 
     auto rhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
     exp_type rhs_exp {0};
-    detail::normalize<decimal64_t>(rhs_sig, rhs_exp);
+    detail::normalize<decimal64_t>(rhs_sig, rhs_exp, rhs < 0);
     auto final_rhs_sig {static_cast<decimal_fast64_t::significand_type>(rhs_sig)};
 
     return detail::d64_mul_impl<decimal_fast64_t>(
@@ -1616,7 +1619,8 @@ constexpr auto operator/(const decimal_fast64_t lhs, const Integer rhs) noexcept
 
     auto rhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
     exp_type rhs_exp {};
-    detail::decimal_fast64_t_components rhs_components {detail::shrink_significand<decimal_fast64_t::significand_type>(rhs_sig, rhs_exp), rhs_exp, rhs < 0};
+    detail::normalize<decimal64_t>(rhs_sig, rhs_exp, rhs < 0);
+    detail::decimal_fast64_t_components rhs_components {static_cast<decimal_fast64_t::significand_type>(rhs_sig), rhs_exp, rhs < 0};
 
     return detail::d64_generic_div_impl<decimal_fast64_t>(lhs_components, rhs_components, sign);
 }
@@ -1654,7 +1658,8 @@ constexpr auto operator/(const Integer lhs, const decimal_fast64_t rhs) noexcept
 
     auto lhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
     exp_type lhs_exp {};
-    const detail::decimal_fast64_t_components lhs_components {detail::shrink_significand<decimal_fast64_t::significand_type>(lhs_sig, lhs_exp), lhs_exp, lhs < 0};
+    detail::normalize<decimal64_t>(lhs_sig, lhs_exp, lhs < 0);
+    const detail::decimal_fast64_t_components lhs_components {static_cast<decimal_fast64_t::significand_type>(lhs_sig), lhs_exp, lhs < 0};
 
     return detail::d64_generic_div_impl<decimal_fast64_t>(lhs_components, rhs_components, sign);
 }
