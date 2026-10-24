@@ -848,5 +848,5 @@ Effects:
 ... `comparetotal(+SNAN, +QNAN)` returns `true`
 ... `comparetotal(-QNAN, -SNAN)` returns `true`
 ... `comparetotal(NAN, NAN)`
-.... If both `NAN` are positive returns `true` if the payload of `x` is less than the payload of `y`
-.... If both `NAN` are negative returns `true` if the payload of `x` is greater than the payload of `y`
+.... If both `NAN` are positive returns `true` if the payload of `x` is less than or equal to the payload of `y`
+.... If both `NAN` are negative returns `true` if the payload of `x` is greater than or equal to the payload of `y`
