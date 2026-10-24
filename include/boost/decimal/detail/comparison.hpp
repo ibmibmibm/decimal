@@ -15,6 +15,7 @@
 #include <boost/decimal/detail/cmath/isfinite.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
+#include <boost/decimal/detail/u256.hpp>
 #include "int128.hpp"
 #include <boost/decimal/detail/attributes.hpp>
 
@@ -61,8 +62,9 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto equality_impl(Decim
     const auto lhs_components {lhs.to_components()};
     const auto rhs_components {rhs.to_components()};
 
-    auto lhs_sig {lhs_components.sig};
-    auto rhs_sig {rhs_components.sig};
+    // References, because a copy of a 128-bit significand reloads it just after two 64-bit stores
+    const auto& lhs_sig {lhs_components.sig};
+    const auto& rhs_sig {rhs_components.sig};
 
     // Step 4: Check signs
     if (lhs_components.sign != rhs_components.sign)
@@ -93,39 +95,25 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto equality_impl(Decim
     // Step 6: Normalize the significand and compare
     BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
     {
-        // Instead of multiplying the larger number, divide the smaller one
-        //
-        // We try for multiplication even though it's a small range
-        // Since it's an order of magnitude faster
-        if (delta_exp <= 4 && delta_exp >= -4)
+        // The significand with the larger exponent is scaled when the product fits, which needs no
+        // digit count for a small delta. Else it has more digits than any significand.
+        constexpr auto max_delta_diff {std::numeric_limits<comp_type>::digits10 - detail::precision_v<DecimalType>};
+        constexpr auto max_digits {std::numeric_limits<comp_type>::digits10};
+        if (delta_exp > 0)
         {
-            if (delta_exp > 0)
-            {
-                lhs_sig *= detail::pow10(static_cast<comp_type>(delta_exp));
-            }
-            else if (delta_exp < 0)
-            {
-                rhs_sig *= detail::pow10(static_cast<comp_type>(-delta_exp));
-            }
-        }
-        else if (delta_exp > 0)
-        {
-            // Check if we can divide rhs_sig safely
-            // E.g. 9e0 != 90000000204928e-13 but if we just did division we would falsely get 9 ?= 9
-            if (rhs_sig % detail::pow10(static_cast<comp_type>(delta_exp)) != 0U)
+            if (delta_exp > max_delta_diff && detail::num_digits(lhs_sig) + delta_exp > max_digits)
             {
                 return false;
             }
-            rhs_sig /= detail::pow10(static_cast<comp_type>(delta_exp));
+            return lhs_sig * detail::pow10(static_cast<comp_type>(delta_exp)) == rhs_sig;
         }
         else if (delta_exp < 0)
         {
-            // Check if we can divide lhs_sig safely
-            if (lhs_sig % detail::pow10(static_cast<comp_type>(-delta_exp)) != 0U)
+            if (delta_exp < -max_delta_diff && detail::num_digits(rhs_sig) - delta_exp > max_digits)
             {
                 return false;
             }
-            lhs_sig /= detail::pow10(static_cast<comp_type>(-delta_exp));
+            return lhs_sig == rhs_sig * detail::pow10(static_cast<comp_type>(-delta_exp));
         }
 
         return lhs_sig == rhs_sig;
@@ -389,52 +377,76 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator!=(Decimal1 lhs, Decimal2 rhs) noexcep
 template <BOOST_DECIMAL_FAST_DECIMAL_FLOATING_TYPE DecimalType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto fast_less_impl(const DecimalType& lhs, const DecimalType& rhs) noexcept -> bool
 {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs) || not_finite(rhs))
+    // One test finds a zero or a value that is not finite in either operand, except in
+    // two words, where the test costs more than the separate tests.
+    using sig_type = decltype(lhs.significand_);
+    constexpr auto max_sig {static_cast<sig_type>(detail::max_significand_v<DecimalType>)};
+    if (detail::decimal_val_v<DecimalType> >= 128 ||
+        BOOST_DECIMAL_UNLIKELY((static_cast<unsigned>(static_cast<sig_type>(lhs.significand_ - 1U) >= max_sig) |
+                                static_cast<unsigned>(static_cast<sig_type>(rhs.significand_ - 1U) >= max_sig)) != 0U))
     {
-        if (isnan(lhs) || isnan(rhs) ||
-            (!lhs.isneg() && rhs.isneg()))
+    #ifndef BOOST_DECIMAL_FAST_MATH
+        if (not_finite(lhs) || not_finite(rhs))
         {
-            return false;
+            if (isnan(lhs) || isnan(rhs) ||
+                (!lhs.isneg() && rhs.isneg()))
+            {
+                return false;
+            }
+            else if (lhs.isneg() && !rhs.isneg())
+            {
+                return true;
+            }
+            else if (isfinite(lhs) && isinf(rhs))
+            {
+                return !signbit(rhs);
+            }
+            else if (isinf(lhs) && isfinite(rhs))
+            {
+                return signbit(rhs);
+            }
         }
-        else if (lhs.isneg() && !rhs.isneg())
-        {
-            return true;
-        }
-        else if (isfinite(lhs) && isinf(rhs))
-        {
-            return !signbit(rhs);
-        }
-        else if (isinf(lhs) && isfinite(rhs))
-        {
-            return signbit(rhs);
-        }
-    }
     #endif
 
-    // Needed to correctly compare signed and unsigned zeros.
-    // Every zero compares equal to every other zero, so neither of a pair of them is less
-    // (IEEE 754-2008 5.11). Ordering -0 before +0 is the job of totalorder, not of operator<.
-    if (lhs.significand_ == 0U || rhs.significand_ == 0U)
-    {
-        if (lhs.significand_ == 0U && rhs.significand_ == 0U)
+        // Needed to correctly compare signed and unsigned zeros.
+        // Every zero compares equal to every other zero, so neither of a pair of them is less
+        // (IEEE 754-2008 5.11). Ordering -0 before +0 is the job of totalorder, not of operator<.
+        if (lhs.significand_ == 0U || rhs.significand_ == 0U)
         {
-            return false;
+            if (lhs.significand_ == 0U && rhs.significand_ == 0U)
+            {
+                return false;
+            }
+            return lhs.significand_ == 0U ? !rhs.sign_ : lhs.sign_;
         }
-        return lhs.significand_ == 0U ? !rhs.sign_ : lhs.sign_;
     }
 
-    if (lhs.sign_ != rhs.sign_)
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> < 128)
     {
-        return lhs.sign_;
+        // Normalized values order by exponent and then significand, so one signed key holds the
+        // whole order. The key of a nonzero value is positive, so its negation is less than it.
+        constexpr auto below_min_sig {detail::pow10(static_cast<std::uint64_t>(detail::precision_v<DecimalType> > 16 ? 0 : detail::precision_v<DecimalType> - 1)) - 1U};
+        const auto lhs_mask {-static_cast<std::int64_t>(lhs.sign_)};
+        const auto rhs_mask {-static_cast<std::int64_t>(rhs.sign_)};
+        const auto lhs_key {(static_cast<std::int64_t>(lhs.exponent_) << 53) + static_cast<std::int64_t>(static_cast<std::uint64_t>(lhs.significand_) - below_min_sig)};
+        const auto rhs_key {(static_cast<std::int64_t>(rhs.exponent_) << 53) + static_cast<std::int64_t>(static_cast<std::uint64_t>(rhs.significand_) - below_min_sig)};
+        return ((lhs_key ^ lhs_mask) - lhs_mask) < ((rhs_key ^ rhs_mask) - rhs_mask);
     }
-
-    if (lhs.exponent_ != rhs.exponent_)
+    else
     {
-        return lhs.sign_ ? lhs.exponent_ > rhs.exponent_ : lhs.exponent_ < rhs.exponent_;
+        // The same key in two words: the exponent sits above the 49 high bits of the significand
+        const auto lhs_high {(static_cast<std::uint64_t>(lhs.exponent_) << 49) + int128::uint128_t{lhs.significand_}.high};
+        const auto rhs_high {(static_cast<std::uint64_t>(rhs.exponent_) << 49) + int128::uint128_t{rhs.significand_}.high};
+        const auto lhs_low {int128::uint128_t{lhs.significand_}.low};
+        const auto rhs_low {int128::uint128_t{rhs.significand_}.low};
+        const auto same_high {static_cast<unsigned>(lhs_high == rhs_high)};
+        const auto above {static_cast<unsigned>(lhs_high > rhs_high) | (same_high & static_cast<unsigned>(lhs_low > rhs_low))};
+        const auto below {static_cast<unsigned>(lhs_high < rhs_high) | (same_high & static_cast<unsigned>(lhs_low < rhs_low))};
+        const auto lhs_negative {static_cast<unsigned>(lhs.sign_)};
+        const auto signs_differ {lhs_negative ^ static_cast<unsigned>(rhs.sign_)};
+        const auto same_sign {(lhs_negative & above) | (~lhs_negative & below & 1U)};
+        return ((signs_differ & lhs_negative) | (~signs_differ & same_sign & 1U)) != 0U;
     }
-
-    return lhs.sign_ ? lhs.significand_ > rhs.significand_ : lhs.significand_ < rhs.significand_;
 }
 
 template <BOOST_DECIMAL_INTEGRAL T, BOOST_DECIMAL_INTEGRAL U>
@@ -483,45 +495,88 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto sequential_less_imp
     const auto lhs_sign {lhs_components.sign};
     const auto rhs_sign {rhs_components.sign};
 
-    auto lhs_sig {static_cast<comp_type>(lhs_components.sig)};
-    auto rhs_sig {static_cast<comp_type>(rhs_components.sig)};
+    // References, because a copy of a 128-bit significand reloads it just after two 64-bit stores
+    const auto& lhs_sig {lhs_components.sig};
+    const auto& rhs_sig {rhs_components.sig};
 
     // Signed zeros: +0 == -0, neither is less.
-    if (lhs_sig == static_cast<comp_type>(0) || rhs_sig == static_cast<comp_type>(0))
+    if (lhs_sig == 0U || rhs_sig == 0U)
     {
         if (lhs_sig == rhs_sig)
         {
             return false;
         }
-        return lhs_sig == static_cast<comp_type>(0) ? !rhs_sign : lhs_sign;
-    }
-
-    if (lhs_sign != rhs_sign)
-    {
-        return lhs_sign;
+        return lhs_sig == 0U ? !rhs_sign : lhs_sign;
     }
 
     const auto lhs_exp {lhs_components.exp};
     const auto rhs_exp {rhs_components.exp};
     const auto delta_exp {lhs_exp - rhs_exp};
 
-    constexpr auto max_delta_diff {std::numeric_limits<comp_type>::digits10 - detail::precision_v<DecimalType>};
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
+    {
+        if (lhs_sign != rhs_sign)
+        {
+            return lhs_sign;
+        }
+
+        // The exponents of the leading digits decide first. When they are equal, the significand
+        // with the larger exponent has fewer digits, and scaled to the digits of the other it fits.
+        if (delta_exp != 0)
+        {
+            const auto lead_delta {delta_exp + detail::num_digits(lhs_sig) - detail::num_digits(rhs_sig)};
+            if (lead_delta != 0)
+            {
+                return lhs_sign ? lead_delta > 0 : lead_delta < 0;
+            }
+
+            if (delta_exp > 0)
+            {
+                const auto scaled {lhs_sig * detail::pow10(static_cast<comp_type>(delta_exp))};
+                return lhs_sign ? scaled > rhs_sig : scaled < rhs_sig;
+            }
+
+            const auto scaled {rhs_sig * detail::pow10(static_cast<comp_type>(-delta_exp))};
+            return lhs_sign ? lhs_sig > scaled : lhs_sig < scaled;
+        }
+
+        return lhs_sign ? lhs_sig > rhs_sig : lhs_sig < rhs_sig;
+    }
+
+    // A gap of p or more decides by the exponents alone. Smaller gaps scale both sides from the table,
+    // so a random gap costs no mispredicted branch, and the products have at most 18 or 35 digits.
+    constexpr auto max_delta_diff {detail::decimal_val_v<DecimalType> < 64 ? 11 : 19};
 
     if (BOOST_DECIMAL_UNLIKELY(delta_exp > max_delta_diff || delta_exp < -max_delta_diff))
     {
+        if (lhs_sign != rhs_sign)
+        {
+            return lhs_sign;
+        }
         return lhs_sign ? lhs_exp > rhs_exp : lhs_exp < rhs_exp;
     }
 
-    if (delta_exp > 0)
+    BOOST_DECIMAL_IF_CONSTEXPR (sizeof(comp_type) == sizeof(std::uint64_t))
     {
-        lhs_sig *= detail::pow10(static_cast<comp_type>(delta_exp));
-    }
-    else if (delta_exp < 0)
-    {
-        rhs_sig *= detail::pow10(static_cast<comp_type>(-delta_exp));
+        const auto lhs_scaled {static_cast<std::uint64_t>(lhs_sig) * detail::pow10(static_cast<std::uint64_t>(delta_exp > 0 ? delta_exp : 0))};
+        const auto rhs_scaled {static_cast<std::uint64_t>(rhs_sig) * detail::pow10(static_cast<std::uint64_t>(delta_exp < 0 ? -delta_exp : 0))};
+        const auto lhs_mask {-static_cast<std::int64_t>(lhs_sign)};
+        const auto rhs_mask {-static_cast<std::int64_t>(rhs_sign)};
+        return ((static_cast<std::int64_t>(lhs_scaled) ^ lhs_mask) - lhs_mask) < ((static_cast<std::int64_t>(rhs_scaled) ^ rhs_mask) - rhs_mask);
     }
 
-    return lhs_sign ? lhs_sig > rhs_sig : lhs_sig < rhs_sig;
+    // One product of the significand with the larger exponent. Only the bits decide the order,
+    // because random signs and exponents make a branch mispredict.
+    const auto swapped {static_cast<unsigned>(delta_exp < 0)};
+    const auto larger {static_cast<std::uint64_t>(swapped != 0U ? rhs_sig : lhs_sig)};
+    const auto smaller {static_cast<std::uint64_t>(swapped != 0U ? lhs_sig : rhs_sig)};
+    const auto product {detail::umul128(larger, detail::pow10(static_cast<std::uint64_t>(swapped != 0U ? -delta_exp : delta_exp)))};
+    const auto above {static_cast<unsigned>(product.high != 0U) | static_cast<unsigned>(product.low > smaller)};
+    const auto below {static_cast<unsigned>(product.high == 0U) & static_cast<unsigned>(product.low < smaller)};
+    const auto flip {swapped ^ static_cast<unsigned>(lhs_sign)};
+    const auto same_sign {(flip & above) | (~flip & below & 1U)};
+    const auto signs_differ {static_cast<unsigned>(lhs_sign != rhs_sign)};
+    return ((signs_differ & static_cast<unsigned>(lhs_sign)) | (~signs_differ & same_sign & 1U)) != 0U;
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType = decimal32_t, BOOST_DECIMAL_INTEGRAL T1,
