@@ -49,6 +49,9 @@ void test_part_d12()
         const T rhs {rhs_int};
 
         BOOST_TEST(comparetotal(lhs, rhs));
+        BOOST_TEST(!comparetotal(rhs, lhs));
+        BOOST_TEST(!comparetotal(-lhs, rhs));
+        BOOST_TEST(comparetotal(rhs, -lhs));
     }
 
     for (std::size_t i {}; i < N / 2U; ++i)
@@ -56,9 +59,12 @@ void test_part_d12()
         const auto lhs_int {dist(rng)};
 
         const T lhs {lhs_int};
-        const auto rhs {std::numeric_limits<T>::quiet_NaN()};
+        const auto rhs {std::numeric_limits<T>::signaling_NaN()};
 
         BOOST_TEST(comparetotal(lhs, rhs));
+        BOOST_TEST(!comparetotal(rhs, lhs));
+        BOOST_TEST(!comparetotal(lhs, -rhs));
+        BOOST_TEST(comparetotal(-rhs, lhs));
     }
 }
 
@@ -76,7 +82,8 @@ void test_part_d3()
 
         BOOST_TEST(comparetotal(lhs, rhs));
         BOOST_TEST(!comparetotal(rhs, lhs));
-        BOOST_TEST(!comparetotal(rhs, rhs));
+        BOOST_TEST(comparetotal(rhs, rhs));
+        BOOST_TEST(!comparetotal(std::numeric_limits<T>::signaling_NaN(), lhs));
     }
 
     // d.3.ii
@@ -89,7 +96,7 @@ void test_part_d3()
 
         BOOST_TEST(comparetotal(lhs, rhs));
         BOOST_TEST(!comparetotal(rhs, lhs));
-        BOOST_TEST(!comparetotal(rhs, rhs));
+        BOOST_TEST(comparetotal(rhs, rhs));
 
         const T neg_lhs {-std::numeric_limits<T>::signaling_NaN()};
         const T neg_rhs {rhs_int * -std::numeric_limits<T>::quiet_NaN()};
@@ -122,8 +129,8 @@ void test_part_d3()
         }
         else
         {
-            BOOST_TEST(!comparetotal(lhs, rhs));
-            BOOST_TEST(!comparetotal(rhs, lhs));
+            BOOST_TEST(comparetotal(lhs, rhs));
+            BOOST_TEST(comparetotal(rhs, lhs));
         }
     }
 }
