@@ -10,6 +10,7 @@
 #include <boost/decimal/detail/cmath/sinh.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
@@ -45,7 +46,7 @@ constexpr auto cosh_impl(const T x) noexcept
         }
         else if (fpc == FP_NAN)
         {
-            result = abs(x);
+            result = detail::nan_result(x);
         }
     }
     #endif

@@ -6,6 +6,7 @@
 #define BOOST_DECIMAL_DETAIL_CMATH_IMPL_ROUND_INTEGRAL_HPP
 
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
@@ -86,7 +87,7 @@ constexpr auto round_integral_impl(const T x, const rounding_mode round) noexcep
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(x))
     {
-        return x;
+        return isnan(x) ? detail::nan_result(x) : x;
     }
     #endif
 

@@ -11,6 +11,7 @@
 #include <boost/decimal/detail/cmath/decompose.hpp>
 #include <boost/decimal/detail/mod_impl.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
@@ -28,17 +29,17 @@ constexpr auto remquo(const T x, const T y, int* quo) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(x) || !isfinite(y))
     {
-        if (isinf(x))
+        if (isnan(x))
         {
-            return std::numeric_limits<T>::quiet_NaN();
-        }
-        else if (isnan(x))
-        {
-            return x;
+            return detail::nan_result(x);
         }
         else if (isnan(y))
         {
-            return y;
+            return detail::nan_result(y);
+        }
+        else if (isinf(x))
+        {
+            return std::numeric_limits<T>::quiet_NaN();
         }
 
         // x is finite and y is infinite

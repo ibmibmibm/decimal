@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/cmath/frexp.hpp>
 
@@ -92,7 +93,7 @@ template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
 constexpr auto ldexp_impl(const T v, const int e2) noexcept -> T
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    if (isnan(v) || isinf(v)) { return v; }
+    if (isnan(v) || isinf(v)) { return isnan(v) ? detail::nan_result(v) : v; }
     #endif
 
     const auto comp { decompose(v) };

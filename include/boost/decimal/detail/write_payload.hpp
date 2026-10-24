@@ -99,6 +99,19 @@ constexpr auto read_payload(const T value) noexcept
     }
 }
 
+namespace detail {
+
+// The quiet NaN that an operation gives for the NaN operand x: the sign and the payload of x,
+// without the reserved bits (IEEE 754 6.2.3)
+template <typename T>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto nan_result(const T x) noexcept -> T
+{
+    const auto nan_val {write_payload<T, false>(read_payload(x))};
+    return signbit(x) ? -nan_val : nan_val;
+}
+
+} // namespace detail
+
 } // namespace decimal
 } // namespace boost
 

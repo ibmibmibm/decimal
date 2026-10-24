@@ -7,6 +7,7 @@
 
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
@@ -36,8 +37,8 @@ constexpr auto modf(const T x, T* iptr) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     else if (isnan(x))
     {
-        *iptr = x;
-        return x;
+        *iptr = detail::nan_result(x);
+        return *iptr;
     }
     #endif
 

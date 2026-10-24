@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/quantize_impl.hpp>
@@ -34,7 +35,7 @@ constexpr auto rescale(const T val, const int precision = 0) noexcept
 {
     if (isnan(val) || isinf(val) || abs(val) == 0)
     {
-        return val;
+        return isnan(val) ? detail::nan_result(val) : val;
     }
 
     // precision counts digits after the decimal point, so the quantum we want is 10^-precision.

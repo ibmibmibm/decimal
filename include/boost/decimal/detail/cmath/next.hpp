@@ -12,6 +12,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/cmath/modf.hpp>
 #include <boost/decimal/detail/cmath/abs.hpp>
@@ -142,9 +143,13 @@ constexpr auto nextafter(const T1 val, const T2 direction) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(val))
     {
-        return val;
+        return detail::nan_result(val);
     }
-    else if (isnan(direction) || val == direction)
+    else if (isnan(direction))
+    {
+        return detail::nan_result(direction);
+    }
+    else if (val == direction)
     {
         return direction;
     }

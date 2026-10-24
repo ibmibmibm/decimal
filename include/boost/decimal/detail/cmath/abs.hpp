@@ -22,14 +22,8 @@ BOOST_DECIMAL_EXPORT template <typename T>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto abs BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const T rhs) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    if (BOOST_DECIMAL_LIKELY(!isnan(rhs)))
-    {
-        return signbit(rhs) ? -rhs : rhs;
-    }
-    else
-    {
-        return issignaling(rhs) ? nan_conversion(rhs) : rhs;
-    }
+    // Clears the sign bit, even of a NaN, and keeps a signaling NaN (IEEE 754 5.5.1)
+    return signbit(rhs) ? -rhs : rhs;
 }
 
 } // namespace decimal

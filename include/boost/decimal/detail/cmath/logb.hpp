@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cmath>
@@ -35,7 +36,7 @@ constexpr auto logb(const T num) noexcept
     }
     else if (fpc == FP_NAN)
     {
-        return num;
+        return detail::nan_result(num);
     }
     #else
     if (fpc == FP_ZERO)

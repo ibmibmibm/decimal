@@ -10,6 +10,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/write_payload.hpp>
 #include <boost/decimal/detail/int128.hpp>
 #include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
@@ -302,7 +303,7 @@ constexpr auto cbrt_impl(const T x) noexcept
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(x) || isinf(x))
     {
-        return x;
+        return isnan(x) ? detail::nan_result(x) : x;
     }
     #endif
 
