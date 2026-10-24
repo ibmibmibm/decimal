@@ -349,6 +349,15 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_kernel(const SigType a, const ExpType
     return pack_in_range<ReturnType>(q, ea - static_cast<ExpType>(g) + static_cast<ExpType>(k), sa);
 }
 
+// Operands that already have all the digits can skip expand_significand and add_impl and go
+// to band_add_kernel, when they are 4 or more exponents apart and the result is normal
+template <typename ReturnType, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto takes_band_kernel(const SigType lhs_sig, const SigType rhs_sig, const ExpType big_exp) noexcept -> bool
+{
+    constexpr SigType min_full {static_cast<SigType>((static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1U}) / SigType{10U})};
+    return lhs_sig >= min_full && rhs_sig >= min_full && big_exp + precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10;
+}
+
 // Directed modes: a call that the compiler can keep out of line.
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_add_in_mode(
