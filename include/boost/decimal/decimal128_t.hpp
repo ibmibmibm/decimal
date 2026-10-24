@@ -770,7 +770,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(T1 coeff, T2 exp, const 
         constexpr auto max_sig {detail::impl::max_significand_v<decimal128_t>()};
         if (coeff > max_sig || biased_exp < -(detail::precision_v<decimal128_t> - 1))
         {
-            coeff_digits = detail::coefficient_rounding<decimal128_t>(coeff, exp, biased_exp, is_negative, detail::num_digits(coeff));
+            // Round a copy, so that coeff keeps no address and stays in registers on the common path
+            auto rounded_coeff {coeff};
+            coeff_digits = detail::coefficient_rounding<decimal128_t>(rounded_coeff, exp, biased_exp, is_negative, detail::num_digits(rounded_coeff));
+            coeff = rounded_coeff;
         }
     }
     else if (biased_exp < -(detail::precision_v<decimal128_t> - 1))
