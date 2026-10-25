@@ -149,3 +149,4 @@ struct numeric_limits<boost::decimal::decimal128_t>
 ----
 
 The fast types each have the same member values as their corresponding non-fast type above, and are also contained in the same file as the class implementation.
+The exceptions are that the fast types do not support sub-normal values, so `has_denorm` is `std::denorm_absent`, `has_denorm_loss` is `false` and `denorm_min()` returns `min()`, and that `is_iec559` is `false`.

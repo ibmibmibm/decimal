@@ -174,6 +174,7 @@ run github_issue_fast_assign.cpp ;
 run github_issue_fast_assign_long_double.cpp ;
 run github_issue_fast_isnormal.cpp ;
 run github_issue_fast128_int128.cpp ;
+run github_issue_fast_denorm.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
