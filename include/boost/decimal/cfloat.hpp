@@ -42,7 +42,7 @@
 // 3.4.5 minimum positive normal value:
 #define BOOST_DECIMAL_DEC32_MIN (std::numeric_limits<boost::decimal::decimal32_t>::min)()
 #define BOOST_DECIMAL_DEC64_MIN (std::numeric_limits<boost::decimal::decimal64_t>::min)()
-#define BOOST_DECIMAL_DEC128_MIN (std::numeric_limits<boost::decimal::decimal128_t>::max)()
+#define BOOST_DECIMAL_DEC128_MIN (std::numeric_limits<boost::decimal::decimal128_t>::min)()
 
 // 3.4.6 minimum positive subnormal value:
 #define BOOST_DECIMAL_DEC32_SUBNORMAL std::numeric_limits<boost::decimal::decimal32_t>::denorm_min()
