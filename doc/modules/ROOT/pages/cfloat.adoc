@@ -42,7 +42,7 @@ In all cases `std::numeric_limits` should be preferred.
 #define BOOST_DECIMAL_DEC64_EPSILON  std::numeric_limits<boost::decimal::decimal64_t>::epsilon()
 #define BOOST_DECIMAL_DEC128_EPSILON std::numeric_limits<boost::decimal::decimal128_t>::epsilon()
 
-// Minimum positive normal vlaue
+// Minimum positive normal value
 #define BOOST_DECIMAL_DEC32_MIN std::numeric_limits<boost::decimal::decimal32_t>::min()
 #define BOOST_DECIMAL_DEC64_MIN   std::numeric_limits<boost::decimal::decimal64_t>::min()
 #define BOOST_DECIMAL_DEC128_MIN std::numeric_limits<boost::decimal::decimal128_t>::min()

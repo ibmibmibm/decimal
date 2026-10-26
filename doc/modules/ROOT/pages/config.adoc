@@ -80,4 +80,4 @@ The majority of the library's functions are annotated with this macro.
   * We only need the structs and enums out of the header so we are not concerned with being overly restrictive about the feature test macros.
     ** Known compilers that support this lighter  requirement are: GCC >= 10, Clang >= 13, and MSVC >= 14.2
 
-- `BOOST_DECIMAL_HAS_STD_STRING_VIEW`: This macro is defined if header `<string_view>` exists and the langauge standard used is >= C++17
+- `BOOST_DECIMAL_HAS_STD_STRING_VIEW`: This macro is defined if header `<string_view>` exists and the language standard used is >= C++17

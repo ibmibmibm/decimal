@@ -88,4 +88,4 @@ std::string to_string(const DecimalType value)
 } // namespace boost
 ----
 
-The `to_string` format returns a `std::string` of the decimal value formated as though using `to_chars` with general formatting, and no specified precision.
+The `to_string` format returns a `std::string` of the decimal value formatted as though using `to_chars` with general formatting, and no specified precision.

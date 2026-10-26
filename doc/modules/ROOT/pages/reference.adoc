@@ -20,6 +20,6 @@ The following books, papers and blog posts serve as the basis for the algorithms
 
 - Jean-Michel Muller, et. al., _Handbook of Floating-Point Arithmetic_, 2000
 
-- John F. Hart, et. al.,  _Computer Approximations_, 1968
+- John F. Hart, et al.,  _Computer Approximations_, 1968
 
 - IEEE, _IEEE Standard for Floating-Point Arithmetic_, 2019

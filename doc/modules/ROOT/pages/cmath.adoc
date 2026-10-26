@@ -302,10 +302,10 @@ constexpr DecimalType lgamma(DecimalType x) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/round[round] | Computes the nearest integer represented in same decimal format rounding away from zero
 | https://en.cppreference.com/w/cpp/numeric/math/round[lround] | Computes the nearest `long` rounding away from zero
 | https://en.cppreference.com/w/cpp/numeric/math/round[llround] | Computes the nearest `long long` rounding away from zero
-| https://en.cppreference.com/w/cpp/numeric/math/nearbyint[nearbyint] | Computest the nearest integer represented in same decimal format subject to xref:cfenv.adoc[current fenv rounding mode]
+| https://en.cppreference.com/w/cpp/numeric/math/nearbyint[nearbyint] | Computes the nearest integer represented in same decimal format subject to xref:cfenv.adoc[current fenv rounding mode]
 | https://en.cppreference.com/w/cpp/numeric/math/rint[rint] | Computes the nearest integer represented in same decimal format subject to xref:cfenv.adoc[current fenv rounding mode]
-| https://en.cppreference.com/w/cpp/numeric/math/lrint[lrint] | Computest the nearest `long` subject to xref:cfenv.adoc[current fenv rounding mode]
-| https://en.cppreference.com/w/cpp/numeric/math/llrint[llrint] | Computest the nearest `long long` subject to xref:cfenv.adoc[current fenv rounding mode]
+| https://en.cppreference.com/w/cpp/numeric/math/lrint[lrint] | Computes the nearest `long` subject to xref:cfenv.adoc[current fenv rounding mode]
+| https://en.cppreference.com/w/cpp/numeric/math/llrint[llrint] | Computes the nearest `long long` subject to xref:cfenv.adoc[current fenv rounding mode]
 |===
 
 [source, c++]
@@ -594,7 +594,7 @@ constexpr bool samequantumd64(decimal64_t x, decimal64_t y) noexcept;
 constexpr bool samequantumd128(decimal128_t x, decimal128_t y) noexcept;
 
 } // namespace decimal
-} // namepsace boost
+} // namespace boost
 ----
 
 Effects: Determines if the quantum (unbiased) exponents of x and y are the same.
@@ -623,7 +623,7 @@ constexpr int quantexpd64(decimal64_t x) noexcept;
 constexpr int quantexpd128(decimal128_t x) noexcept;
 
 } // namespace decimal
-} // namepsace boost
+} // namespace boost
 ----
 
 Effects: if x is finite, returns its quantum exponent.
@@ -646,7 +646,7 @@ template <typename Decimal>
 constexpr Decimal quantize(Decimal x, Decimal y) noexcept;
 
 } // namespace decimal
-} // namepsace boost
+} // namespace boost
 ----
 
 Returns: a number that is equal in value (except for any rounding) and sign to x, and which has an exponent set to be equal to the exponent of y.
@@ -712,7 +712,7 @@ template <typename Decimal>
 constexpr auto frexp10(Decimal num, int* expptr) noexcept;
 
 } // namespace decimal
-} // namepsace boost
+} // namespace boost
 ----
 
 This function is very similar to https://en.cppreference.com/w/cpp/numeric/math/frexp[frexp], but returns the significand and an integral power of 10 since the `FLT_RADIX` of this type is 10.
@@ -732,7 +732,7 @@ template <typename Decimal>
 constexpr Decimal normalize(Decimal val) noexcept;
 
 } // namespace decimal
-} // namepsace boost
+} // namespace boost
 ----
 
 Similar to the `frexp10` function above, but rather than returning the normalized significand, and exponent of the Decimal number, it returns a normalized number.

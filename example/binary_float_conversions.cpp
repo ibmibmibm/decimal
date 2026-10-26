@@ -39,7 +39,7 @@ int main()
         std::cout << "Decimal INFINITY converts to double INFINITY\n";
     }
 
-    // For finite values we make a best effort approach to covert to double
+    // For finite values we make a best effort approach to convert to double
     // We are able to decompose the decimal floating point value into a sign, significand, and exponent.
     // From there we use the methods outline in Daniel Lemire's "Number Parsing at a Gigabyte a Second",
     // to construct the binary floating point value.

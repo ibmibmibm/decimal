@@ -46,7 +46,7 @@ public:
 // 3.2.4.1 construct/copy/destroy
 constexpr decimal128_t() noexcept = default;
 
-// 3.2.4.2 Conversion form floating-point type
+// 3.2.4.2 Conversion from floating-point type
 template <typename Float>
 explicit BOOST_DECIMAL_CXX20_CONSTEXPR decimal128_t(Float val) noexcept;
 
@@ -70,7 +70,7 @@ template <typename SignedIntegral, typename Integral>
 constexpr decimal128_t(SignedIntegral coeff, Integral exp) noexcept;
 
 template <typename Integral>
-constexpr decimal128_t& operator=(const Integeral& RHS) noexcept;
+constexpr decimal128_t& operator=(const Integral& RHS) noexcept;
 
 // 3.2.4.4 Conversion to integral type
 // If the value exceeds the range of the integral,
