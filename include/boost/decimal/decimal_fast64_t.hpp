@@ -1602,9 +1602,9 @@ constexpr auto operator/(const decimal_fast64_t lhs, const Integer rhs) noexcept
         case FP_NAN:
             return issignaling(lhs) ? nan_conversion(lhs) : lhs;;
         case FP_INFINITE:
-            return sign ? -lhs : lhs;
+            return sign ? -inf : inf;
         case FP_ZERO:
-            return sign ? -zero : zero;
+            return rhs == 0 ? std::numeric_limits<decimal_fast64_t>::quiet_NaN() : sign ? -zero : zero;
         default:
             static_cast<void>(lhs);
     }
@@ -1648,7 +1648,7 @@ constexpr auto operator/(const Integer lhs, const decimal_fast64_t rhs) noexcept
         case FP_INFINITE:
             return sign ? -zero : zero;
         case FP_ZERO:
-            return sign ? -inf : inf;
+            return lhs == 0 ? std::numeric_limits<decimal_fast64_t>::quiet_NaN() : sign ? -inf : inf;
         default:
             static_cast<void>(lhs);
     }

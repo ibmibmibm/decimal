@@ -1980,9 +1980,9 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal64_t lhs, const Integer
         case FP_NAN:
             return issignaling(lhs) ? nan_conversion(lhs) : lhs;
         case FP_INFINITE:
-            return sign ? -lhs : lhs;
+            return sign ? -inf : inf;
         case FP_ZERO:
-            return sign ? -zero : zero;
+            return rhs == 0 ? std::numeric_limits<decimal64_t>::quiet_NaN() : sign ? -zero : zero;
         default:
             static_cast<void>(lhs);
     }
@@ -2030,7 +2030,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal64_t
         case FP_INFINITE:
             return sign ? -zero : zero;
         case FP_ZERO:
-            return sign ? -inf : inf;
+            return lhs == 0 ? std::numeric_limits<decimal64_t>::quiet_NaN() : sign ? -inf : inf;
         default:
             static_cast<void>(lhs);
     }
