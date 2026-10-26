@@ -1145,6 +1145,38 @@ void test_llrint()
     BOOST_TEST_EQ(llrint(Dec(0) * Dec(dist(rng)) + Dec(1U, -20, true)), 0);
 }
 
+// Exact values at the limit of Int: a product of the coefficient and 10 in range, above the limit, and above 64 bits
+template <typename Int, typename Dec, typename F>
+void test_integer_limits(F round)
+{
+    using uint_type = std::make_unsigned_t<Int>;
+    const auto max {static_cast<uint_type>((std::numeric_limits<Int>::max)())};
+    const auto tenth {static_cast<std::uint64_t>(max / 10U)};
+
+    BOOST_TEST_EQ(round(Dec{tenth, 1}), static_cast<Int>(tenth * 10U));
+    BOOST_TEST_EQ(round(Dec{tenth, 1, true}), -static_cast<Int>(tenth * 10U));
+    BOOST_TEST_EQ(round(Dec{tenth + 1U, 1}), (std::numeric_limits<Int>::max)());
+    BOOST_TEST_EQ(round(Dec{tenth + 1U, 1, true}), (std::numeric_limits<Int>::min)());
+
+    constexpr std::uint64_t wide {UINT64_MAX / 10U + 1U};
+    BOOST_TEST_EQ(round(Dec{wide, 1}), (std::numeric_limits<Int>::max)());
+    BOOST_TEST_EQ(round(Dec{wide, 1, true}), (std::numeric_limits<Int>::min)());
+
+    // The magnitude of the minimum is one above the maximum
+    const auto min_magnitude {static_cast<std::uint64_t>(max) + 1U};
+    BOOST_TEST_EQ(round(Dec{min_magnitude, 0, true}), (std::numeric_limits<Int>::min)());
+    BOOST_TEST_EQ(round(Dec{min_magnitude, 0}), (std::numeric_limits<Int>::max)());
+}
+
+template <typename Dec>
+void test_integer_limits()
+{
+    test_integer_limits<long long, Dec>([](const Dec x) { return llrint(x); });
+    test_integer_limits<long long, Dec>([](const Dec x) { return llround(x); });
+    test_integer_limits<long, Dec>([](const Dec x) { return lrint(x); });
+    test_integer_limits<long, Dec>([](const Dec x) { return lround(x); });
+}
+
 template <typename Dec>
 void test_nearbyint()
 {
@@ -1825,6 +1857,9 @@ int main()
     #endif
 
     test_mixed_two_val_hypot<decimal32_t, decimal64_t>();
+
+    test_integer_limits<decimal128_t>();
+    test_integer_limits<decimal_fast128_t>();
 
     test_rint<decimal32_t>();
     test_lrint<decimal32_t>();

@@ -105,6 +105,18 @@ constexpr auto round_integral_saturate(const bool sign) noexcept -> Int
     return sign ? (std::numeric_limits<Int>::min)() : (std::numeric_limits<Int>::max)();
 }
 
+// The full product of a and b, as the high and the low 64 bits
+constexpr auto umul_wide(const std::uint64_t a, const std::uint64_t b, std::uint64_t& high) noexcept -> std::uint64_t
+{
+    return int128::detail::umul(a, b, high);
+}
+
+constexpr auto umul_wide(const std::uint32_t a, const std::uint32_t b, std::uint64_t& high) noexcept -> std::uint64_t
+{
+    high = 0U;
+    return static_cast<std::uint64_t>(a) * b;
+}
+
 // MSVC 14.1 warns of unary minus being applied to unsigned type from numeric_limits::min
 // 14.2 and on get it right
 #ifdef _MSC_VER
@@ -119,6 +131,7 @@ constexpr auto round_integral_int_impl(const T num, const rounding_mode round) n
     using sig_type = typename T::significand_type;
     using uint_type = std::make_unsigned_t<Int>;
     using work_type = std::conditional_t<(sizeof(sig_type) > sizeof(uint_type)), sig_type, uint_type>;
+    static_assert(sizeof(uint_type) <= sizeof(std::uint64_t), "The product below has 64 bits for the result");
 
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(num))
@@ -139,17 +152,19 @@ constexpr auto round_integral_int_impl(const T num, const rounding_mode round) n
     work_type mag {};
     if (c.exp >= 0)
     {
-        // 10^exp overflows work_type: saturate
-        if (c.exp > std::numeric_limits<uint_type>::digits10)
+        // 10^exp or the significand above the limit overflows: saturate. Else both factors fit in factor_type.
+        if (c.exp > std::numeric_limits<uint_type>::digits10 || c.sig > limit)
         {
             return round_integral_saturate<Int>(c.sign);
         }
-        const auto p {pow10(static_cast<work_type>(c.exp))};
-        if (static_cast<work_type>(c.sig) > limit / p)
+        using factor_type = std::conditional_t<(sizeof(uint_type) > sizeof(std::uint32_t)), std::uint64_t, std::uint32_t>;
+        std::uint64_t high {};
+        const auto low {umul_wide(static_cast<factor_type>(c.sig), pow10(static_cast<factor_type>(c.exp)), high)};
+        if (high != 0U || low > limit)
         {
             return round_integral_saturate<Int>(c.sign);
         }
-        mag = static_cast<work_type>(static_cast<work_type>(c.sig) * p);
+        mag = static_cast<work_type>(low);
     }
     else
     {
