@@ -40,7 +40,7 @@ int main()
 
     // Danger awaits if you decide to do this yourself instead of letting the system do it for you,
     // since in this example the two should compare equal but overflowing decimal32_t makes infinity
-    if (static_cast<decimal32_t>(dec64_max) < dec64_max)
+    if (dec64_max < static_cast<decimal32_t>(dec64_max))
     {
         std::cout << dec64_max << " is less than " << static_cast<decimal32_t>(dec64_max) << '\n';
     }
