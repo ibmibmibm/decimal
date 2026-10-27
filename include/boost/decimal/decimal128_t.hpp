@@ -261,6 +261,9 @@ private:
     template <typename Decimal>
     friend constexpr Decimal detail::check_non_finite(Decimal x) noexcept;
 
+    template <typename T, typename SigType>
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::far_operand(T larger, SigType sig) noexcept -> T;
+
 public:
     // 3.2.4.1 construct/copy/destroy
     constexpr decimal128_t() noexcept = default;
@@ -1718,7 +1721,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
                 {
                     if (exp_diff > 75)
                     {
-                        return lhs_exp > rhs_exp ? lhs : rhs;
+                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
                     }
                     return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1747,25 +1750,9 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    using exp_type = decimal128_t::biased_exponent_type;
-    using sig_type = decimal128_t::significand_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs))
-    {
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-
-    auto positive_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
-    exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(positive_rhs, exp_rhs, rhs < 0);
-    const detail::decimal128_t_components rhs_components {positive_rhs, exp_rhs, rhs < 0};
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    // The integer converts to decimal128_t first, as in C
+    const decimal128_t value {rhs};
+    return lhs + value;
 }
 
 template <typename Integer>
@@ -1818,7 +1805,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
                 {
                     if (exp_diff > 75)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : -rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
                     }
                     return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1848,44 +1835,18 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    using exp_type = decimal128_t::biased_exponent_type;
-    using sig_type = decimal128_t::significand_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs))
-    {
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-
-    auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
-    exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(sig_rhs, exp_rhs, rhs < 0);
-    const detail::decimal128_t_components rhs_components {sig_rhs, exp_rhs, !(rhs < 0)};
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    // The integer converts to decimal128_t first, as in C
+    const decimal128_t value {rhs};
+    return lhs - value;
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal128_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(rhs))
-    {
-        if (isinf(rhs))
-        {
-            return -rhs;
-        }
-
-        return detail::check_non_finite(rhs);
-    }
-    #endif
-
-    return -rhs + lhs;
+    // The integer converts to decimal128_t first, as in C
+    const decimal128_t value {lhs};
+    return value - rhs;
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t

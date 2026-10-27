@@ -78,7 +78,8 @@ void test_zero_dividend()
     BOOST_TEST_EQ(quantexp(Integer{0} / T{25, -1}), quantexp(T{0} / T{25, -1}));
 }
 
-// The product has the preferred exponent, the sum of the two exponents (IEEE 754 5.4.1)
+// The product has the preferred exponent, the sum of the two exponents, and a sum
+// or a difference the smaller of the two exponents (IEEE 754 5.4.1)
 template <typename T>
 void test_preferred_exponent()
 {
@@ -86,6 +87,26 @@ void test_preferred_exponent()
     BOOST_TEST_EQ(quantexp(5 * T{3}), 0);
     BOOST_TEST_EQ(quantexp(T{15, -1} * 4), -1);
     BOOST_TEST_EQ(quantexp(T{15, -1} * -4LL), -1);
+
+    BOOST_TEST_EQ(quantexp(T{15, -1} + 1), -1);
+    BOOST_TEST_EQ(quantexp(1 + T{15, -1}), -1);
+    BOOST_TEST_EQ(quantexp(T{15, -1} - 1), -1);
+    BOOST_TEST_EQ(quantexp(1 - T{15, -1}), -1);
+    BOOST_TEST_EQ(quantexp(T{3} + 5U), 0);
+    BOOST_TEST_EQ(quantexp(T{3} - -5LL), 0);
+
+    // An inexact sum has all digits, also when the other operand is far below
+    constexpr int digits {std::numeric_limits<T>::digits10};
+    BOOST_TEST_EQ(quantexp(T{1, -90} + 2000), 4 - digits);
+    BOOST_TEST_EQ(quantexp(2000 + T{1, -90}), 4 - digits);
+    BOOST_TEST_EQ(quantexp(2000 - T{1, -90}), 4 - digits);
+    BOOST_TEST_EQ(quantexp(T{1, -90} - 2000), 4 - digits);
+    BOOST_TEST_EQ(quantexp(T{1, 90} + 5), 91 - digits);
+    BOOST_TEST_EQ(quantexp(5 + T{1, 90}), 91 - digits);
+    BOOST_TEST_EQ(quantexp(5 - T{1, 90}), 91 - digits);
+    BOOST_TEST_EQ(quantexp(T{1, 90} - 5), 91 - digits);
+    BOOST_TEST_EQ(quantexp(T{1, -90} + T{2000}), 4 - digits);
+    BOOST_TEST_EQ(quantexp(T{5} - T{1, 90}), 91 - digits);
 }
 
 int main()
