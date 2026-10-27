@@ -844,11 +844,6 @@ constexpr auto issignaling(const decimal_fast128_t& val) noexcept -> bool
 constexpr auto isnormal(const decimal_fast128_t& val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    if (val.exponent_ <= static_cast<decimal_fast128_t::exponent_type>(detail::precision_v<decimal_fast128_t> - 1))
-    {
-        return false;
-    }
-
     return (val.significand_ != 0U) && isfinite(val);
     #else
     return val.significand_ != 0U;

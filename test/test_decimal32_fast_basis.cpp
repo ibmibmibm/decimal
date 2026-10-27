@@ -146,7 +146,7 @@ void test_non_finite_values()
     BOOST_TEST(!isnormal(std::numeric_limits<decimal_fast32_t>::infinity()));
     BOOST_TEST(!isnormal(std::numeric_limits<decimal_fast32_t>::quiet_NaN()));
     BOOST_TEST(!isnormal(std::numeric_limits<decimal_fast32_t>::signaling_NaN()));
-    BOOST_TEST(!isnormal(std::numeric_limits<decimal_fast32_t>::denorm_min()));
+    BOOST_TEST(isnormal(std::numeric_limits<decimal_fast32_t>::denorm_min()));
 
     BOOST_TEST_EQ(fpclassify(one), FP_NORMAL);
     BOOST_TEST_EQ(fpclassify(-one), FP_NORMAL);
@@ -154,7 +154,7 @@ void test_non_finite_values()
     BOOST_TEST_EQ(fpclassify(std::numeric_limits<decimal_fast32_t>::signaling_NaN()), FP_NAN);
     BOOST_TEST_EQ(fpclassify(std::numeric_limits<decimal_fast32_t>::infinity()), FP_INFINITE);
     BOOST_TEST_EQ(fpclassify(-std::numeric_limits<decimal_fast32_t>::infinity()), FP_INFINITE);
-    BOOST_TEST_EQ(fpclassify(std::numeric_limits<decimal_fast32_t>::denorm_min()), FP_SUBNORMAL);
+    BOOST_TEST_EQ(fpclassify(std::numeric_limits<decimal_fast32_t>::denorm_min()), FP_NORMAL);
 
     std::mt19937_64 rng(42);
     std::uniform_int_distribution<std::uint32_t> dist(1, 2);

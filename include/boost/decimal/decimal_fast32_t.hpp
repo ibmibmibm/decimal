@@ -822,7 +822,7 @@ constexpr auto isnormal(const decimal_fast32_t val) noexcept -> bool
 {
     return (val.significand_ != 0)
     #ifndef BOOST_DECIMAL_FAST_MATH
-    && isfinite(val) && (val.exponent_ > static_cast<std::uint8_t>(detail::precision_v<decimal32_t> - 1))
+    && isfinite(val)
     #endif
     ;
 }
