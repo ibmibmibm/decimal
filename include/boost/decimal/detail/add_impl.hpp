@@ -10,6 +10,7 @@
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/components.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
+#include <boost/decimal/detail/normalize.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/is_power_of_10.hpp>
 #include <boost/decimal/detail/i256.hpp>
@@ -165,6 +166,22 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_shrink_and_pack(
         ++extra;
     }
     return pack_in_range<ReturnType>(q, result_exp + static_cast<ExpType>(extra), result_sign);
+}
+
+// Nonzero operands over 2p exponents apart give an inexact sum, which has p digits.
+// Nearest rounding gives the larger operand, so a short one gets its zeros.
+template <typename T, typename SigType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto far_operand(const T larger, SigType sig) noexcept -> T
+{
+    constexpr SigType min_sig {pow10(static_cast<SigType>(precision_v<T> - 1))};
+    if (sig >= min_sig)
+    {
+        return larger;
+    }
+
+    auto exp {larger.biased_exponent()};
+    detail::expand_significand<T>(sig, exp);
+    return pack_in_range<T>(sig, exp, larger.isneg());
 }
 
 // Aligned-add kernel that stays in the narrower integer width (uint64 for d64,
