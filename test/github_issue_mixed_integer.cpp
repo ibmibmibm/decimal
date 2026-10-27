@@ -70,7 +70,8 @@ void test_infinity_times_zero()
     #endif
 }
 
-// The product has the preferred exponent, the sum of the two exponents (IEEE 754 5.4.1)
+// The product has the preferred exponent, the sum of the two exponents, and a sum
+// or a difference the smaller of the two exponents (IEEE 754 5.4.1)
 template <typename T>
 void test_preferred_exponent()
 {
@@ -78,6 +79,13 @@ void test_preferred_exponent()
     BOOST_TEST_EQ(quantexp(5 * T{3}), 0);
     BOOST_TEST_EQ(quantexp(T{15, -1} * 4), -1);
     BOOST_TEST_EQ(quantexp(T{15, -1} * -4LL), -1);
+
+    BOOST_TEST_EQ(quantexp(T{15, -1} + 1), -1);
+    BOOST_TEST_EQ(quantexp(1 + T{15, -1}), -1);
+    BOOST_TEST_EQ(quantexp(T{15, -1} - 1), -1);
+    BOOST_TEST_EQ(quantexp(1 - T{15, -1}), -1);
+    BOOST_TEST_EQ(quantexp(T{3} + 5U), 0);
+    BOOST_TEST_EQ(quantexp(T{3} - -5LL), 0);
 }
 
 int main()

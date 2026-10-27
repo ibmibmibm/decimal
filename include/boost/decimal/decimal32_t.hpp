@@ -1104,34 +1104,8 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal32_t, Integer>;
-    using exp_type = decimal32_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(lhs))
-    {
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    // Make the significand type wide enough that it won't overflow during normalization
-    auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-
-    const auto components {lhs.to_components()};
-    auto sig_lhs {components.sig};
-    auto exp_lhs {components.exp};
-    detail::expand_significand<decimal32_t>(sig_lhs, exp_lhs);
-
-    exp_type exp_rhs {0};
-    detail::normalize(sig_rhs, exp_rhs, rhs < 0);
-
-    // Now that the rhs has been normalized, it is guaranteed to fit into the decimal32_t significand type
-    const auto final_sig_rhs {static_cast<typename detail::decimal32_t_components::significand_type>(detail::make_positive_unsigned(sig_rhs))};
-
-    return detail::add_impl<decimal32_t>(
-        detail::decimal32_t_components{sig_lhs, exp_lhs, components.sign},
-        detail::decimal32_t_components{final_sig_rhs, exp_rhs, (rhs < 0)}
-    );
+    // The integer converts to decimal32_t first, as in C
+    return lhs + decimal32_t{rhs};
 }
 
 template <typename Integer>
@@ -1255,67 +1229,16 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal32_t, Integer>;
-    using exp_type = decimal32_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(lhs))
-    {
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-
-    const auto components {lhs.to_components()};
-    auto sig_lhs {components.sig};
-    auto exp_lhs {components.exp};
-    detail::expand_significand<decimal32_t>(sig_lhs, exp_lhs);
-
-    exp_type exp_rhs {0};
-    detail::normalize(sig_rhs, exp_rhs, rhs < 0);
-    auto final_sig_rhs {static_cast<decimal32_t::significand_type>(sig_rhs)};
-
-    return detail::add_impl<decimal32_t>(
-        detail::decimal32_t_components{sig_lhs, exp_lhs, components.sign},
-        detail::decimal32_t_components{final_sig_rhs, exp_rhs, !(rhs < 0)}
-    );
+    // The integer converts to decimal32_t first, as in C
+    return lhs - decimal32_t{rhs};
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal32_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal32_t, Integer>;
-    using exp_type = decimal32_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(rhs))
-    {
-        if (isinf(rhs))
-        {
-            return -rhs;
-        }
-
-        return detail::check_non_finite(rhs);
-    }
-    #endif
-    
-    auto sig_lhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
-
-    exp_type exp_lhs {0};
-    detail::normalize(sig_lhs, exp_lhs, lhs < 0);
-    const auto final_sig_lhs {static_cast<decimal32_t::significand_type>(sig_lhs)};
-
-    const auto components {rhs.to_components()};
-    auto sig_rhs {components.sig};
-    auto exp_rhs {components.exp};
-    detail::expand_significand<decimal32_t>(sig_rhs, exp_rhs);
-
-    return detail::add_impl<decimal32_t>(
-        detail::decimal32_t_components{final_sig_lhs, exp_lhs, (lhs < 0)},
-        detail::decimal32_t_components{sig_rhs, exp_rhs, !components.sign}
-    );
+    // The integer converts to decimal32_t first, as in C
+    return decimal32_t{lhs} - rhs;
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator--() noexcept -> decimal32_t&
