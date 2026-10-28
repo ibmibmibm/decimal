@@ -168,6 +168,7 @@ run github_issue_1544.cpp ;
 run github_issue_mixed_integer.cpp ;
 run github_issue_integer_division.cpp ;
 run github_issue_mixed_compare.cpp ;
+run github_issue_integer_comparison.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
