@@ -572,6 +572,11 @@ Effects: if x is either a qNaN or an sNaN, returns the payload of the NaN, other
 
 This function allows the payloads of nans that are set by the functions xref:basic_cmath_ops[`nan`] or xref:basic_cmath_ops[`snan`] to be returned.
 
+In the IEEE types, the payload is the trailing significand field of the NaN, and the largest payload is 10^(p-1)^ - 1, where p is the precision of the type.
+`read_payload` ignores the other bits of the NaN and returns 0 for a larger value.
+`nan`, `snan` and the text parsers make a NaN without a payload from a larger value, so `read_payload(nand32("1000000"))` returns 0.
+The fast types have their own payload limits.
+
 === `samequantum`
 
 [source, c++]

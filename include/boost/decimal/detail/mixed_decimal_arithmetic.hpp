@@ -10,6 +10,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/to_decimal.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
@@ -25,7 +26,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(Decimal1 lhs, Decimal2 rhs) noexcept
                          detail::promote_args_t<Decimal1, Decimal2>>
 {
     using Promoted_Type = detail::promote_args_t<Decimal1, Decimal2>;
-    return static_cast<Promoted_Type>(lhs) + static_cast<Promoted_Type>(rhs);
+    return detail::promote_operand<Promoted_Type>(lhs) + detail::promote_operand<Promoted_Type>(rhs);
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal1, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal2>
@@ -35,7 +36,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(Decimal1 lhs, Decimal2 rhs) noexcept
                          detail::promote_args_t<Decimal1, Decimal2>>
 {
     using Promoted_Type = detail::promote_args_t<Decimal1, Decimal2>;
-    return static_cast<Promoted_Type>(lhs) - static_cast<Promoted_Type>(rhs);
+    return detail::promote_operand<Promoted_Type>(lhs) - detail::promote_operand<Promoted_Type>(rhs);
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal1, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal2>
@@ -45,7 +46,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(Decimal1 lhs, Decimal2 rhs) noexcept
                          detail::promote_args_t<Decimal1, Decimal2>>
 {
     using Promoted_Type = detail::promote_args_t<Decimal1, Decimal2>;
-    return static_cast<Promoted_Type>(lhs) * static_cast<Promoted_Type>(rhs);
+    return detail::promote_operand<Promoted_Type>(lhs) * detail::promote_operand<Promoted_Type>(rhs);
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal1, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal2>
@@ -55,7 +56,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(Decimal1 lhs, Decimal2 rhs) noexcept
                          detail::promote_args_t<Decimal1, Decimal2>>
 {
     using Promoted_Type = detail::promote_args_t<Decimal1, Decimal2>;
-    return static_cast<Promoted_Type>(lhs) / static_cast<Promoted_Type>(rhs);
+    return detail::promote_operand<Promoted_Type>(lhs) / detail::promote_operand<Promoted_Type>(rhs);
 }
 
 } //namespace decimal
