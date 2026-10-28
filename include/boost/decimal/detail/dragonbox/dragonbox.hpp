@@ -26,12 +26,16 @@ namespace decimal {
 namespace detail {
 namespace dragonbox {
 
+// Scalar members fill the padding of these results, because GCC builds the padding of a returned
+// struct with narrow stores to the stack, and the wide read of them waits on the stores.
 template <typename Unsigned>
 struct floating_decimal
 {
     Unsigned mantissa;
     std::int32_t exponent;
     bool sign;
+    std::uint8_t pad_a {};
+    std::uint16_t pad_b {};
 };
 
 struct cache_entry
@@ -45,6 +49,19 @@ struct mul_result
 {
     Unsigned integer_part;
     bool is_integer;
+    std::uint8_t pad_a {};
+    std::uint16_t pad_b {};
+    std::uint32_t pad_c {};
+};
+
+// The 32-bit result has no padding after pad_b
+template <>
+struct mul_result<std::uint32_t>
+{
+    std::uint32_t integer_part;
+    bool is_integer;
+    std::uint8_t pad_a {};
+    std::uint16_t pad_b {};
 };
 
 struct parity_result
