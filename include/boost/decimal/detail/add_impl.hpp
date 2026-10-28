@@ -115,6 +115,25 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool
     return ReturnType{coeff, exp, sign};
 }
 
+// Selects direct_pack_d32, direct_pack_d64 or direct_pack_d128 for the IEEE type T, with the same requirements
+template <typename T, typename Sig, std::enable_if_t<std::is_same<T, decimal32_t>::value, bool> = true>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_ieee(const Sig coeff, const int exp, const bool sign) noexcept -> T
+{
+    return direct_pack_d32(coeff, exp, sign);
+}
+
+template <typename T, typename Sig, std::enable_if_t<std::is_same<T, decimal64_t>::value, bool> = true>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_ieee(const Sig coeff, const int exp, const bool sign) noexcept -> T
+{
+    return direct_pack_d64(coeff, exp, sign);
+}
+
+template <typename T, typename Sig, std::enable_if_t<std::is_same<T, decimal128_t>::value, bool> = true>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_ieee(const Sig coeff, const int exp, const bool sign) noexcept -> T
+{
+    return direct_pack_d128(coeff, exp, sign);
+}
+
 // Inline shrink + pack for a sum/diff that exceeds max_significand_v. A shift
 // of 3 or less leaves 1 to 4 extra digits, and a chained comparison against the
 // precomputed thresholds selects them. One divmod_pow10 and one rounding in

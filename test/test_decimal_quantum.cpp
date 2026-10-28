@@ -256,6 +256,61 @@ void test_nonfinite_quantize()
                               std::numeric_limits<Dec>::infinity() * dist(rng))));
 }
 
+// IEEE 754 3.5.2 gives a coefficient above the precision the value zero, as from_bid does. from_bits
+// keeps such a coefficient, and quantize gives the result of the constructor: this is library behavior
+template <typename T, typename Bits, typename Sig>
+void test_quantize_non_canonical(const Bits bits, const Sig sig)
+{
+    for (const bool negative : {false, true})
+    {
+        const auto x {negative ? -from_bits(bits) : from_bits(bits)};
+        BOOST_TEST(to_bid(quantize(x, T{1, 0})) == to_bid(T{sig, 0, negative}));
+        BOOST_TEST(to_bid(quantize(x, T{1, 1})) == to_bid(T{static_cast<Sig>((sig + 5U) / 10U), 1, negative}));
+
+        const auto standard {negative ? -from_bid<T>(bits) : from_bid<T>(bits)};
+        BOOST_TEST(to_bid(quantize(standard, T{1, 1})) == to_bid(T{0U, 1, negative}));
+    }
+}
+
+// A coefficient above 64 bits, q * 100 + tail, quantized two digits up. The remainder tells an exact tie
+// from the values next to it, in each rounding mode and for both signs. up says that the result is q + 1
+void test_quantize_wide_rounding()
+{
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    using boost::int128::uint128_t;
+    struct test_case { uint128_t q; unsigned tail; rounding_mode mode; bool up_positive; bool up_negative; };
+    const uint128_t q {(uint128_t{1U} << 64U) + 2U};
+    const test_case cases[] {
+        {q, 49U, rounding_mode::fe_dec_to_nearest, false, false},
+        {q, 50U, rounding_mode::fe_dec_to_nearest, false, false},
+        {q + 1U, 50U, rounding_mode::fe_dec_to_nearest, true, true},
+        {q, 51U, rounding_mode::fe_dec_to_nearest, true, true},
+        {q, 49U, rounding_mode::fe_dec_to_nearest_from_zero, false, false},
+        {q, 50U, rounding_mode::fe_dec_to_nearest_from_zero, true, true},
+        {q, 1U, rounding_mode::fe_dec_toward_zero, false, false},
+        {q, 99U, rounding_mode::fe_dec_toward_zero, false, false},
+        {q, 1U, rounding_mode::fe_dec_upward, true, false},
+        {q, 0U, rounding_mode::fe_dec_upward, false, false},
+        {q, 1U, rounding_mode::fe_dec_downward, false, true},
+        {q, 0U, rounding_mode::fe_dec_downward, false, false},
+    };
+
+    for (const auto& c : cases)
+    {
+        fesetround(c.mode);
+        for (const bool negative : {false, true})
+        {
+            const decimal128_t x {c.q * 100U + c.tail, 0, negative};
+            const auto up {negative ? c.up_negative : c.up_positive};
+            const auto result {quantize(x, decimal128_t{1, 2})};
+            BOOST_TEST(to_bid(result) == to_bid(decimal128_t{up ? c.q + 1U : c.q, 2, negative}));
+            BOOST_TEST_EQ(quantexp(result), 2);
+        }
+    }
+    fesetround(rounding_mode::fe_dec_default);
+    #endif
+}
+
 // The fast types are absent from every test below on purpose. They normalize on
 // construction so they have no cohorts, and samequantum, quantexp, and quantize are all
 // rejected for them at compile time. See test_illegal_fast_samequantum.cpp,
@@ -292,6 +347,14 @@ int main()
     test_quantize<decimal128_t>();
     test_quantize_spot<decimal128_t>();
     test_nonfinite_quantize<decimal128_t>();
+
+    test_quantize_wide_rounding();
+
+    using boost::int128::uint128_t;
+    test_quantize_non_canonical<decimal32_t>(std::uint32_t{UINT32_C(0x60000000) | (UINT32_C(101) << 21) | UINT32_C(0x1FFFFF)}, UINT32_C(10485759));
+    test_quantize_non_canonical<decimal64_t>(std::uint64_t{(UINT64_C(3) << 61) | (UINT64_C(398) << 51) | ((UINT64_C(1) << 51) - 1U)},
+                                             (UINT64_C(1) << 53) + (UINT64_C(1) << 51) - 1U);
+    test_quantize_non_canonical<decimal128_t>((uint128_t{6176U} << 113) | ((uint128_t{1U} << 113) - 1U), (uint128_t{1U} << 113) - 1U);
 
     return boost::report_errors();
 }

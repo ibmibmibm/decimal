@@ -8,6 +8,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/add_impl.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
@@ -55,10 +56,9 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize_rescale(Significand& sig, const int d
     }
     else if (neg_delta > 1)
     {
-        const auto pre_div {pow10(static_cast<Significand>(neg_delta - 1))};
-        const auto remainder {sig % pre_div};
-        sig /= pre_div;
-        const bool sticky {remainder != Significand{0}};
+        const auto div_res {impl::divmod_pow10_dispatch(sig, neg_delta - 1, pow10(static_cast<Significand>(neg_delta - 1)))};
+        sig = div_res.quotient;
+        const bool sticky {div_res.remainder != Significand{0}};
         fenv_round<DecimalType>(sig, sign, sticky);
     }
     else
@@ -94,28 +94,29 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize(const DecimalType lhs, const DecimalT
                   "types, or use rescale to round to a fixed number of fractional digits.");
 
     #ifndef BOOST_DECIMAL_FAST_MATH
-    // Return the correct type of nan
-    if (isnan(lhs) || isnan(rhs))
+    if (!isfinite(lhs) || !isfinite(rhs))
     {
-        if (issignaling(lhs))
+        // Return the correct type of nan
+        if (isnan(lhs) || isnan(rhs))
         {
-            return nan_conversion(lhs);
-        }
-        else if (issignaling(rhs))
-        {
-            return nan_conversion(rhs);
+            if (issignaling(lhs))
+            {
+                return nan_conversion(lhs);
+            }
+            else if (issignaling(rhs))
+            {
+                return nan_conversion(rhs);
+            }
+
+            return isnan(lhs) ? lhs : rhs;
         }
 
-        return isnan(lhs) ? lhs : rhs;
-    }
+        // If exactly one operand is infinity then return a NaN
+        if (isinf(lhs) != isinf(rhs))
+        {
+            return std::numeric_limits<DecimalType>::quiet_NaN();
+        }
 
-    // If exactly one operand is infinity then return a NaN
-    if (isinf(lhs) != isinf(rhs))
-    {
-        return std::numeric_limits<DecimalType>::quiet_NaN();
-    }
-    if (isinf(lhs) && isinf(rhs))
-    {
         return lhs;
     }
     #endif
@@ -132,7 +133,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize(const DecimalType lhs, const DecimalT
         #endif
     }
 
-    return {components.sig, rhs_exp, components.sign};
+    // rhs_exp is in range. A coefficient above the precision from the bits of from_bits goes
+    // through the constructor, as before. NVCC cannot read the variable template max_significand_v
+    constexpr auto max_sig {detail::impl::max_significand_v<DecimalType>()};
+    if (BOOST_DECIMAL_UNLIKELY(components.sig > max_sig))
+    {
+        return {components.sig, rhs_exp, components.sign};
+    }
+    return detail::direct_pack_ieee<DecimalType>(components.sig, rhs_exp, components.sign);
 }
 
 } // namespace decimal
