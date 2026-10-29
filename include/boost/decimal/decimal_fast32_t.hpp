@@ -1092,7 +1092,15 @@ constexpr auto operator+(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                 {
                     if (exp_diff > 11)
                     {
-                        return lhs_exp > rhs_exp ? lhs : rhs;
+                        // GCC compiles a ternary to a random jump, and elsewhere a value built by fields stalls its load
+                        #if defined(__GNUC__) && !defined(__clang__)
+                        const bool use_lhs {lhs_exp > rhs_exp};
+                        return direct_init(detail::select_bits(use_lhs, lhs.significand_, rhs.significand_), detail::select_bits(use_lhs, lhs.exponent_, rhs.exponent_),
+                                           detail::select_bits(use_lhs, static_cast<unsigned>(lhs.sign_), static_cast<unsigned>(rhs.sign_)) != 0U);
+                        #else
+                        const decimal_fast32_t* const larger {lhs_exp > rhs_exp ? &lhs : &rhs};
+                        return *larger;
+                        #endif
                     }
                     return detail::aligned_add_kernel<decimal_fast32_t, std::uint64_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1105,6 +1113,11 @@ constexpr auto operator+(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
                         lhs.isneg(), rhs.isneg());
                 }
+            }
+            // Normalized operands need no expansion, thus only the band kernel remains
+            else if (detail::takes_band_kernel<decimal_fast32_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return detail::band_add_selected<decimal_fast32_t, std::uint64_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs_exp, rhs.isneg(), static_cast<unsigned>(exp_diff));
             }
         }
     }
@@ -1185,7 +1198,9 @@ constexpr auto operator-(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                 {
                     if (exp_diff > 11)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        const bool use_lhs {lhs_exp > rhs_exp};
+                        return direct_init(detail::select_bits(use_lhs, lhs.significand_, rhs.significand_), detail::select_bits(use_lhs, lhs.exponent_, rhs.exponent_),
+                                           detail::select_bits(use_lhs, static_cast<unsigned>(lhs.sign_), static_cast<unsigned>(!rhs.sign_)) != 0U);
                     }
                     return detail::aligned_add_kernel<decimal_fast32_t, std::uint64_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1198,6 +1213,11 @@ constexpr auto operator-(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
                         lhs.isneg(), !rhs.isneg());
                 }
+            }
+            // Normalized operands need no expansion, thus only the band kernel remains
+            else if (detail::takes_band_kernel<decimal_fast32_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return detail::band_add_selected<decimal_fast32_t, std::uint64_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs_exp, !rhs.isneg(), static_cast<unsigned>(exp_diff));
             }
         }
     }

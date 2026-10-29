@@ -1058,7 +1058,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal32_t lhs, const decimal
         {
             const auto lhs_exp {lhs.biased_exponent()};
             const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+            const auto exp_gap {lhs_exp - rhs_exp};
+            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
             if (exp_diff > 17 || exp_diff <= 3)
             {
                 auto round {_boost_decimal_global_rounding_mode};
@@ -1206,7 +1207,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal32_t lhs, const decimal
         {
             const auto lhs_exp {lhs.biased_exponent()};
             const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+            const auto exp_gap {lhs_exp - rhs_exp};
+            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
             if (exp_diff > 17 || exp_diff <= 3)
             {
                 auto round {_boost_decimal_global_rounding_mode};
@@ -1220,7 +1222,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal32_t lhs, const decimal
                 {
                     if (exp_diff > 17)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        return from_bits(detail::select_bits(lhs_exp > rhs_exp, lhs.bits_, rhs.bits_ ^ detail::d32_sign_mask));
                     }
                     return detail::aligned_add_kernel<decimal32_t, std::uint64_t>(
                         static_cast<std::uint64_t>(lhs_sig), static_cast<std::uint64_t>(rhs_sig),

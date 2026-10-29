@@ -1218,7 +1218,9 @@ constexpr auto operator-(const decimal_fast128_t& lhs, const decimal_fast128_t& 
                 {
                     if (exp_diff > 42)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        const bool use_lhs {lhs_exp > rhs_exp};
+                        return direct_init_d128(detail::select_bits(use_lhs, lhs.significand_, rhs.significand_), detail::select_bits(use_lhs, lhs.exponent_, rhs.exponent_),
+                                                detail::select_bits(use_lhs, static_cast<unsigned>(lhs.sign_), static_cast<unsigned>(!rhs.sign_)) != 0U);
                     }
                     return detail::aligned_add_kernel<decimal_fast128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
