@@ -536,30 +536,33 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_u256(const u256& coeff, const int
 // dependency. 64-bit, uint128 and u256 dividends route to their reciprocal-multiply paths;
 // other widths fall through to the ordinary divmod.
 template <typename T>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const T& coeff, int shift, const T& pow10_val) noexcept
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const T& coeff, int shift, const T& pow10_val) noexcept
 {
+    // A shift of zero divides by one, which is slow in a hardware division
+    if (shift == 0)
+    {
+        return divmod_result<T>{coeff, T {0U}};
+    }
     #if !defined(__CUDACC__) || !defined(BOOST_DECIMAL_ENABLE_CUDA)
     // A 64-bit dividend takes a multiply by the reciprocal of 5^shift, in place of a slow
     // hardware division
     BOOST_DECIMAL_IF_CONSTEXPR (sizeof(T) == sizeof(std::uint64_t))
     {
-        if (shift >= 1)
-        {
-            const auto product {umul128(static_cast<std::uint64_t>(coeff) >> shift, pow10_recip::m_pow5_u64_table[shift])};
-            const auto q {static_cast<T>(product.high >> (pow10_recip::l_table[shift] - shift - 1))};
-            return divmod_result<T>{q, static_cast<T>(coeff - q * pow10_val)};
-        }
+        const auto product {umul128(static_cast<std::uint64_t>(coeff) >> shift, pow10_recip::m_pow5_u64_table[shift])};
+        const auto q {static_cast<T>(product.high >> (pow10_recip::l_table[shift] - shift - 1))};
+        return divmod_result<T>{q, static_cast<T>(coeff - q * pow10_val)};
     }
-    #else
-    static_cast<void>(shift);
+    else
     #endif
-    return divmod(coeff, pow10_val);
+    {
+        return divmod(coeff, pow10_val);
+    }
 }
 
 inline BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const int128::uint128_t& coeff, int shift, const int128::uint128_t& pow10_val) noexcept
     -> divmod_result<int128::uint128_t>
 {
-    if (shift >= 1 && shift <= 38)
+    if (shift >= 0 && shift <= 38)
     {
         return divmod_pow10_uint128(coeff, shift);
     }
