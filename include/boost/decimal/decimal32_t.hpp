@@ -1956,11 +1956,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto div_impl(const decimal32_t lhs, const decimal3
 
     const bool sign {lhs.isneg() != rhs.isneg()};
 
-    const auto lhs_fp {fpclassify(lhs)};
-    const auto rhs_fp {fpclassify(rhs)};
-
-    if (lhs_fp != FP_NORMAL || rhs_fp != FP_NORMAL)
+    // A subnormal operand takes the same path as a normal one
+    if (!isfinite(lhs) || !isfinite(rhs) || lhs.full_significand() == 0U || rhs.full_significand() == 0U)
     {
+        const auto lhs_fp {fpclassify(lhs)};
+        const auto rhs_fp {fpclassify(rhs)};
+
         if (lhs_fp == FP_NAN || rhs_fp == FP_NAN)
         {
             // Operations on an SNAN return a QNAN with the same payload

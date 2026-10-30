@@ -1575,11 +1575,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
     constexpr decimal128_t nan {from_bits(detail::d128_nan_mask)};
     constexpr decimal128_t inf {from_bits(detail::d128_inf_mask)};
 
-    const auto lhs_fp {fpclassify(lhs)};
-    const auto rhs_fp {fpclassify(rhs)};
-
-    if (lhs_fp != FP_NORMAL || rhs_fp != FP_NORMAL)
+    // A subnormal operand takes the same path as a normal one
+    if (not_finite(lhs) || not_finite(rhs) || lhs.full_significand() == 0U || rhs.full_significand() == 0U)
     {
+        const auto lhs_fp {fpclassify(lhs)};
+        const auto rhs_fp {fpclassify(rhs)};
+
         if (lhs_fp == FP_NAN || rhs_fp == FP_NAN)
         {
             // Operations on an SNAN return a QNAN with the same payload
