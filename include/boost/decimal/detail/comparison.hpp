@@ -317,19 +317,23 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto mixed_decimal_equality_impl(Decimal1 lhs, Deci
                          detail::is_decimal_floating_point_v<Decimal2>), bool>
 {
     static_assert(!std::is_same<Decimal1, Decimal2>::value, "Equality of same type exists in simpler form");
-    using Bigger_Decimal_Type = std::conditional_t<(sizeof(lhs) > sizeof(rhs)), Decimal1, Decimal2>;
+    // The type with more digits holds both values, and an IEEE type also holds the subnormal values
+    using Bigger_Decimal_Type = std::conditional_t<(detail::precision_v<Decimal1> > detail::precision_v<Decimal2>) ||
+        (detail::precision_v<Decimal1> == detail::precision_v<Decimal2> && detail::is_ieee_type_v<Decimal1>), Decimal1, Decimal2>;
 
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (isnan(lhs) || isnan(rhs))
     {
         return false;
     }
+    if (isinf(lhs) || isinf(rhs))
+    {
+        return isinf(lhs) && isinf(rhs) && lhs.isneg() == rhs.isneg();
+    }
     #endif
 
-    const auto new_lhs = to_decimal<Bigger_Decimal_Type>(lhs);
-    const auto new_rhs = to_decimal<Bigger_Decimal_Type>(rhs);
-
-    return new_lhs == new_rhs;
+    return equal_parts_impl<Bigger_Decimal_Type>(lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                                                 rhs.full_significand(), rhs.biased_exponent(), rhs.isneg());
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal1, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal2>
@@ -752,7 +756,9 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto mixed_decimal_less_impl(Decimal1 lhs, Decimal2
     -> std::enable_if_t<(detail::is_decimal_floating_point_v<Decimal1> &&
                          detail::is_decimal_floating_point_v<Decimal2>), bool>
 {
-    using Bigger_Decimal_Type = std::conditional_t<(sizeof(lhs) > sizeof(rhs)), Decimal1, Decimal2>;
+    // The type with more digits holds both values, and an IEEE type also holds the subnormal values
+    using Bigger_Decimal_Type = std::conditional_t<(detail::precision_v<Decimal1> > detail::precision_v<Decimal2>) ||
+        (detail::precision_v<Decimal1> == detail::precision_v<Decimal2> && detail::is_ieee_type_v<Decimal1>), Decimal1, Decimal2>;
 
     // Two zeros are equal whatever their signs and cohorts are, so neither is less
     // (IEEE 754-2008 5.11). This precedes the sign shortcut below, which would otherwise
