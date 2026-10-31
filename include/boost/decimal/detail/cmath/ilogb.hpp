@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/integer_search_trees.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cmath>
@@ -18,38 +19,31 @@
 namespace boost {
 namespace decimal {
 
+namespace detail {
+
+// The exponent of the leading digit of a finite nonzero value, from its exponent and its nonzero significand.
+// A subnormal value needs no other path.
+template <typename Sig>
+constexpr auto leading_digit_exponent(const int exp, const Sig sig) noexcept -> int
+{
+    return exp + num_digits(sig) - 1;
+}
+
+} // namespace detail
+
 BOOST_DECIMAL_EXPORT template <typename T>
 constexpr auto ilogb(const T d) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, T, int)
 {
-    const auto fpc = fpclassify(d);
-
-    int result { };
-
-    if (fpc == FP_ZERO)
-    {
-        result = FP_ILOGB0;
-    }
     #ifndef BOOST_DECIMAL_FAST_MATH
-    else if (fpc == FP_INFINITE)
+    if (!isfinite(d))
     {
-        result = INT_MAX;
-    }
-    else if (fpc == FP_NAN)
-    {
-        result = FP_ILOGBNAN;
+        return isnan(d) ? FP_ILOGBNAN : INT_MAX;
     }
     #endif
-    else
-    {
-        // The exponent must be unbiased, and adjusted so that the significand is
-        // interpreted as having a single digit before the decimal point
-        const auto offset {detail::num_digits(d.full_significand()) - 1};
 
-        result = static_cast<int>(d.biased_exponent()) + static_cast<int>(offset);
-    }
-
-    return result;
+    const auto sig {d.full_significand()};
+    return sig == 0U ? FP_ILOGB0 : detail::leading_digit_exponent(static_cast<int>(d.biased_exponent()), sig);
 }
 
 } // namespace decimal

@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/cmath/ilogb.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cmath>
@@ -22,34 +23,24 @@ BOOST_DECIMAL_EXPORT template <typename T>
 constexpr auto logb(const T num) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    const auto fpc {fpclassify(num)};
-
     #ifndef BOOST_DECIMAL_FAST_MATH
-    if (fpc == FP_ZERO)
+    if (!isfinite(num))
     {
-        return -std::numeric_limits<T>::infinity();
-    }
-    else if (fpc == FP_INFINITE)
-    {
-        return std::numeric_limits<T>::infinity();
-    }
-    else if (fpc == FP_NAN)
-    {
-        return num;
-    }
-    #else
-    if (fpc == FP_ZERO)
-    {
-        return T{0};
+        return isnan(num) ? num : std::numeric_limits<T>::infinity();
     }
     #endif
 
-    // The exponent must be unbiased, and adjusted so that the significand is
-    // interpreted as having a single digit before the decimal point
-    const auto offset {detail::num_digits(num.full_significand()) - 1};
-    const auto expval {static_cast<int>(num.biased_exponent()) + static_cast<int>(offset)};
+    const auto sig {num.full_significand()};
+    if (sig == 0U)
+    {
+        #ifndef BOOST_DECIMAL_FAST_MATH
+        return -std::numeric_limits<T>::infinity();
+        #else
+        return T{0};
+        #endif
+    }
 
-    return static_cast<T>(expval);
+    return static_cast<T>(detail::leading_digit_exponent(static_cast<int>(num.biased_exponent()), sig));
 }
 
 } //namespace decimal

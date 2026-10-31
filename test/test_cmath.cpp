@@ -728,6 +728,15 @@ void test_ilogb()
     BOOST_TEST_EQ(ilogb(Dec(1000, -6)), -3);
     BOOST_TEST_EQ(ilogb(Dec(-1, -3)), -3);
 
+    // The smallest normal value in two encodings, and a subnormal value below it. A fast type has no subnormals.
+    constexpr int emin {std::numeric_limits<Dec>::min_exponent};
+    BOOST_TEST_EQ(ilogb(Dec(1, emin)), emin);
+    BOOST_TEST_EQ(ilogb(Dec(-10, emin - 1)), emin);
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::is_ieee_type_v<Dec>)
+    {
+        BOOST_TEST_EQ(ilogb(Dec(9, emin - 1)), emin - 1);
+    }
+
     std::uniform_int_distribution<int> dist(1, 2);
 
     BOOST_TEST_EQ(ilogb(Dec(0 * dist(rng))), FP_ILOGB0);
@@ -745,6 +754,15 @@ void test_logb()
     BOOST_TEST_EQ(logb(Dec(1 * dist(rng), -3)), Dec(-3));
     BOOST_TEST_EQ(logb(Dec(1000 * dist(rng), -6)), Dec(-3));
     BOOST_TEST_EQ(logb(Dec(-1 * dist(rng), -3)), Dec(-3));
+
+    // The smallest normal value in two encodings, and a subnormal value below it. A fast type has no subnormals.
+    constexpr int emin {std::numeric_limits<Dec>::min_exponent};
+    BOOST_TEST_EQ(logb(Dec(1, emin)), Dec(emin));
+    BOOST_TEST_EQ(logb(Dec(-10, emin - 1)), Dec(emin));
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::is_ieee_type_v<Dec>)
+    {
+        BOOST_TEST_EQ(logb(Dec(9, emin - 1)), Dec(emin - 1));
+    }
 
     BOOST_TEST_EQ(logb(Dec(0 * dist(rng))), -std::numeric_limits<Dec>::infinity());
     BOOST_TEST_EQ(logb(std::numeric_limits<Dec>::infinity() * dist(rng)), std::numeric_limits<Dec>::infinity());
