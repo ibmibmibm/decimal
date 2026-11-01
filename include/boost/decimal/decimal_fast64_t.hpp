@@ -656,6 +656,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast64_t::decimal_fast64_t(const Float val
     }
 }
 
+// Stores the parts as they are. A finite nonzero value needs a significand with all the digits of the precision
 constexpr auto direct_init_d64(const decimal_fast64_t::significand_type significand,
                                const decimal_fast64_t::exponent_type exponent,
                                const bool sign) noexcept -> decimal_fast64_t
@@ -670,6 +671,11 @@ constexpr auto direct_init_d64(const decimal_fast64_t::significand_type signific
 
 namespace detail {
 
+constexpr auto direct_pack_biased(const std::uint64_t sig, const int biased_exp, const bool sign) noexcept -> decimal_fast64_t
+{
+    return direct_init_d64(sig, static_cast<decimal_fast64_t::exponent_type>(biased_exp), sign);
+}
+
 // A full significand with an exponent in range needs no normalization
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
@@ -680,7 +686,7 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType e
     if (BOOST_DECIMAL_LIKELY(coeff >= min_normal && coeff <= max_significand_v<decimal_fast64_t> &&
                              biased_exp >= 0 && biased_exp <= max_biased_exp_v<decimal_fast64_t>))
     {
-        return direct_init_d64(static_cast<std::uint64_t>(coeff), static_cast<decimal_fast64_t::exponent_type>(biased_exp), sign);
+        return direct_pack_biased(static_cast<std::uint64_t>(coeff), biased_exp, sign);
     }
     return decimal_fast64_t{coeff, exp, sign};
 }

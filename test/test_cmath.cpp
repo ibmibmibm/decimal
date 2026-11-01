@@ -235,6 +235,26 @@ void test_ceil()
     // Near zero
     BOOST_TEST_EQ(ceil(Dec(3, -1)), Dec(1, 0));
     BOOST_TEST_EQ(ceil(Dec(-3, -1)), Dec(0, 0));
+
+    // A carry to the next power of ten
+    BOOST_TEST_EQ(ceil(Dec(9999999, -6)), Dec(10, 0));
+    BOOST_TEST_EQ(floor(Dec(-9999999, -6)), Dec(-10, 0));
+    BOOST_TEST_EQ(round(Dec(99999995, -7)), Dec(10, 0));
+
+    // A value far below 1 and a zero with a sign
+    BOOST_TEST_EQ(ceil(Dec(3, -30)), Dec(1, 0));
+    BOOST_TEST_EQ(floor(Dec(-3, -30)) - Dec(1, 0), Dec(-2, 0));
+    BOOST_TEST(signbit(ceil(Dec(-3, -30))));
+}
+
+// A rounded fast value keeps a significand with all the digits of the precision
+template <typename Dec>
+void test_round_full_significand()
+{
+    for (const auto x : {ceil(Dec(9999999, -6)), ceil(Dec(3, -30)), trunc(Dec(25, -1)), round(Dec(-15, -1))})
+    {
+        BOOST_TEST_EQ(detail::num_digits(decompose(x).sig), detail::precision_v<Dec>);
+    }
 }
 
 template <typename Dec>
@@ -1718,6 +1738,7 @@ int main()
 
     test_floor<decimal_fast32_t>();
     test_ceil<decimal_fast32_t>();
+    test_round_full_significand<decimal_fast32_t>();
     test_trunc<decimal_fast32_t>();
     test_roundeven<decimal_fast32_t>();
 
@@ -1728,6 +1749,7 @@ int main()
 
     test_floor<decimal_fast64_t>();
     test_ceil<decimal_fast64_t>();
+    test_round_full_significand<decimal_fast64_t>();
     test_trunc<decimal_fast64_t>();
     test_roundeven<decimal_fast64_t>();
 
@@ -1738,6 +1760,7 @@ int main()
 
     test_floor<decimal_fast128_t>();
     test_ceil<decimal_fast128_t>();
+    test_round_full_significand<decimal_fast128_t>();
     test_trunc<decimal_fast128_t>();
     test_roundeven<decimal_fast128_t>();
 

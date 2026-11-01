@@ -5,6 +5,7 @@
 #ifndef BOOST_DECIMAL_DETAIL_CMATH_IMPL_ROUND_INTEGRAL_HPP
 #define BOOST_DECIMAL_DETAIL_CMATH_IMPL_ROUND_INTEGRAL_HPP
 
+#include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/type_traits.hpp>
 #include <boost/decimal/detail/attributes.hpp>
@@ -78,7 +79,36 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto round_integral_sig(const Components& c
     return q;
 }
 
-// Rounds x to an integer in the mode round. The result has exponent 0, and a zero result
+// A fast type has a full significand, so q * 10^-exp is full or a carry to 10^precision, as in ceil(9.999999).
+// A q of 1 from a smaller exponent takes min_exp. So direct_pack_biased stores an exponent in [min_exp, 0].
+template <typename T, typename Components, std::enable_if_t<is_fast_type_v<T>, bool> = true>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto round_integral_pack(const typename T::significand_type q, const Components& c) noexcept -> T
+{
+    using sig_type = typename T::significand_type;
+    constexpr int min_exp {1 - precision_v<T>};
+
+    sig_type sig {0U};
+    int exp {0};
+    if (q != 0U)
+    {
+        exp = static_cast<int>(c.exp) < min_exp ? min_exp : static_cast<int>(c.exp);
+        sig = static_cast<sig_type>(q * pow10(static_cast<sig_type>(-exp)));
+        if (BOOST_DECIMAL_UNLIKELY(sig == pow10(static_cast<sig_type>(precision_v<T>))))
+        {
+            sig = pow10(static_cast<sig_type>(precision_v<T> - 1));
+            ++exp;
+        }
+    }
+    return direct_pack_biased(sig, exp + bias_v<T>, c.sign);
+}
+
+template <typename T, typename Components, std::enable_if_t<!is_fast_type_v<T>, bool> = true>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto round_integral_pack(const typename T::significand_type q, const Components& c) noexcept -> T
+{
+    return pack_in_range<T>(q, 0, c.sign);
+}
+
+// Rounds x to an integer in the mode round. An IEEE result has exponent 0, and a zero result
 // keeps the sign of x.
 template <typename T>
 constexpr auto round_integral_impl(const T x, const rounding_mode round) noexcept -> T
@@ -96,7 +126,7 @@ constexpr auto round_integral_impl(const T x, const rounding_mode round) noexcep
         return x;
     }
 
-    return pack_in_range<T>(round_integral_sig<T>(c, round), 0, c.sign);
+    return round_integral_pack<T>(round_integral_sig<T>(c, round), c);
 }
 
 template <BOOST_DECIMAL_INTEGRAL Int>

@@ -602,6 +602,7 @@ constexpr decimal_fast32_t::decimal_fast32_t(const bool value) noexcept : decima
 template <typename Integer, std::enable_if_t<detail::is_integral_v<Integer>, bool>>
 constexpr decimal_fast32_t::decimal_fast32_t(const Integer val) noexcept : decimal_fast32_t{val, 0} {}
 
+// Stores the parts as they are. A finite nonzero value needs a significand with all the digits of the precision
 constexpr auto direct_init(const decimal_fast32_t::significand_type significand, const decimal_fast32_t::exponent_type exponent, const bool sign = false) noexcept -> decimal_fast32_t
 {
     decimal_fast32_t val;
@@ -624,6 +625,11 @@ constexpr auto direct_init(const detail::decimal_fast32_t_components& x) noexcep
 
 namespace detail {
 
+constexpr auto direct_pack_biased(const std::uint32_t sig, const int biased_exp, const bool sign) noexcept -> decimal_fast32_t
+{
+    return direct_init(sig, static_cast<decimal_fast32_t::exponent_type>(biased_exp), sign);
+}
+
 // A full significand with an exponent in range needs no normalization
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
@@ -634,7 +640,7 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType e
     if (BOOST_DECIMAL_LIKELY(coeff >= min_normal && coeff <= max_significand_v<decimal_fast32_t> &&
                              biased_exp >= 0 && biased_exp <= max_biased_exp_v<decimal_fast32_t>))
     {
-        return direct_init(static_cast<std::uint32_t>(coeff), static_cast<decimal_fast32_t::exponent_type>(biased_exp), sign);
+        return direct_pack_biased(static_cast<std::uint32_t>(coeff), biased_exp, sign);
     }
     return decimal_fast32_t{coeff, exp, sign};
 }

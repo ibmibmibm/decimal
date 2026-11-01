@@ -60,6 +60,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_d64(T1 coeff, T2 exp, bool sign) n
 template <typename T2>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_d128(int128::uint128_t coeff, T2 exp, bool sign) noexcept -> decimal128_t;
 
+// The significand type selects the fast type. Each fast type header defines its overload, which stores
+// a full significand and a biased exponent in range
+constexpr auto direct_pack_biased(std::uint32_t sig, int biased_exp, bool sign) noexcept -> decimal_fast32_t;
+constexpr auto direct_pack_biased(std::uint64_t sig, int biased_exp, bool sign) noexcept -> decimal_fast64_t;
+constexpr auto direct_pack_biased(int128::uint128_t sig, int biased_exp, bool sign) noexcept -> decimal_fast128_t;
+
 // Dispatch helper: for IEEE return types use the corresponding direct_pack
 // helper if (exp + bias) is in the valid biased-exponent range; otherwise fall
 // back to the regular constructor which handles overflow-to-infinity and

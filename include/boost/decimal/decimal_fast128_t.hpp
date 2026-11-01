@@ -661,6 +661,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t::decimal_fast128_t(const Float v
     }
 }
 
+// Stores the parts as they are. A finite nonzero value needs a significand with all the digits of the precision
 constexpr auto direct_init_d128(const decimal_fast128_t::significand_type significand,
                                 const decimal_fast128_t::exponent_type exponent,
                                 const bool sign) noexcept -> decimal_fast128_t
@@ -675,6 +676,11 @@ constexpr auto direct_init_d128(const decimal_fast128_t::significand_type signif
 
 namespace detail {
 
+constexpr auto direct_pack_biased(const int128::uint128_t sig, const int biased_exp, const bool sign) noexcept -> decimal_fast128_t
+{
+    return direct_init_d128(sig, static_cast<decimal_fast128_t::exponent_type>(biased_exp), sign);
+}
+
 // A full significand with an exponent in range needs no normalization
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
@@ -685,7 +691,7 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType e
     if (BOOST_DECIMAL_LIKELY(coeff >= min_normal && coeff <= max_significand_v<decimal_fast128_t> &&
                              biased_exp >= 0 && biased_exp <= max_biased_exp_v<decimal_fast128_t>))
     {
-        return direct_init_d128(static_cast<int128::uint128_t>(coeff), static_cast<decimal_fast128_t::exponent_type>(biased_exp), sign);
+        return direct_pack_biased(static_cast<int128::uint128_t>(coeff), biased_exp, sign);
     }
     return decimal_fast128_t{coeff, exp, sign};
 }
