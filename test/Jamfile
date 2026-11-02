@@ -235,6 +235,7 @@ run test_decimal64_fast_stream.cpp ;
 run test_decimal64_stream.cpp ;
 #run test_decimal128_basis.cpp ;
 run test_decimal_quantum.cpp ;
+run test_decimal128_integer_encoding.cpp ;
 run test_downward_rounding.cpp
   : : : <pch>off ;
 run test_dpd_conversions.cpp ;

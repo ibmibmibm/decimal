@@ -115,6 +115,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_cohort_preserving_fixed(char* first, 
 template <bool checked, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_fma_impl(T x, T y, T z) noexcept -> T;
 
+// A function call, because MSVC warns about a constant condition in C++14
+template <typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto fits_64_bits() noexcept -> bool { return sizeof(Integer) <= sizeof(std::uint64_t); }
+
 } //namespace detail
 
 BOOST_DECIMAL_EXPORT class decimal128_t final
@@ -1068,7 +1072,18 @@ template <BOOST_DECIMAL_INTEGRAL Integer>
 #else
 template <typename Integer, std::enable_if_t<detail::is_integral_v<Integer>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const Integer val) noexcept : decimal128_t{val, 0} {}
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const Integer val) noexcept
+{
+    // Each value of 64 bits or less fits the precision at exponent 0, zero too
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::fits_64_bits<Integer>())
+    {
+        *this = detail::direct_pack_d128(static_cast<int128::uint128_t>(detail::make_positive_unsigned(val)), 0, detail::is_negative_integer(val));
+    }
+    else
+    {
+        *this = decimal128_t{val, 0};
+    }
+}
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::operator=(const Integer& val) noexcept

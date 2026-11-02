@@ -46,6 +46,19 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto make_positive_unsigned(Unsigned_Integer val) n
     return val;
 }
 
+// NVCC warns about a comparison of an unsigned value with zero, so an unsigned type has its own overload
+template <typename Integer, std::enable_if_t<detail::is_signed_v<Integer>, bool> = true>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto is_negative_integer(Integer val) noexcept -> bool
+{
+    return val < static_cast<Integer>(0);
+}
+
+template <typename Unsigned_Integer, std::enable_if_t<!detail::is_signed_v<Unsigned_Integer>, bool> = true>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto is_negative_integer(Unsigned_Integer) noexcept -> bool
+{
+    return false;
+}
+
 template <typename Integer, std::enable_if_t<detail::is_signed_v<Integer>, bool> = true>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto make_signed_value(Integer val, bool sign) noexcept -> Integer
 {
