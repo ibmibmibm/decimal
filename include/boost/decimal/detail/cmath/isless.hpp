@@ -45,7 +45,7 @@ constexpr auto islessgreater(const T lhs, const T rhs) noexcept
     }
     #endif
 
-    return lhs < rhs || lhs > rhs;
+    return lhs != rhs;
 }
 
 } // namespace decimal
