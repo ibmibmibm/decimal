@@ -383,33 +383,8 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl(const T& l
         std::integral_constant<bool, detail::is_decimal_floating_point_v<ReturnType>>{});
 }
 
-template <typename ReturnType, typename T, typename U>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl(T lhs_sig, U lhs_exp, const bool lhs_sign,
-                                                   T rhs_sig, U rhs_exp, const bool rhs_sign) noexcept -> ReturnType
-{
-    // decimal_fast32_t * Integer (sole caller) passes normalized significands
-    using mul_type = std::uint_fast64_t;
-
-    const bool sign {lhs_sign != rhs_sign};
-
-    const auto res_sig {static_cast<mul_type>(lhs_sig) * static_cast<mul_type>(rhs_sig)};
-    const auto res_exp {lhs_exp + rhs_exp};
-
-    if (BOOST_DECIMAL_UNLIKELY(lhs_sig == 0U || rhs_sig == 0U))
-    {
-        return ReturnType{res_sig, res_exp, sign};
-    }
-    if (BOOST_DECIMAL_UNLIKELY(!impl::mul_default_rounding(lhs_sig)))
-    {
-        return impl::mul_finalize_u64_out_of_line<ReturnType>(res_sig, res_exp, sign, detail::current_rounding_mode());
-    }
-
-    return impl::mul_finalize_u64<ReturnType>(res_sig, res_exp, sign);
-}
-
 // d64 specialization. Used by `decimal_fast64_t * decimal_fast64_t` (which
-// passes decimal types directly without to_components conversion) and by the
-// integer-rhs overload of `decimal_fast64_t * Integer`.
+// passes decimal types directly without to_components conversion).
 
 template <typename ReturnType, typename T>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_mul_impl(const T& lhs, const T& rhs) noexcept -> ReturnType
@@ -434,30 +409,6 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_mul_impl(const 
         return ReturnType{res_sig, res_exp, sign};
     }
     if (BOOST_DECIMAL_UNLIKELY(!impl::mul_default_rounding(lhs)))
-    {
-        return impl::mul_finalize_u128_out_of_line<ReturnType>(res_sig, res_exp, sign, detail::current_rounding_mode());
-    }
-
-    return impl::mul_finalize_u128<ReturnType>(res_sig, res_exp, sign);
-}
-
-template <typename ReturnType, BOOST_DECIMAL_INTEGRAL T, BOOST_DECIMAL_INTEGRAL U>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_mul_impl(T lhs_sig, U lhs_exp, bool lhs_sign,
-                                                       T rhs_sig, U rhs_exp, bool rhs_sign) noexcept
-                                                       -> std::enable_if_t<detail::is_decimal_floating_point_v<ReturnType>, ReturnType>
-{
-    using unsigned_int128_type = boost::int128::uint128_t;
-
-    const bool sign {lhs_sign != rhs_sign};
-
-    const auto res_sig {static_cast<unsigned_int128_type>(lhs_sig) * static_cast<unsigned_int128_type>(rhs_sig)};
-    const auto res_exp {lhs_exp + rhs_exp};
-
-    if (BOOST_DECIMAL_UNLIKELY(lhs_sig == 0U || rhs_sig == 0U))
-    {
-        return ReturnType{res_sig, res_exp, sign};
-    }
-    if (BOOST_DECIMAL_UNLIKELY(!impl::mul_default_rounding(lhs_sig)))
     {
         return impl::mul_finalize_u128_out_of_line<ReturnType>(res_sig, res_exp, sign, detail::current_rounding_mode());
     }
