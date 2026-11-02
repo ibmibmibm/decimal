@@ -79,7 +79,7 @@
 #  endif
 #endif
 
-#ifndef BOOST_DECIMAL_DISABLE_CASSERT
+#if !defined(BOOST_DECIMAL_DISABLE_CASSERT) && !defined(BOOST_DECIMAL_DISABLE_CLIB)
 #  define BOOST_DECIMAL_ASSERT(x) assert(x)
 #  define BOOST_DECIMAL_ASSERT_MSG(expr, msg) assert((expr)&&(msg))
 #else
@@ -90,10 +90,6 @@
 #ifdef BOOST_DECIMAL_DISABLE_CLIB
 #  ifndef BOOST_DECIMAL_DISABLE_IOSTREAM
 #    define BOOST_DECIMAL_DISABLE_IOSTREAM
-#  endif
-#  ifndef BOOST_DECIMAL_DISABLE_CASSERT
-#    undef BOOST_DECIMAL_ASSERT
-#    define BOOST_DECIMAL_ASSERT(x)
 #  endif
 #endif
 

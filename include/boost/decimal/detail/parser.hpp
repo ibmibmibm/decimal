@@ -70,13 +70,13 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto from_chars_dispatch(const char* first, const c
 {
     return boost::decimal::detail::from_chars128(first, last, value, base);
 }
-#endif
 
 #ifdef BOOST_DECIMAL_HAS_INT128
 BOOST_DECIMAL_CUDA_CONSTEXPR auto from_chars_dispatch(const char* first, const char* last, builtin_uint128_t& value, int base) noexcept -> from_chars_result
 {
     return boost::decimal::detail::from_chars128(first, last, value, base);
 }
+#endif
 #endif
 
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)

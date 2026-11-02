@@ -385,6 +385,8 @@ compile compile_tests/cstdio_compile.cpp
   : <pch>off ;
 compile compile_tests/cstdlib_compile.cpp
   : <pch>off ;
+compile compile_tests/disable_clib_compile.cpp
+  : <pch>off ;
 compile compile_tests/decimal32_compile.cpp
   : <pch>off ;
 compile compile_tests/decimal32_fast_compile.cpp
