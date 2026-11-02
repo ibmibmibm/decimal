@@ -1246,9 +1246,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUT
     // A value is subnormal when its adjusted exponent falls below emin. That depends on how
     // many digits the significand carries, not on the quantum exponent alone: 1E-383 and
     // 1.000000000000000E-383 are both the smallest normal decimal64_t but sit 15 quanta apart.
-    const auto adjusted_exp {rhs.biased_exponent() + detail::num_digits(sig) - 1};
+    // A quantum exponent of at least emin needs no digit count
+    const auto exp {rhs.biased_exponent()};
 
-    return adjusted_exp >= detail::emin_v<decimal64_t>;
+    return exp >= detail::emin_v<decimal64_t> || exp + detail::num_digits(sig) - 1 >= detail::emin_v<decimal64_t>;
     #else
     return rhs.full_significand() != 0;
     #endif
