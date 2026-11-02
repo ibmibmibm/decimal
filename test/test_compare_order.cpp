@@ -133,6 +133,121 @@ void test_gaps()
     }
 }
 
+// A significand of all digits with a larger exponent has a product above two words
+template <typename T>
+void test_wide_gaps()
+{
+    using sig_type = typename T::significand_type;
+
+    sig_type nines {0U};
+    for (int i {0}; i < std::numeric_limits<T>::digits10; ++i)
+    {
+        nines = static_cast<sig_type>(nines * 10U + 9U);
+    }
+
+    for (int gap {1}; gap <= 40; ++gap)
+    {
+        test_pair(T{nines, 0}, T{nines, gap});
+        test_pair(T{sig_type{1U}, 0}, T{nines, gap});
+    }
+}
+
+// Products just above 2^128, whose low two words are less than the other significand
+void test_product_overflow()
+{
+    using namespace boost::decimal::literals;
+
+    test_pair(100000_DL, 3402823669209384634633746074317683e5_DL);
+    test_pair(100000_DLF, 3402823669209384634633746074317683e5_DLF);
+    test_pair(10000000000000000000000000_DL, 34028236692094e25_DL);
+    test_pair(10000000000000000000000000_DLF, 34028236692094e25_DLF);
+    BOOST_TEST(1_DLF < 340283);
+    BOOST_TEST(1_DL < 340283);
+}
+
+// Integers against other cohorts of the same value, and a 64-bit value against a small decimal
+template <typename T>
+void test_integers()
+{
+    constexpr auto big {(std::numeric_limits<unsigned long long>::max)()};
+
+    BOOST_TEST(T{1} < big);
+    BOOST_TEST(-T{1} < big);
+    BOOST_TEST(T{1} != big);
+    BOOST_TEST(!(T{1} > big));
+    BOOST_TEST(big > T{1});
+
+    BOOST_TEST(T(500, -2) == 5);
+    BOOST_TEST(5 == T(500, -2));
+    BOOST_TEST(T(501, -2) != 5);
+    BOOST_TEST(T(501, -2) > 5);
+    BOOST_TEST(T(499, -2) < 5);
+    BOOST_TEST(T(500, -2) != -5);
+    BOOST_TEST(T(500, -2) > -5);
+    BOOST_TEST(-T(500, -2) == -5);
+    BOOST_TEST(-T(500, -2) < 5);
+    BOOST_TEST(-T(501, -2) < -5);
+    BOOST_TEST(-T(499, -2) > -5);
+
+    BOOST_TEST(T(0, -3) == 0);
+    BOOST_TEST(-T(0, -3) == 0);
+    BOOST_TEST(!(-T(0, -3) < 0));
+    BOOST_TEST(-T(0, -3) > -1);
+    BOOST_TEST(T(0, -3) < 1);
+    BOOST_TEST(T(1, -30) > 0);
+    BOOST_TEST(T(1, -30) < 1);
+    BOOST_TEST(-T(1, -30) < 0);
+    BOOST_TEST(-T(1, -30) > -1);
+}
+
+template <typename A, typename B>
+void test_mixed_pair(const A& low, const B& high)
+{
+    BOOST_TEST(low < high);
+    BOOST_TEST(low <= high);
+    BOOST_TEST(high > low);
+    BOOST_TEST(high >= low);
+    BOOST_TEST(low != high);
+    BOOST_TEST(!(high < low));
+    BOOST_TEST(!(low > high));
+    BOOST_TEST(!(low == high));
+    BOOST_TEST(-high < -low);
+    BOOST_TEST(!(-low < -high));
+}
+
+// Two types, with gaps on the two sides of equality and with signs and zeros
+template <typename A, typename B>
+void test_mixed_types()
+{
+    for (int gap {0}; gap <= 40; ++gap)
+    {
+        test_mixed_pair(A(9, gap - 1), B(1, gap));
+        test_mixed_pair(B(9, gap - 1), A(1, gap));
+        test_mixed_pair(A(1, 0), B(2, gap));
+        test_mixed_pair(B(1, 0), A(2, gap));
+        test_mixed_pair(-A(1, gap), B(1, gap));
+    }
+
+    BOOST_TEST(A(1, 3) == B(1000, 0));
+    BOOST_TEST(B(1, 3) == A(1000, 0));
+    BOOST_TEST(A(1, 3) != -B(1000, 0));
+    BOOST_TEST(A(0, 5) == -B(0, -5));
+    BOOST_TEST(!(-A(0, 5) < B(0, -5)));
+    BOOST_TEST(!(A(0, 5) < -B(0, -5)));
+    BOOST_TEST(-A(1, 0) < B(0, 0));
+    BOOST_TEST(A(0, 0) < B(1, -40));
+
+    test_mixed_pair(A(1, 0), std::numeric_limits<B>::infinity());
+    test_mixed_pair(-std::numeric_limits<A>::infinity(), B(1, 0));
+    test_mixed_pair(-std::numeric_limits<A>::infinity(), std::numeric_limits<B>::infinity());
+    BOOST_TEST(std::numeric_limits<A>::infinity() == std::numeric_limits<B>::infinity());
+    BOOST_TEST(!(std::numeric_limits<A>::infinity() < std::numeric_limits<B>::infinity()));
+    BOOST_TEST(!(-std::numeric_limits<A>::infinity() > -std::numeric_limits<B>::infinity()));
+    BOOST_TEST(!(std::numeric_limits<A>::quiet_NaN() < B(1, 0)));
+    BOOST_TEST(!(A(1, 0) < std::numeric_limits<B>::quiet_NaN()));
+    BOOST_TEST(std::numeric_limits<A>::quiet_NaN() != B(1, 0));
+}
+
 int main()
 {
     test_limits<decimal32_t>();
@@ -148,6 +263,34 @@ int main()
     test_gaps<decimal_fast32_t>();
     test_gaps<decimal_fast64_t>();
     test_gaps<decimal_fast128_t>();
+
+    test_wide_gaps<decimal32_t>();
+    test_wide_gaps<decimal64_t>();
+    test_wide_gaps<decimal128_t>();
+    test_wide_gaps<decimal_fast32_t>();
+    test_wide_gaps<decimal_fast64_t>();
+    test_wide_gaps<decimal_fast128_t>();
+
+    test_product_overflow();
+
+    test_integers<decimal32_t>();
+    test_integers<decimal64_t>();
+    test_integers<decimal128_t>();
+    test_integers<decimal_fast32_t>();
+    test_integers<decimal_fast64_t>();
+    test_integers<decimal_fast128_t>();
+
+    test_mixed_types<decimal32_t, decimal64_t>();
+    test_mixed_types<decimal32_t, decimal128_t>();
+    test_mixed_types<decimal64_t, decimal128_t>();
+    test_mixed_types<decimal32_t, decimal_fast32_t>();
+    test_mixed_types<decimal64_t, decimal_fast64_t>();
+    test_mixed_types<decimal128_t, decimal_fast128_t>();
+    test_mixed_types<decimal_fast32_t, decimal_fast64_t>();
+    test_mixed_types<decimal_fast32_t, decimal64_t>();
+    test_mixed_types<decimal_fast64_t, decimal128_t>();
+    test_mixed_types<decimal64_t, decimal_fast128_t>();
+    test_mixed_types<decimal_fast64_t, decimal_fast128_t>();
 
     return boost::report_errors();
 }
