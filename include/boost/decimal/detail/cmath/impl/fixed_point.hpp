@@ -39,7 +39,7 @@ namespace detail {
 #  pragma warning(disable : 4127) // Conditional expression is constant
 #endif
 
-constexpr std::size_t fx_dynamic_extent {static_cast<std::size_t>(-1)};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::size_t fx_dynamic_extent {static_cast<std::size_t>(-1)};
 
 // Returns b. Before C++17, a constant condition in a template gives a warning, but this call gives none
 constexpr auto fx_is(const bool b) noexcept -> bool { return b; }

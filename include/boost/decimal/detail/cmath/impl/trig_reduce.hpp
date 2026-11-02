@@ -50,13 +50,13 @@ struct trig_traits<decimal128_t> { static constexpr int window = 15; static cons
 template <>
 struct trig_traits<decimal_fast128_t> { static constexpr int window = 15; static constexpr int frac = 5; static constexpr int words = 3; static constexpr int bin_frac = 5; };
 
-constexpr std::uint64_t word_base {UINT64_C(1000000000)};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t word_base {UINT64_C(1000000000)};
 
 // The most words of 9 digits in m * 10^shift, which has at most 38 + 8 digits
 constexpr std::size_t m_words_max {6};
 
 // The words of 2/pi in the table
-constexpr int two_over_pi_size {static_cast<int>(sizeof(fx_table::two_over_pi) / sizeof(fx_table::two_over_pi[0]))};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int two_over_pi_size {static_cast<int>(sizeof(fx_table::two_over_pi) / sizeof(fx_table::two_over_pi[0]))};
 
 // x = n*pi/2 + r (mod 2pi), with |r| <= pi/4.
 template <int N>

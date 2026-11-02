@@ -1060,13 +1060,26 @@ jobs:
   cmake-module-test:
     strategy:
       fail-fast: false
+      matrix:
+        include:
+          # clang/libc++ version used to build the module. Needs a libc++ new enough to
+          # mix `import std` with textual libc++ includes (18 and 19 have std-module bugs).
+          - os: ubuntu-24.04
+            llvm: "20"
+            cxx: clang++-20
+            cmake_args: >-
+              -DCMAKE_CXX_FLAGS="-stdlib=libc++ -Wno-reserved-module-identifier"
+              -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-20/lib/libc++.modules.json
+          # The first GCC with the standard library module. It builds only the quick test (see module/CMakeLists.txt)
+          - os: ubuntu-26.04
+            gcc: "15"
+            cxx: g++-15
 
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
 
     env:
-      # clang/libc++ version used to build the module. Needs a libc++ new enough to
-      # mix `import std` with textual libc++ includes (18 and 19 have std-module bugs).
-      LLVM_VERSION: "20"
+      LLVM_VERSION: ${{ matrix.llvm }}
+      GCC_VERSION: ${{ matrix.gcc }}
       # Pinned so the experimental `import std` feature UUID below stays valid.
       CMAKE_VERSION: 4.4.0
       # CMake gates `import std` behind this UUID; it is specific to the CMake version.
@@ -1079,10 +1092,15 @@ jobs:
         run: |
           # A recent clang + libc++ (for `import std`), clang-scan-deps (module
           # dependency scanning), Ninja (required for C++ modules) and a pinned CMake.
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh $LLVM_VERSION
-          sudo apt-get install -y clang-tools-$LLVM_VERSION libc++-$LLVM_VERSION-dev libc++abi-$LLVM_VERSION-dev ninja-build
+          if [ -n "$LLVM_VERSION" ]; then
+            wget https://apt.llvm.org/llvm.sh
+            chmod +x llvm.sh
+            sudo ./llvm.sh $LLVM_VERSION
+            sudo apt-get install -y clang-tools-$LLVM_VERSION libc++-$LLVM_VERSION-dev libc++abi-$LLVM_VERSION-dev ninja-build
+          else
+            sudo apt-get update
+            sudo apt-get install -y g++-$GCC_VERSION ninja-build
+          fi
           wget -q https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-linux-x86_64.tar.gz
           sudo tar -xzf cmake-$CMAKE_VERSION-linux-x86_64.tar.gz -C /opt
           echo "/opt/cmake-$CMAKE_VERSION-linux-x86_64/bin" >> "$GITHUB_PATH"
@@ -1116,10 +1134,9 @@ jobs:
             -DBOOST_INCLUDE_LIBRARIES=$LIBRARY \
             -DBUILD_TESTING=ON \
             -DBOOST_DECIMAL_BUILD_MODULE=ON \
-            -DCMAKE_CXX_COMPILER=clang++-$LLVM_VERSION \
-            -DCMAKE_CXX_FLAGS="-stdlib=libc++ -Wno-reserved-module-identifier" \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_EXPERIMENTAL_CXX_IMPORT_STD=$IMPORT_STD_UUID \
-            -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-$LLVM_VERSION/lib/libc++.modules.json \
+            ${{ matrix.cmake_args }} \
             ..
 
       # Kept as a separate step so the boost.decimal module build time is visible on its own.
