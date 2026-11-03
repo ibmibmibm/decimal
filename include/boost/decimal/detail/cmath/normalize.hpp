@@ -7,6 +7,7 @@
 
 #include <boost/decimal/detail/cmath/frexp10.hpp>
 #include <boost/decimal/detail/cmath/fpclassify.hpp>
+#include <boost/decimal/detail/add_impl.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/concepts.hpp>
 
@@ -33,7 +34,7 @@ constexpr DecimalType normalize(const DecimalType value) noexcept
 
     int exp {};
     const auto significand {frexp10(value, &exp)};
-    return DecimalType{significand, exp, signbit(value)};
+    return detail::pack_in_range<DecimalType>(significand, exp, signbit(value));
 }
 
 } // namespace decimal
