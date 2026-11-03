@@ -411,7 +411,7 @@ constexpr auto frexp_impl(const T v, int* expon) noexcept
     if (isnan(v) || isinf(v))
     {
         if (expon != nullptr) { *expon = 0; }
-        return isnan(v) ? std::numeric_limits<T>::quiet_NaN() : std::numeric_limits<T>::infinity();
+        return isnan(v) ? std::numeric_limits<T>::quiet_NaN() : v;
     }
     #endif
 
