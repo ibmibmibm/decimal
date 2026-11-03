@@ -2254,6 +2254,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto copysignd128(decimal128_t mag, const decimal12
     return mag;
 }
 
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal128_t x) noexcept -> decimal128_t
+{
+    return copysignd128(x, decimal128_t{});
+}
+
+} // namespace detail
+
 BOOST_DECIMAL_CUDA_CONSTEXPR auto scalblnd128(decimal128_t num, const long exp) noexcept -> decimal128_t
 {
     // If the value is finite and canonical, and the new exponent is in range, change only the exponent field.

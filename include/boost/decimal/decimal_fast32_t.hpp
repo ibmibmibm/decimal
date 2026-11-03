@@ -1775,6 +1775,16 @@ constexpr auto copysignd32f(const decimal_fast32_t mag, const decimal_fast32_t s
     return direct_init(mag.significand_, mag.exponent_, sgn.sign_);
 }
 
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast32_t x) noexcept -> decimal_fast32_t
+{
+    return copysignd32f(x, decimal_fast32_t{});
+}
+
+} // namespace detail
+
 // Effects: determines if the quantum exponents of x and y are the same.
 // If both x and y are NaN, or infinity, they have the same quantum exponents;
 // if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.

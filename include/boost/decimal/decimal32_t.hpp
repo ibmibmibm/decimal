@@ -585,7 +585,7 @@ public:
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize(T lhs, T rhs) noexcept -> T;
 
     // <cmath> functions that need to be friends
-    friend constexpr auto copysignd32(decimal32_t mag, decimal32_t sgn) noexcept -> decimal32_t;
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto copysignd32(decimal32_t mag, decimal32_t sgn) noexcept -> decimal32_t;
 
     template <bool checked, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::d32_fma_impl(T x, T y, T z) noexcept -> T;
@@ -2333,11 +2333,21 @@ constexpr auto scalbnd32(const decimal32_t num, const int expval) noexcept -> de
     return scalblnd32(num, static_cast<long>(expval));
 }
 
-constexpr auto copysignd32(decimal32_t mag, const decimal32_t sgn) noexcept -> decimal32_t
+BOOST_DECIMAL_CUDA_CONSTEXPR auto copysignd32(decimal32_t mag, const decimal32_t sgn) noexcept -> decimal32_t
 {
     mag.edit_sign(sgn.isneg());
     return mag;
 }
+
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal32_t x) noexcept -> decimal32_t
+{
+    return copysignd32(x, decimal32_t{});
+}
+
+} // namespace detail
 
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 

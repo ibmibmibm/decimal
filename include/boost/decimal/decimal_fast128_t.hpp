@@ -1745,6 +1745,16 @@ constexpr auto copysignd128f(const decimal_fast128_t mag, const decimal_fast128_
     return direct_init_d128(mag.significand_, mag.exponent_, sgn.sign_);
 }
 
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast128_t x) noexcept -> decimal_fast128_t
+{
+    return copysignd128f(x, decimal_fast128_t{});
+}
+
+} // namespace detail
+
 constexpr auto scalblnd128f(const decimal_fast128_t num, const long exp) noexcept -> decimal_fast128_t
 {
     // If the value is finite and the new exponent is in range, change only the exponent.

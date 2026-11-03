@@ -2285,6 +2285,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto copysignd64(decimal64_t mag, const decimal64_t
     return mag;
 }
 
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal64_t x) noexcept -> decimal64_t
+{
+    return copysignd64(x, decimal64_t{});
+}
+
+} // namespace detail
+
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 
 constexpr decimal64_t::decimal64_t(const char* str, std::size_t len)

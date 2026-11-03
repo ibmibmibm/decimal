@@ -18,13 +18,29 @@
 namespace boost {
 namespace decimal {
 
+namespace detail {
+
+// Each type header specializes this to clear the sign bit without a branch
+template <typename T>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(T x) noexcept -> T;
+
+// A specialization needs a declaration before abs makes the first use of it
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal32_t x) noexcept -> decimal32_t;
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal64_t x) noexcept -> decimal64_t;
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal128_t x) noexcept -> decimal128_t;
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast32_t x) noexcept -> decimal_fast32_t;
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast64_t x) noexcept -> decimal_fast64_t;
+template <> BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast128_t x) noexcept -> decimal_fast128_t;
+
+} // namespace detail
+
 BOOST_DECIMAL_EXPORT template <typename T>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto abs BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const T rhs) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
     if (BOOST_DECIMAL_LIKELY(!isnan(rhs)))
     {
-        return signbit(rhs) ? -rhs : rhs;
+        return detail::clear_sign(rhs);
     }
     else
     {

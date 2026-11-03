@@ -9,6 +9,7 @@ run test_cuda_decimal32_t_add.cu ;
 run test_cuda_decimal32_t_sub.cu ;
 run test_cuda_decimal32_t_mul.cu ;
 run test_cuda_decimal32_t_div.cu ;
+run test_cuda_decimal32_t_abs.cu ;
 
 run test_cuda_decimal64_t_construct.cu ;
 run test_cuda_decimal64_t_add.cu ;

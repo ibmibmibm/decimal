@@ -695,6 +695,24 @@ void test_fdim()
     BOOST_TEST_EQ(fdim(Dec(1), Dec(1)), Dec(0));
 }
 
+// Finite values and infinities of both signs, then NaN. IEEE 754 abs clears the sign of a NaN and keeps it signaling.
+// The library keeps the sign of a NaN and quiets a signaling NaN, as it did before, and the NaN lines test that choice.
+template <typename Dec>
+void test_abs()
+{
+    BOOST_TEST_EQ(abs(Dec(-25, -1)), Dec(25, -1));
+    BOOST_TEST_EQ(abs(Dec(25, -1)), Dec(25, -1));
+    BOOST_TEST(!signbit(abs(Dec(0U, 3, true))));
+    BOOST_TEST_EQ(abs(-std::numeric_limits<Dec>::denorm_min()), std::numeric_limits<Dec>::denorm_min());
+    BOOST_TEST_EQ(abs(-std::numeric_limits<Dec>::infinity()), std::numeric_limits<Dec>::infinity());
+    BOOST_TEST_EQ(abs(std::numeric_limits<Dec>::infinity()), std::numeric_limits<Dec>::infinity());
+
+    const auto qnan {abs(-std::numeric_limits<Dec>::quiet_NaN())};
+    BOOST_TEST(isnan(qnan) && !issignaling(qnan) && signbit(qnan));
+    const auto snan {abs(-std::numeric_limits<Dec>::signaling_NaN())};
+    BOOST_TEST(isnan(snan) && !issignaling(snan) && signbit(snan));
+}
+
 // Macro if constexpr throws warning in C++14 mode
 #ifdef _MSC_VER
 #  pragma warning(push)
@@ -1739,6 +1757,13 @@ int main()
     test_fdim<decimal_fast32_t>();
     test_fdim<decimal64_t>();
     test_fdim<decimal_fast64_t>();
+
+    test_abs<decimal32_t>();
+    test_abs<decimal_fast32_t>();
+    test_abs<decimal64_t>();
+    test_abs<decimal_fast64_t>();
+    test_abs<decimal128_t>();
+    test_abs<decimal_fast128_t>();
 
     test_ilogb<decimal32_t>();
     test_ilogb<decimal_fast32_t>();

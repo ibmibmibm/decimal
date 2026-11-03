@@ -1829,6 +1829,16 @@ constexpr auto copysignd64f(const decimal_fast64_t mag, const decimal_fast64_t s
     return direct_init_d64(mag.significand_, mag.exponent_, sgn.sign_);
 }
 
+namespace detail {
+
+template <>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto clear_sign(decimal_fast64_t x) noexcept -> decimal_fast64_t
+{
+    return copysignd64f(x, decimal_fast64_t{});
+}
+
+} // namespace detail
+
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 
 constexpr decimal_fast64_t::decimal_fast64_t(const char* str, const std::size_t len)

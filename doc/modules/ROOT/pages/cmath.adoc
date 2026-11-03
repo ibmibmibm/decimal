@@ -88,6 +88,9 @@ constexpr decimal_fast128_t snand128f(const char* arg) noexcept;
 } // namespace boost
 ----
 
+For a NaN argument, `abs` and `fabs` return a quiet NaN with the sign of the argument.
+This is different from IEEE 754 `abs`, which clears the sign and keeps a signaling NaN signaling.
+
 [#cmath_exp]
 == Exponential Functions
 
