@@ -54,7 +54,8 @@ constexpr auto fmax(const T1 lhs, const T2 rhs) noexcept
     }
     #endif
 
-    return lhs > rhs ? static_cast<promoted_type>(lhs) : static_cast<promoted_type>(rhs);
+    // If lhs <= rhs, then +lhs and -rhs are only possible for +0 and -0
+    return lhs > rhs || (!signbit(lhs) && signbit(rhs)) ? static_cast<promoted_type>(lhs) : static_cast<promoted_type>(rhs);
 }
 
 } // namespace decimal
