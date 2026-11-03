@@ -731,15 +731,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::edit_exponent(const T expval) no
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::edit_sign(const bool sign) noexcept -> void
 {
-    if (sign)
-    {
-        bits_.high |= detail::d128_sign_mask;
-    }
-    else
-    {
-        constexpr auto not_sign_mask {~detail::d128_sign_mask};
-        bits_.high &= not_sign_mask;
-    }
+    bits_.high = (bits_.high & ~detail::d128_sign_mask) | (static_cast<std::uint64_t>(sign) << 63U);
 }
 
 #if defined(__GNUC__) && __GNUC__ >= 6

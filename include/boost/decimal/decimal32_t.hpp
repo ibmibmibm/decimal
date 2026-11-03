@@ -1679,14 +1679,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::isneg() const noexcept -> bool
 // Allows changing the sign even on nans and infs
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::edit_sign(const bool sign) noexcept -> void
 {
-    if (sign)
-    {
-        bits_ |= detail::d32_sign_mask;
-    }
-    else
-    {
-        bits_ &= ~detail::d32_sign_mask;
-    }
+    bits_ = (bits_ & ~detail::d32_sign_mask) | (static_cast<std::uint32_t>(sign) << 31U);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::to_components() const noexcept -> detail::decimal32_t_components

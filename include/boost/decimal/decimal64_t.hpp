@@ -1195,14 +1195,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal64_t::edit_exponent(const T expval) noe
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal64_t::edit_sign(const bool sign) noexcept -> void
 {
-    if (sign)
-    {
-        bits_ |= detail::d64_sign_mask;
-    }
-    else
-    {
-        bits_ &= ~detail::d64_sign_mask;
-    }
+    bits_ = (bits_ & ~detail::d64_sign_mask) | (static_cast<std::uint64_t>(sign) << 63U);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto signbit BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
