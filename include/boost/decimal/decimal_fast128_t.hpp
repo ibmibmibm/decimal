@@ -928,7 +928,7 @@ constexpr auto operator<(const Integer lhs, const decimal_fast128_t& rhs) noexce
 constexpr auto operator<=(const decimal_fast128_t& lhs, const decimal_fast128_t& rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    if (isnan(lhs) || isnan(rhs))
+    if ((not_finite(lhs) || not_finite(rhs)) && (isnan(lhs) || isnan(rhs)))
     {
         return false;
     }
@@ -986,14 +986,7 @@ constexpr auto operator>(const Integer lhs, const decimal_fast128_t& rhs) noexce
 
 constexpr auto operator>=(const decimal_fast128_t& lhs, const decimal_fast128_t& rhs) noexcept -> bool
 {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (isnan(lhs) || isnan(rhs))
-    {
-        return false;
-    }
-    #endif
-
-    return !(lhs < rhs);
+    return rhs <= lhs;
 }
 
 template <typename Integer>

@@ -551,6 +551,28 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto sequential_less_imp
                                           rhs_components.sig, static_cast<int>(rhs_components.exp), rhs_components.sign);
 }
 
+// lhs < rhs, or lhs <= rhs with OrEqual, of two IEEE values. A NaN gives false, and the
+// payload of an infinity has no meaning, thus two infinities compare by sign.
+template <bool OrEqual, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto ieee_less_impl(const DecimalType& lhs, const DecimalType& rhs) noexcept -> bool
+{
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (!isfinite(lhs) || !isfinite(rhs))
+    {
+        if (isnan(lhs) || isnan(rhs))
+        {
+            return false;
+        }
+        if (isinf(lhs) && isinf(rhs))
+        {
+            return OrEqual ? signbit(lhs) || !signbit(rhs) : signbit(lhs) && !signbit(rhs);
+        }
+    }
+    #endif
+
+    return OrEqual ? !sequential_less_impl(rhs, lhs) : sequential_less_impl(lhs, rhs);
+}
+
 // Gives the sign of lhs - rhs for a decimal that is not a NaN
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal, BOOST_DECIMAL_INTEGRAL Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto integer_order_impl(Decimal lhs, Integer rhs) noexcept -> int
