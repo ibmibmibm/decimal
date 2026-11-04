@@ -1362,14 +1362,22 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator<(const Integer lhs, const decimal128_
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator<=(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> bool
 {
+    // As operator< with the operands swapped, but one test of the special values
     #ifndef BOOST_DECIMAL_FAST_MATH
-    if ((!isfinite(lhs) || !isfinite(rhs)) && (isnan(lhs) || isnan(rhs)))
+    if (!isfinite(lhs) || !isfinite(rhs))
     {
-        return false;
+        if (isnan(lhs) || isnan(rhs))
+        {
+            return false;
+        }
+        if (isinf(lhs) && isinf(rhs))
+        {
+            return lhs.isneg() || !rhs.isneg();
+        }
     }
     #endif
 
-    return !(rhs < lhs);
+    return !sequential_less_impl(rhs, lhs);
 }
 
 template <typename Integer>
@@ -1421,14 +1429,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator>(const Integer lhs, const decimal128_
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator>=(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> bool
 {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if ((!isfinite(lhs) || !isfinite(rhs)) && (isnan(lhs) || isnan(rhs)))
-    {
-        return false;
-    }
-    #endif
-
-    return !(lhs < rhs);
+    return rhs <= lhs;
 }
 
 template <typename Integer>
