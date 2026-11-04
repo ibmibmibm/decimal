@@ -91,7 +91,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pi_over_four_v() noexcept -> DecimalType
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<boost::decimal::detail::decimal_val_v<DecimalType> >= 128, bool> = true>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto pi_over_four_v() noexcept -> DecimalType
 {
-    return DecimalType{boost::int128::uint128_t{UINT64_C(42576519751081932), UINT64_C(5970600460659265253)}, -38};
+    return DecimalType{boost::int128::uint128_t{UINT64_C(425765197510819), UINT64_C(5970600460659265253)}, -34};
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<boost::decimal::detail::decimal_val_v<DecimalType> < 128, bool> = true>
