@@ -80,7 +80,26 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto _boost_decimal_global_rounding_mode
     #endif
 };
 
-BOOST_DECIMAL_INLINE_VARIABLE auto _boost_decimal_global_runtime_rounding_mode {_boost_decimal_global_rounding_mode};
+#if defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L
+inline auto _boost_decimal_global_runtime_rounding_mode {_boost_decimal_global_rounding_mode};
+#else
+// A static variable is one object for each translation unit, but every translation
+// unit shares the static member of a class template, so fesetround acts on all of them
+namespace detail {
+
+template <typename T = void>
+struct runtime_rounding_mode_holder
+{
+    static rounding_mode value;
+};
+
+template <typename T>
+rounding_mode runtime_rounding_mode_holder<T>::value {_boost_decimal_global_rounding_mode};
+
+} // namespace detail
+
+static auto& _boost_decimal_global_runtime_rounding_mode = detail::runtime_rounding_mode_holder<>::value;
+#endif
 
 BOOST_DECIMAL_EXPORT inline auto fegetround() noexcept -> rounding_mode
 {

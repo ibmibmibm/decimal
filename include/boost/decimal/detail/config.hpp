@@ -261,11 +261,9 @@ typedef unsigned __int128 builtin_uint128_t;
 #if defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L
 #  define BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE inline constexpr
 #  define BOOST_DECIMAL_CONSTEXPR_VARIABLE_SPECIALIZATION BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE
-#  define BOOST_DECIMAL_INLINE_VARIABLE inline
 #else
 #  define BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE static constexpr
 #  define BOOST_DECIMAL_CONSTEXPR_VARIABLE_SPECIALIZATION BOOST_DECIMAL_CLANG_STATIC constexpr
-#  define BOOST_DECIMAL_INLINE_VARIABLE static
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
