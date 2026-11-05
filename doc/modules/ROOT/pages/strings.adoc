@@ -20,12 +20,12 @@ namespace decimal {
 class decimal32_t
 {
 
-    constexpr decimal32_t(const char* str)
+    explicit constexpr decimal32_t(const char* str)
 
     #ifndef BOOST_DECIMAL_HAS_STD_STRING_VIEW
-    inline decimal32_t::decimal32_t(const std::string& str);
+    explicit inline decimal32_t::decimal32_t(const std::string& str);
     #else
-    constexpr decimal32_t::decimal32_t(std::string_view str);
+    explicit constexpr decimal32_t::decimal32_t(std::string_view str);
     #endif
 };
 
@@ -68,7 +68,7 @@ Attempts conversion of `str` to the decimal type specified as if with `from_char
 . Overflow throws `std::out_of_range` or in a no exceptions environment returns `std::numeric_limits<DecimalType>::signaling_NaN()` with unset value of `idx`.
 An infinity of either sign in `str`, such as `"INF"` or `"-inf"`, is an overflow too. This is different from `std::stod`, which returns an infinity.
 
-. If the string can not be converted into a decimal value throws `std::out_of_range` or in a no exceptions environment returns `std::numeric_limits<DecimalType>::signaling_NaN()` with unset value of `idx`.
+. If the string can not be converted into a decimal value throws `std::invalid_argument` or in a no exceptions environment returns `std::numeric_limits<DecimalType>::signaling_NaN()` with unset value of `idx`.
 
 The returned value `idx` is the number of characters.
 

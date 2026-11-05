@@ -17,7 +17,10 @@ The following configuration macros are available:
 
 - `BOOST_DECIMAL_DISABLE_IOSTREAM`: Disables the use of I/O streaming and removes all associated headers (e.g. `<iostream>`, `<iosfwd>`, `<cwchar>`, etc.)
 
-- `BOOST_DECIMAL_DISABLE_CLIB`: Defines both of the above macros. In testing this reduces ROM usage by ~50% and can be useful if running on embedded platforms.
+- `BOOST_DECIMAL_DISABLE_CLIB`: Defines `BOOST_DECIMAL_DISABLE_IOSTREAM` and disables the run-time assertions of this library.
+The bundled Int128 library still includes `<cassert>` and keeps its own assertions.
+It also removes the parts of the library that use strings, such as the string constructors, the literals, and `<charconv>` support.
+In testing this reduces ROM usage by ~50% and can be useful if running on embedded platforms.
 
 - `BOOST_DECIMAL_DISABLE_EXCEPTIONS`: This allows the user to disable any calls to `throw`.
 This macro will also be set automatically in the presence of `-fno-exceptions` or various `/EH` flags on MSVC.
@@ -60,7 +63,10 @@ Defining this macro also automatically defines `BOOST_DECIMAL_DISABLE_EXCEPTIONS
 [#configuration_automatic]
 == Automatic Configuration Macros
 
-- `BOOST_DECIMAL_CXX20_CONSTEXPR`: This is defined to `constexpr` when compiling with C++20 or greater, otherwise it expands to nothing.
+- `BOOST_DECIMAL_CXX20_CONSTEXPR`: This is defined to `constexpr` when compiling with C++20 or greater, otherwise it expands to `inline`.
+
+- `BOOST_DECIMAL_NO_CONSTEVAL_DETECTION`: The library defines this macro when the compiler cannot detect constant evaluation.
+When this macro is defined, `fesetround` does not change the rounding mode.
 
 [#host_device]
 - `BOOST_DECIMAL_HOST_DEVICE`: This is defined to `pass:[__host__ __device__]` when compiling with NVCC and `BOOST_DECIMAL_ENABLE_CUDA` is defined, and to nothing otherwise.

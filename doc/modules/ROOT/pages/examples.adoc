@@ -160,7 +160,7 @@ include::example$charconv.cpp[]
 
 .Expected Output:
 ....
-Initial decimal: -7123450
+Initial decimal: -7.12345e+06
 Value from string: 3.1415
 Value in scientific format: -7.12345e+06
 Value in scientific format with precision 20: -7.12345000000000000000e+06
@@ -231,7 +231,7 @@ Boost.Decimal allows you to format your output with both `<format>` and `<fmt/fo
 pass:[{fmt}] support is available starting with pass:[C++14] so long as you have the library available, but `<format>` requires pass:[C++20] and compiler support
 
 [#examples_fmt_format]
-=== `<fmt/format.hpp>`
+=== `<fmt/format.h>`
 
 .This https://github.com/boostorg/decimal/blob/develop/example/fmt_format.cpp[example] demonstrates the various formatting options provided by the library to support usage of pass:[{fmt}]
 ====

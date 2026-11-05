@@ -21,11 +21,11 @@ namespace decimal {
 
 enum class chars_format : unsigned
 {
-    scientific,
-    fixed,
-    hex,
-    cohort_preserving_scientific,
-    cohort_preserving_fixed,
+    scientific = 1 << 0,
+    fixed = 1 << 1,
+    hex = 1 << 2,
+    cohort_preserving_scientific = 1 << 3,
+    cohort_preserving_fixed = 1 << 4,
     general = fixed | scientific
 };
 
@@ -163,7 +163,7 @@ constexpr std::to_chars_result to_chars(char* first, char* last, DecimalType val
 ----
 
 All `to_chars` functions, except for when using the formats `cohort_preserving_scientific` and `cohort_preserving_fixed`, ignore the effects of cohorts, and instead output normalized values.
-Additionally, when using either cohort preserving format, if a precision is specified the function will return `{first, std::errc::invalid_argument}`.
+Additionally, when using either cohort preserving format, if a precision is specified the function will return `{last, std::errc::invalid_argument}`.
 Per IEEE 754 specifying both a precision and cohort preservation is an invalid operation.
 This follows because you are potentially rounding the number, or adding trailing zeros to the fraction which both destroy the cohort information.
 When using `cohort_preserving_fixed` the function will also return `{last, std::errc::invalid_argument}` for any value with a positive exponent, since rendering it in fixed notation would require appending trailing zeros.

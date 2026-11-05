@@ -16,13 +16,13 @@ https://www.boost.org/LICENSE_1_0.txt
 | Attribute | values
 | Storage Width | 128 bits
 | Precision | 34 decimal digits
-| Max exponent | 6145
-| Max Value | 9.99999...e+6145
-| Smallest Normalized Value | 1.0000...e-6142
+| Max exponent | 6144
+| Max Value | 9.99999...e+6144
+| Smallest Normalized Value | 1.0000...e-6143
 | Smallest Subnormal Value | 1e-6176
 |===
 
-IMPORTANT: Prior to v5.0.0 this type was known as `decimal32`.
+IMPORTANT: Prior to v5.0.0 this type was known as `decimal128`.
 This name has been removed in v6.0.0.
 
 The encoding of decimal128_t is in the `xref:conversions.adoc[BID format]`.
@@ -37,8 +37,8 @@ namespace decimal {
 class decimal128_t {
 
 public:
-    using significand_type = detail::uint128;
-    using exponent_type = std::uint32_t;
+    using significand_type = boost::int128::uint128_t;
+    using exponent_type = std::uint64_t;
     using biased_exponent_type = std::int32_t;
 
 // Paragraph numbers are from ISO/IEC DTR 24733
@@ -67,7 +67,7 @@ template <typename UnsignedIntegral, typename Integral>
 constexpr decimal128_t(UnsignedIntegral coeff, Integral exp, bool is_negative = false) noexcept;
 
 template <typename SignedIntegral, typename Integral>
-constexpr decimal128_t(SignedIntegral coeff, Integral exp, bool is_negative = false) noexcept;
+constexpr decimal128_t(SignedIntegral coeff, Integral exp) noexcept;
 
 template <typename Integral>
 constexpr decimal128_t& operator=(const Integeral& RHS) noexcept;
@@ -109,7 +109,7 @@ explicit constexpr operator decimal32_t() const noexcept;
 explicit constexpr operator decimal_fast32_t() const noexcept;
 explicit constexpr operator decimal64_t() const noexcept;
 explicit constexpr operator decimal_fast64_t() const noexcept;
-explicit constexpr operator decimal_fast128_t() const noexcept;
+constexpr operator decimal_fast128_t() const noexcept;
 
 }; // class decimal128_t
 
@@ -236,10 +236,11 @@ explicit constexpr operator decimal32_t() const noexcept;
 explicit constexpr operator decimal_fast32_t() const noexcept;
 explicit constexpr operator decimal64_t() const noexcept;
 explicit constexpr operator decimal_fast64_t() const noexcept;
-explicit constexpr operator decimal_fast128_t() const noexcept;
+constexpr operator decimal_fast128_t() const noexcept;
 ----
 
 Conversion to `decimal_fast128_t` is lossless in all cases.
+The exception is a subnormal value, which becomes `0` in `decimal_fast128_t`.
 
 Conversion to all other decimal types is subject to:
 

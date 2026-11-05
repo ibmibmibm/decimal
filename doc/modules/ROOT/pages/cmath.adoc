@@ -12,7 +12,7 @@ Decimal contains overloads for all functions from `<cmath>`, and they have the s
 They are also all constexpr with pass:[C++14] unlike the built-in floating point types which require either pass:[C++23] or 26.
 Additionally, all functions are marked `noexcept`.
 
-All of these functions are impacted by the global rounding mode as described in xref:cfenv.adoc[rounding modes] as well as the `DEC_FLT_EVAL_METHOD` from xref:cfloat.adoc[evaluation methods].
+All of these functions are impacted by the global rounding mode as described in xref:cfenv.adoc[rounding modes] as well as the `BOOST_DECIMAL_DEC_EVAL_METHOD` from xref:cfloat.adoc[evaluation methods].
 
 == Basic Operations
 [#basic_cmath_ops]
@@ -43,9 +43,6 @@ constexpr DecimalType abs(DecimalType x) noexcept;
 
 template <typename DecimalType>
 constexpr DecimalType fabs(DecimalType x) noexcept;
-
-template <typename DecimalType>
-constexpr DecimalType abs(DecimalType x) noexcept;
 
 template <typename DecimalType>
 constexpr DecimalType fmod(DecimalType x, DecimalType y) noexcept;
@@ -211,7 +208,7 @@ template <typename DecimalType>
 constexpr DecimalType atan(DecimalType x) noexcept;
 
 template <typename DecimalType>
-constexpr DecimalType atan2(DecimalType x, DecimalType y) noexcept;
+constexpr DecimalType atan2(DecimalType y, DecimalType x) noexcept;
 
 } // namespace decimal
 } // namespace boost
@@ -306,6 +303,7 @@ constexpr DecimalType lgamma(DecimalType x) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/round[lround] | Computes the nearest `long` rounding away from zero
 | https://en.cppreference.com/w/cpp/numeric/math/round[llround] | Computes the nearest `long long` rounding away from zero
 | https://en.cppreference.com/w/cpp/numeric/math/nearbyint[nearbyint] | Computest the nearest integer represented in same decimal format subject to xref:cfenv.adoc[current fenv rounding mode]
+| https://en.cppreference.com/w/cpp/numeric/math/rint[rint] | Computes the nearest integer represented in same decimal format subject to xref:cfenv.adoc[current fenv rounding mode]
 | https://en.cppreference.com/w/cpp/numeric/math/lrint[lrint] | Computest the nearest `long` subject to xref:cfenv.adoc[current fenv rounding mode]
 | https://en.cppreference.com/w/cpp/numeric/math/llrint[llrint] | Computest the nearest `long long` subject to xref:cfenv.adoc[current fenv rounding mode]
 |===
@@ -367,7 +365,7 @@ constexpr long long llrint(DecimalType x) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/ilogb[ilogb] | Extracts `int` exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/logb[logb] | Extracts Decimal Type exponent of a number
 | https://en.cppreference.com/w/cpp/numeric/math/nextafter[nextafter] | Next representable decimal type value
-| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttowards] | Next representable decimal type value towards a `long double`
+| https://en.cppreference.com/w/cpp/numeric/math/nextafter[nexttoward] | Next representable decimal type value towards a `long double`
 | https://en.cppreference.com/w/cpp/numeric/math/copysign[copysign] | Copies the sign of a decimal value
 |===
 
@@ -426,7 +424,8 @@ constexpr DecimalType copysign(DecimalType mag, DecimalType sgn) noexcept;
 | https://en.cppreference.com/w/cpp/numeric/math/isgreater[isgreater] | Checks if the LHS (Left-hand side or first parameter) is greater than the RHS (Right-hand side or second parameter)
 | https://en.cppreference.com/w/cpp/numeric/math/isgreaterequal[isgreaterequal] | Checks if the LHS is greater than or equal to the RHS
 | https://en.cppreference.com/w/cpp/numeric/math/isless[isless] | Checks if the LHS is less than the RHS
-| https://en.cppreference.com/w/cpp/numeric/math/islesequal[islessequal] | Checks if the LHS is less than or equal to the RHS
+| https://en.cppreference.com/w/cpp/numeric/math/islessequal[islessequal] | Checks if the LHS is less than or equal to the RHS
+| https://en.cppreference.com/w/cpp/numeric/math/islessgreater[islessgreater] | Checks if the LHS is less than or greater than the RHS
 | https://en.cppreference.com/w/cpp/numeric/math/isunordered[isunordered] | Checks if the LHS and RHS are unordered (i.e. if one or both are NAN)
 |===
 
@@ -465,6 +464,9 @@ template <typename DecimalType>
 constexpr bool isless(DecimalType x, DecimalType y) noexcept;
 
 template <typename DecimalType>
+constexpr bool islessequal(DecimalType x, DecimalType y) noexcept;
+
+template <typename DecimalType>
 constexpr bool islessgreater(DecimalType x, DecimalType y) noexcept;
 
 template <typename DecimalType>
@@ -490,8 +492,8 @@ The following functions have been implemented for decimal types:
 | https://en.cppreference.com/w/cpp/numeric/special_functions/beta[beta] | Calculates the beta function
 | https://en.cppreference.com/w/cpp/numeric/special_functions/comp_ellint_1[comp_ellint_1] | Calculates the complete elliptic integrals of the first kind
 | https://en.cppreference.com/w/cpp/numeric/special_functions/comp_ellint_2[comp_ellint_2] | Calculates the complete elliptic integrals of the second kind
-| https://en.cppreference.com/w/cpp/numeric/special_functions/comp_ellint_1[ellint_1] | Calculates the incomplete elliptic integrals of the first kind
-| https://en.cppreference.com/w/cpp/numeric/special_functions/comp_ellint_2[ellint_2] | Calculates the incomplete elliptic integrals of the second kind
+| https://en.cppreference.com/w/cpp/numeric/special_functions/ellint_1[ellint_1] | Calculates the incomplete elliptic integrals of the first kind
+| https://en.cppreference.com/w/cpp/numeric/special_functions/ellint_2[ellint_2] | Calculates the incomplete elliptic integrals of the second kind
 | https://en.cppreference.com/w/cpp/numeric/special_functions/hermite[hermite] | Hermite Polynomials
 | https://en.cppreference.com/w/cpp/numeric/special_functions/laguerre[laguerre] | Laguerre Polynomials
 | https://en.cppreference.com/w/cpp/numeric/special_functions/legendre[legendre] | Legendre Polynomials
@@ -536,6 +538,9 @@ constexpr DecimalType laguerre(unsigned int n, DecimalType x) noexcept;
 template <typename DecimalType>
 constexpr DecimalType legendre(unsigned int n, DecimalType x) noexcept;
 
+template <typename DecimalType>
+constexpr DecimalType riemann_zeta(DecimalType x) noexcept;
+
 template <typename DecimalType, typename IntegralType>
 constexpr DecimalType riemann_zeta(IntegralType n) noexcept;
 
@@ -565,12 +570,12 @@ This function does not signal even if x is an sNaN per IEEE 754 section 5.7.2.
 ----
 template <typename Decimal>
 constexpr auto read_payload(Decimal x) noexcept
-    -> typename T::significand_type;
+    -> typename Decimal::significand_type;
 ----
 
 Effects: if x is either a qNaN or an sNaN, returns the payload of the NaN, otherwise returns 0.
 
-This function allows the payloads of nans that are set by the functions xref:basic_cmath_ops[`nan`] or xref:basic_cmath_ops[`snan`] to be returned.
+This function allows the payloads of nans that are set by the functions xref:cmath.adoc#basic_cmath_ops[`nan`] or xref:cmath.adoc#basic_cmath_ops[`snan`] to be returned.
 
 === `samequantum`
 
@@ -648,17 +653,15 @@ Returns: a number that is equal in value (except for any rounding) and sign to x
 
 If the exponent is being increased, the value is correctly rounded according to the current rounding mode;
 
-If the result does not have the same value as x, the "inexact" floating-point exception is raised.
+If the exponent is being decreased and the significand of the result has more digits than the type would allow, the result is a quiet NaN.
 
-If the exponent is being decreased and the significand of the result has more digits than the type would allow, the "invalid" floating-point exception is raised and the result is sNaN.
+If one or both operands are NaN the result is a quiet NaN.
 
-If one or both operands are NaN the result is sNaN.
-
-Otherwise, if only one operand is infinity, the "invalid" floating-point exception is raised and the result is sNaN.
+Otherwise, if only one operand is infinity, the result is a quiet NaN.
 
 If both operands are infinity, the result is infinity, with the same sign as x.
 
-The quantize functions do not signal underflow.
+The quantize functions do not set the floating-point exception flags of `<cfenv>`.
 
 WARNING: This operation is defined in terms of cohorts, which the fast types do not have, so calling it with `decimal_fast32_t`, `decimal_fast64_t`, or `decimal_fast128_t` is a compile error.
 Because those types normalize on construction, `y` cannot carry the exponent it was built with, so the operation cannot do what its definition promises.
@@ -673,6 +676,7 @@ To round to a fixed number of fractional digits on any type, use xref:#cmath_res
 namespace boost {
 namespace decimal {
 
+// Exposition only. The real type is in namespace detail.
 template <typename Decimal>
 struct decimal_components
 {

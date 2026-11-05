@@ -15,18 +15,15 @@ Should the user want to capture the bit format in BID or convert to DPD we offer
 
 [source, c++]
 ----
-#include <boost/decimal/bid_conversions.hpp>
-#include <boost/decimal/dpd_conversions.hpp>
+#include <boost/decimal/bid_conversion.hpp>
+#include <boost/decimal/dpd_conversion.hpp>
 #include <boost/decimal/uint128_t.hpp>
 
 namespace boost {
 namespace decimal {
 
-struct uint128_t
-{
-    std::uint64_t high;
-    std::uint64_t low;
-};
+// An alias of boost::int128::uint128_t
+using uint128_t = boost::int128::uint128_t;
 
 // ----- BID Conversions -----
 
@@ -59,11 +56,11 @@ constexpr decimal128_t from_bid_d128(unsigned __int128 bits) noexcept;
 
 constexpr uint128_t to_bid_d128f(decimal_fast128_t val) noexcept;
 
-constexpr decimal128_t from_bid_d128f(uint128_t bits) noexcept;
+constexpr decimal_fast128_t from_bid_d128f(uint128_t bits) noexcept;
 
 #ifdef BOOST_DECIMAL_HAS_INT128
 
-constexpr decimal128_t from_bid_d128f(unsigned __int128 bits) noexcept;
+constexpr decimal_fast128_t from_bid_d128f(unsigned __int128 bits) noexcept;
 
 #endif // BOOST_DECIMAL_HAS_INT128
 
@@ -81,17 +78,23 @@ constexpr T from_bid(uint128_t bits) noexcept;
 
 // ----- DPD Conversions -----
 
-constexpr std::uint32_t to_dpd_d32(decimal32_t val) noexcept;
+template <typename DecimalType>
+constexpr std::uint32_t to_dpd_d32(DecimalType val) noexcept;
 
-constexpr std::uint32_t to_dpd_d32f(decimal_fast32_t val) noexcept;
+template <typename DecimalType = decimal_fast32_t>
+constexpr DecimalType from_dpd_d32(std::uint32_t dpd) noexcept;
 
-constexpr std::uint64_t to_dpd_d64(decimal64_t val) noexcept;
+template <typename DecimalType>
+constexpr std::uint64_t to_dpd_d64(DecimalType val) noexcept;
 
-constexpr std::uint64_t to_dpd_d64f(decimal_fast64_t val) noexcept;
+template <typename DecimalType = decimal_fast64_t>
+constexpr DecimalType from_dpd_d64(std::uint64_t dpd) noexcept;
 
-constexpr uint128_t to_dpd_d128(decimal128_t val) noexcept;
+template <typename DecimalType>
+constexpr uint128_t to_dpd_d128(DecimalType val) noexcept;
 
-constexpr uint128_t to_dpd_d128f(decimal_fast128_t val) noexcept;
+template <typename DecimalType = decimal_fast128_t>
+constexpr DecimalType from_dpd_d128(uint128_t dpd) noexcept;
 
 template <typename T>
 constexpr auto to_dpd(T val) noexcept;

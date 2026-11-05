@@ -16,6 +16,7 @@ The following literals are offered to construct each of the types:
 
 namespace boost {
 namespace decimal {
+namespace literals {
 
 constexpr auto operator  "" _DF(const char* str) -> decimal32_t
 constexpr auto operator  "" _df(const char* str) -> decimal32_t
@@ -55,6 +56,7 @@ constexpr auto operator  "" _dlf(const char* str) -> decimal_fast128_t
 constexpr auto operator  "" _DLF(const char* str, std::size_t len) -> decimal_fast128_t
 constexpr auto operator  "" _dlf(const char* str, std::size_t len) -> decimal_fast128_t
 
+} //namespace literals
 } //namespace decimal
 } //namespace boost
 ----

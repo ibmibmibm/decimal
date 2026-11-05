@@ -10,17 +10,17 @@ https://www.boost.org/LICENSE_1_0.txt
 
 == Description
 
-`decimal_fast128_t` has the same ranges of values and representations as `decimal_fast128_t` but with greater performance.
+`decimal_fast128_t` has the same ranges of values and representations as `decimal128_t` but with greater performance.
 The performance changes by being non-IEEE 754 compliant so that the value does not have to be decoded from bits, but is instead directly represented internal to the type.
 As is often the case this trades space for time by having greater storage width requirements.
 
 |===
 | Attribute | values
-| Storage Width | 168 bits
+| Storage Width | 256 bits
 | Precision | 34 decimal digits
-| Max exponent | 6145
-| Max Value | 9.99999...e+6145
-| Smallest Normalized Value | 1.0000...e-6142
+| Max exponent | 6144
+| Max Value | 9.99999...e+6144
+| Smallest Normalized Value | 1.0000...e-6143
 | Smallest Subnormal Value | Flushed to 0
 |===
 
@@ -39,8 +39,8 @@ namespace decimal {
 class decimal_fast128_t {
 
 public:
-    using significand_type = detail::uint128;
-    using exponent_type = std::uint_fast32_t;
+    using significand_type = boost::int128::uint128_t;
+    using exponent_type = std::uint32_t;
     using biased_exponent_type = std::int32_t;
 
 // Paragraph numbers are from ISO/IEC DTR 24733

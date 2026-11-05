@@ -40,7 +40,7 @@ include::example$statistics.cpp[]
 
 .Expected Output
 ....
-  Mean Closing Price: $207.20
+  Mean Closing Price: $207.21
 Median Closing Price: $214.26
   Standard Deviation: $25.45
 Upper Bollinger Band: $258.11

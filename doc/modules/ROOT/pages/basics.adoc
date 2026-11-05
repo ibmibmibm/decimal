@@ -19,10 +19,10 @@ Every decimal type can be constructed in a few ways:
 namespace boost {
 namespace decimal {
 
-enum class construction_sign
+enum class construction_sign : bool
 {
-    negative,
-    positive
+    positive = false,
+    negative = true
 };
 
 template <typename UnsignedInteger, typename Integer>
@@ -113,6 +113,6 @@ Using doubles:
 0.1 + 0.2 = 0.30000000000000004
 
 Using decimal64_t:
-0.1_DD + 0.2_DD = 0.3000000000000000
+0.1_DD + 0.2_DD = 0.30000000000000000
 ....
 ====

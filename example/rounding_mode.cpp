@@ -65,6 +65,8 @@ int main()
     const decimal32_t lhs {"5e+50"_DF};
     const decimal32_t rhs {"4e+40"_DF};
 
+    // The default precision of 6 digits rounds the 7 digits of a decimal32_t result again
+    std::cout.precision(7);
     std::cout << "lhs equals: " << lhs << '\n'
               << "rhs equals: " << rhs << '\n';
 
@@ -72,7 +74,7 @@ int main()
     // Even though the difference in order of magnitude is greater than the precision of the type,
     // any addition in this mode will result in at least a one ULP difference
     const decimal32_t upward_res {lhs + rhs};
-    std::cout << "  Sum with upward rounding: " << upward_res << '\n';
+    std::cout << "         Sum with upward rounding: " << upward_res << '\n';
 
 
     new_rounding_mode = boost::decimal::fesetround(boost::decimal::rounding_mode::fe_dec_downward);
@@ -81,7 +83,7 @@ int main()
 
     // Similar to above in the downward rounding mode any subtraction will result in at least a one ULP difference
     const decimal32_t downward_res {lhs - rhs};
-    std::cout << "Sum with downward rounding: " << downward_res << '\n';
+    std::cout << "Difference with downward rounding: " << downward_res << '\n';
 
     #endif // BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
 }

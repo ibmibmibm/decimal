@@ -74,14 +74,13 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize_rescale(Significand& sig, const int d
 // IEEE 754-2008 3.6.6
 // Returns: a number that is equal in value (except for any rounding) and sign to lhs,
 // and which has an exponent set to be equal to the exponent of rhs.
-// If the exponent is being increased, the value is correctly rounded according to the current rounding mode;
-// if the result does not have the same value as lhs, the "inexact" floating-point exception is raised.
+// If the exponent is being increased, the value is correctly rounded according to the current rounding mode.
 // If the exponent is being decreased and the significand of the result has more digits than the type would allow,
-// the "invalid" floating-point exception is raised and the result is NaN.
+// the result is NaN.
 // If one or both operands are NaN, the result is NaN.
-// Otherwise, if only one operand is infinity, the "invalid" floating-point exception is raised and the result is NaN.
+// Otherwise, if only one operand is infinity, the result is NaN.
 // If both operands are infinity, the result is DEC_INFINITY, with the same sign as lhs.
-// The quantize functions do not signal underflow.
+// The quantize functions do not signal underflow, and this library does not set the exception flags.
 //
 // This operation is defined in terms of cohorts, which the fast types do not have, so it is
 // rejected for them at compile time rather than silently returning NaN.

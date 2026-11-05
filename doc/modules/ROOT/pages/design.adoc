@@ -54,7 +54,16 @@ We find this to be unidiomatic and unergonomic for a modern pass:[C++] library.
 `std::from_chars` has an open issue with LWG here: https://cplusplus.github.io/LWG/lwg-active.html#3081.
 The standard for <charconv> does not distinguish between underflow and overflow like strtod does.
 `boost::decimal::from_chars` modifies `value` in order to communicate this to the user in a divergence from the standard.
-This behavior is the same as that of https://www.boost.org/doc/libs/master/libs/charconv/doc/html/charconv.html#from_chars_usage_notes_for_from_chars_for_floating_point_types[`boost::charconv::from_chars_erange`].
+In the default rounding mode, `from_chars` sets `value` to `INF` with the sign of the input on overflow, and to `0` with the sign of the input on underflow.
+In both cases the returned `ec` is `std::errc()`.
+The other rounding modes round the out-of-range value as the arithmetic operators do, so the result can be the largest finite value or the smallest subnormal value.
+For example, with `fe_dec_toward_zero`, `"1e97"` gives `9.999999e+96` for `decimal32_t`, and with `fe_dec_upward`, `"1e-102"` gives `1e-101`.
+The returned `ec` is also `std::errc()` in these cases, so a check for `INF` or `0` alone does not find every out-of-range input.
+The `cohort_preserving_scientific` and `cohort_preserving_fixed` formats do not round.
+A nonzero value with more digits than the type holds, or with an exponent that the type cannot store, returns `std::errc::value_too_large` and leaves `value` unchanged.
+A zero coefficient is accepted with any exponent, so `"0e+999"` sets `value` to `0`.
+`cohort_preserving_fixed` does not accept an exponent, so `"1e97"` returns `std::errc::invalid_argument` and sets `value` to a signaling NaN, as for other input that does not parse.
+This is different from https://www.boost.org/doc/libs/master/libs/charconv/doc/html/charconv.html#from_chars_usage_notes_for_from_chars_for_floating_point_types[`boost::charconv::from_chars_erange`], which returns `std::errc::result_out_of_range`.
 
 === `from_chars` Supports Rounding Mode
 

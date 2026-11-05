@@ -122,6 +122,10 @@ The module interface unit is `module/decimal.cppm`, and consumers of the module 
 It is built either by b2 from `module/Jamfile`, or by CMake with `BOOST_DECIMAL_BUILD_MODULE` set, in which case the toolchain must also provide the standard library module (`import std`).
 Both in-tree module builds use pass:[C++23].
 
+A module does not export macros.
+The macros from `<boost/decimal/cfloat.hpp>`, such as `BOOST_DECIMAL_DEC32_MAX`, and the configuration macros are not available after the import.
+Use `std::numeric_limits` for the limits of the types.
+
 == CUDA Support
 
 The types and many of the functions can run on both host and device under CUDA.

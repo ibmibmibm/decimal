@@ -81,7 +81,7 @@ An alignment overrides the `0`, and infinity and NaN are padded with spaces.
 If you want the result to be a different string width than `char` you can specify this with the format string.
 For example if you want the result to be `wchar_t` you can use `L"{}"`.
 `wchar_t`, `char16_t`, `char32_t` are supported from pass:[C++17].
-`char8_t` is supported from pass:[C++23].
+`char8_t` is supported from pass:[C++20].
 
 IMPORTANT: `std::format` only supports `char` and `wchar_t` types per the pass:[C++] specification.
 
