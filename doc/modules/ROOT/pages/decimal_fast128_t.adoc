@@ -227,9 +227,11 @@ constexpr decimal_fast128_t& operator+=(RHS rhs);
 constexpr decimal_fast128_t& operator-=(RHS rhs);
 constexpr decimal_fast128_t& operator*=(RHS rhs);
 constexpr decimal_fast128_t& operator/=(RHS rhs);
+constexpr decimal_fast128_t& operator%=(decimal_fast128_t rhs);
 ----
 
 Matches the behavior of xref:generic_decimal.adoc#operator_behavior[addition, subtraction, multiplication, and division].
+`operator%=` assigns the result of `operator%`.
 
 === Conversion to Other Decimal Types
 

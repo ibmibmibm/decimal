@@ -493,6 +493,7 @@ public:
     constexpr auto operator-=(decimal_fast64_t rhs) noexcept -> decimal_fast64_t&;
     constexpr auto operator*=(decimal_fast64_t rhs) noexcept -> decimal_fast64_t&;
     constexpr auto operator/=(decimal_fast64_t rhs) noexcept -> decimal_fast64_t&;
+    constexpr auto operator%=(decimal_fast64_t rhs) noexcept -> decimal_fast64_t&;
 
     // Mixed type compound operators
     template <typename Integer>
@@ -1646,6 +1647,12 @@ constexpr auto decimal_fast64_t::operator/=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast64_t&)
 {
     *this = static_cast<decimal_fast64_t>(*this / rhs);
+    return *this;
+}
+
+constexpr auto decimal_fast64_t::operator%=(const decimal_fast64_t rhs) noexcept -> decimal_fast64_t&
+{
+    *this = *this % rhs;
     return *this;
 }
 

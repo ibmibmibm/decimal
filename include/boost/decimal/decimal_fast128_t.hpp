@@ -488,6 +488,8 @@ public:
     constexpr auto operator/=(Decimal rhs) noexcept
         BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast128_t&);
 
+    constexpr auto operator%=(const decimal_fast128_t& rhs) noexcept -> decimal_fast128_t&;
+
     // Conversions
     explicit constexpr operator bool() const noexcept;
     explicit constexpr operator int() const noexcept;
@@ -1632,6 +1634,12 @@ constexpr auto decimal_fast128_t::operator/=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast128_t&)
 {
     *this = static_cast<decimal_fast128_t>(*this / rhs);
+    return *this;
+}
+
+constexpr auto decimal_fast128_t::operator%=(const decimal_fast128_t& rhs) noexcept -> decimal_fast128_t&
+{
+    *this = *this % rhs;
     return *this;
 }
 
