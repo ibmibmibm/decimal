@@ -685,14 +685,16 @@ template <BOOST_DECIMAL_UNSIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal64_t::decimal64_t(T1 coeff, T2 exp, const detail::construction_sign_wrapper resultant_sign) noexcept
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal64_t::decimal64_t(T1 coeff, T2 exponent, const detail::construction_sign_wrapper resultant_sign) noexcept
 {
+    int exp {detail::saturate_exponent(exponent)};
+
     const auto is_negative {static_cast<bool>(resultant_sign)};
     bits_ = is_negative ? detail::d64_sign_mask : UINT64_C(0);
 
     // If the coeff is not in range, make it so
     int coeff_digits {-1};
-    auto biased_exp {static_cast<int>(exp) + detail::bias_v<decimal64_t>};
+    auto biased_exp {exp + detail::bias_v<decimal64_t>};
     if (coeff > detail::d64_max_significand_value || biased_exp < -(detail::precision_v<decimal64_t> - 1))
     {
         coeff_digits = detail::coefficient_rounding<decimal64_t>(coeff, exp, biased_exp, is_negative, detail::num_digits(coeff));

@@ -159,6 +159,25 @@ BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto comb
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_significand {max_significand_v<decimal32_t>};
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_string_length {max_string_length_v<decimal32_t>};
 
+// A coefficient holds at most 78 digits, so past this limit every nonzero value overflows
+// or underflows. The int result also leaves room for the sums with the bias and the digits.
+template <typename T>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto saturate_exponent(const T exp) noexcept -> int
+{
+    constexpr int limit {100000};
+
+    using wide_type = std::conditional_t<(sizeof(T) < sizeof(int)), int, T>;
+    const wide_type wide_exp {exp};
+
+    if (BOOST_DECIMAL_LIKELY(wide_exp <= static_cast<wide_type>(limit) &&
+                             (is_unsigned_v<wide_type> || wide_exp >= static_cast<wide_type>(-limit))))
+    {
+        return static_cast<int>(wide_exp);
+    }
+
+    return wide_exp > static_cast<wide_type>(limit) ? limit : -limit;
+}
+
 } //namespace detail
 } //namespace decimal
 } //namespace boost

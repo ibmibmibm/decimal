@@ -641,8 +641,10 @@ template <BOOST_DECIMAL_UNSIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::decimal32_t(T1 coeff, T2 exp, const detail::construction_sign_wrapper resultant_sign) noexcept // NOLINT(readability-function-cognitive-complexity,misc-no-recursion)
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::decimal32_t(T1 coeff, T2 exponent, const detail::construction_sign_wrapper resultant_sign) noexcept // NOLINT(readability-function-cognitive-complexity,misc-no-recursion)
 {
+    int exp {detail::saturate_exponent(exponent)};
+
     static_assert(detail::is_integral_v<T1>, "Coefficient must be an integer");
     static_assert(detail::is_integral_v<T2>, "Exponent must be an integer");
 
@@ -652,7 +654,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::decimal32_t(T1 coeff, T2 exp, const de
     // If the coeff is not in range, make it so
     // Only count the number of digits if we absolutely have to
     int coeff_digits {-1};
-    auto biased_exp {static_cast<int>(exp + detail::bias)};
+    auto biased_exp {exp + detail::bias};
     if (coeff > detail::d32_max_significand_value || biased_exp < -(detail::precision_v<decimal32_t> - 1))
     {
         coeff_digits = detail::coefficient_rounding<decimal32_t>(coeff, exp, biased_exp, is_negative, detail::num_digits(coeff));

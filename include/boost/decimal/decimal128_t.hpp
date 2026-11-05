@@ -760,8 +760,10 @@ template <BOOST_DECIMAL_UNSIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(T1 coeff, T2 exp, const detail::construction_sign_wrapper resultant_sign) noexcept
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(T1 coeff, T2 exponent, const detail::construction_sign_wrapper resultant_sign) noexcept
 {
+    int exp {detail::saturate_exponent(exponent)};
+
     const auto is_negative {static_cast<bool>(resultant_sign)};
     bits_.high = is_negative ? detail::d128_sign_mask : UINT64_C(0);
 
@@ -770,7 +772,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(T1 coeff, T2 exp, const 
     // We use sizeof instead of std::numeric_limits since __int128 on GCC prior to 14 without GNU mode does not overload
     // numeric_limits
     int coeff_digits {-1};
-    auto biased_exp {static_cast<int>(exp + detail::bias_v<decimal128_t>)};
+    auto biased_exp {exp + detail::bias_v<decimal128_t>};
     BOOST_DECIMAL_IF_CONSTEXPR (sizeof(T1) >= sizeof(significand_type))
     {
         // NVCC can't access uint128_t variables since it's a non-trivial struct.

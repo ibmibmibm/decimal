@@ -550,8 +550,10 @@ template <BOOST_DECIMAL_UNSIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-constexpr decimal_fast128_t::decimal_fast128_t(T1 coeff, T2 exp, const detail::construction_sign_wrapper resultant_sign) noexcept
+constexpr decimal_fast128_t::decimal_fast128_t(T1 coeff, T2 exponent, const detail::construction_sign_wrapper resultant_sign) noexcept
 {
+    int exp {detail::saturate_exponent(exponent)};
+
     using minimum_coefficient_size = std::conditional_t<(sizeof(T1) > sizeof(significand_type)), T1, significand_type>;
 
     minimum_coefficient_size min_coeff {coeff};
@@ -565,7 +567,7 @@ constexpr decimal_fast128_t::decimal_fast128_t(T1 coeff, T2 exp, const detail::c
     if (min_coeff == minimum_coefficient_size{0})
     {
         significand_ = static_cast<significand_type>(0);
-        auto biased_exp {static_cast<int>(exp) + detail::bias_v<decimal_fast128_t>};
+        auto biased_exp {exp + detail::bias_v<decimal_fast128_t>};
         if (biased_exp < 0)
         {
             biased_exp = 0;
@@ -594,7 +596,7 @@ constexpr decimal_fast128_t::decimal_fast128_t(T1 coeff, T2 exp, const detail::c
 
     significand_ = static_cast<significand_type>(min_coeff);
 
-    const auto biased_exp {static_cast<int>(exp) + detail::bias_v<decimal_fast128_t>};
+    const auto biased_exp {exp + detail::bias_v<decimal_fast128_t>};
 
     if (biased_exp > detail::max_biased_exp_v<decimal_fast128_t> && detail::overflow_is_finite(is_negative))
     {
