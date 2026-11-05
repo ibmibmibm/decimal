@@ -491,9 +491,12 @@ public:
     explicit constexpr operator long long() const noexcept;
     explicit constexpr operator unsigned long long() const noexcept;
 
-    #ifdef BOOST_DECIMAL_HAS_INT128
     explicit constexpr operator int128::int128_t() const noexcept;
     explicit constexpr operator int128::uint128_t() const noexcept;
+
+    #ifdef BOOST_DECIMAL_HAS_INT128
+    explicit constexpr operator detail::builtin_int128_t() const noexcept;
+    explicit constexpr operator detail::builtin_uint128_t() const noexcept;
     #endif
 
     explicit BOOST_DECIMAL_CXX20_CONSTEXPR operator float() const noexcept;
@@ -1703,8 +1706,6 @@ constexpr decimal_fast128_t::operator unsigned long long() const noexcept
     return to_integral_128<decimal_fast128_t, unsigned long long>(*this);
 }
 
-#ifdef BOOST_DECIMAL_HAS_INT128
-
 constexpr decimal_fast128_t::operator boost::int128::int128_t() const noexcept
 {
     return to_integral_128<decimal_fast128_t, int128::int128_t>(*this);
@@ -1713,6 +1714,18 @@ constexpr decimal_fast128_t::operator boost::int128::int128_t() const noexcept
 constexpr decimal_fast128_t::operator boost::int128::uint128_t() const noexcept
 {
     return to_integral_128<decimal_fast128_t, int128::uint128_t>(*this);
+}
+
+#ifdef BOOST_DECIMAL_HAS_INT128
+
+constexpr decimal_fast128_t::operator detail::builtin_int128_t() const noexcept
+{
+    return to_integral_128<decimal_fast128_t, detail::builtin_int128_t>(*this);
+}
+
+constexpr decimal_fast128_t::operator detail::builtin_uint128_t() const noexcept
+{
+    return to_integral_128<decimal_fast128_t, detail::builtin_uint128_t>(*this);
 }
 
 #endif // BOOST_DECIMAL_HAS_INT128
