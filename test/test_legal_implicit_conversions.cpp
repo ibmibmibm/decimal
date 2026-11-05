@@ -23,8 +23,29 @@ void test_explicit()
     BOOST_TEST_EQ(from_val, to_val);
 }
 
+// A zero of either sign at any stored exponent is false. The smallest value, an infinity and both NaNs are true.
+template <typename T>
+void test_bool()
+{
+    BOOST_TEST(!static_cast<bool>(T{0, 0}));
+    BOOST_TEST(!static_cast<bool>(T{0U, -5, true}));
+    BOOST_TEST(!static_cast<bool>(T{0, 20}));
+    BOOST_TEST(static_cast<bool>(std::numeric_limits<T>::denorm_min()));
+    BOOST_TEST(static_cast<bool>(-std::numeric_limits<T>::denorm_min()));
+    BOOST_TEST(static_cast<bool>(-std::numeric_limits<T>::infinity()));
+    BOOST_TEST(static_cast<bool>(std::numeric_limits<T>::quiet_NaN()));
+    BOOST_TEST(static_cast<bool>(std::numeric_limits<T>::signaling_NaN()));
+}
+
 int main()
 {
+    test_bool<boost::decimal::decimal32_t>();
+    test_bool<boost::decimal::decimal_fast32_t>();
+    test_bool<boost::decimal::decimal64_t>();
+    test_bool<boost::decimal::decimal_fast64_t>();
+    test_bool<boost::decimal::decimal128_t>();
+    test_bool<boost::decimal::decimal_fast128_t>();
+
     test_explicit<boost::decimal::decimal32_t, boost::decimal::decimal32_t>();
     test_explicit<boost::decimal::decimal_fast32_t, boost::decimal::decimal32_t>();
     test_explicit<boost::decimal::decimal64_t, boost::decimal::decimal32_t>();

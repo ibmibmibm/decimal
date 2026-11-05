@@ -1786,8 +1786,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator=(const Integer& val) noe
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::operator bool() const noexcept
 {
-    constexpr decimal32_t zero {0, 0};
-    return *this != zero;
+    // Only a finite value with a zero significand compares equal to zero
+    return !isfinite(*this) || full_significand() != 0U;
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::operator int() const noexcept

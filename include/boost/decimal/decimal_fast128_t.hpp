@@ -1644,8 +1644,8 @@ constexpr auto decimal_fast128_t::operator--(int) noexcept -> decimal_fast128_t
 
 constexpr decimal_fast128_t::operator bool() const noexcept
 {
-    constexpr decimal_fast128_t zero {0, 0};
-    return *this != zero;
+    // A zero has a zero significand, and an infinity or a NaN does not
+    return significand_ != 0U;
 }
 
 constexpr decimal_fast128_t::operator int() const noexcept

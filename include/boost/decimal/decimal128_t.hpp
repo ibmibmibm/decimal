@@ -1088,8 +1088,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const Decimal val) noexc
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator bool() const noexcept
 {
-    constexpr decimal128_t zero {0, 0};
-    return *this != zero;
+    // Only a finite value with a zero significand compares equal to zero
+    return !isfinite(*this) || full_significand() != 0U;
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator int() const noexcept
