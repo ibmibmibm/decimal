@@ -193,7 +193,7 @@ struct big_uint
     }
 };
 
-// x * 10^k exactly with 37 or 38 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
+// x * 10^k exactly with 35 or 36 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
 constexpr auto exact_scaled(const std::uint64_t significand, const int binary_exponent) noexcept
     -> scaled_value<int128::uint128_t>
 {
@@ -201,7 +201,61 @@ constexpr auto exact_scaled(const std::uint64_t significand, const int binary_ex
     constexpr std::uint32_t pow10_9 {UINT32_C(1000000000)};
 
     const auto estimate {dragonbox::floor_log10_pow2(binary_exponent + 63 - countl_zero(significand))};
-    const auto k {36 - estimate};
+    const auto k {34 - estimate};
+
+    // 5^k fits in 128 bits for k up to 55, so the exact product has three words and a shift places the binary point
+    if (k >= 0 && k <= 55)
+    {
+        constexpr std::uint64_t pow5_19 {UINT64_C(19073486328125)};
+        const auto part {k > 38 ? k - 19 : k};
+        const auto pow5 {(pow10(static_cast<int128::uint128_t>(part)) >> part) * (k > 38 ? pow5_19 : UINT64_C(1))};
+        const auto low {dragonbox::umul128(significand, pow5.low)};
+        const auto high {dragonbox::umul128(significand, pow5.high) + low.high};
+        const auto shift {binary_exponent + k};
+        if (shift >= 0)
+        {
+            return {((high << 64) | low.low) << shift, -k, false};
+        }
+        if (shift > -64)
+        {
+            return {(high << (64 + shift)) | (low.low >> -shift), -k, (low.low << (64 + shift)) != 0U};
+        }
+        return {high >> (-shift - 64), -k, low.low != 0U || (shift < -64 && (high << (192 + shift)) != 0U)};
+    }
+
+    // Dragonbox's cache of 10^k is within one unit of its last bit, so the product is within significand of
+    // x * 10^k shifted left. Away from an integer the floor is right and the value is inexact
+    using binary64 = dragonbox::binary64_format;
+    constexpr int max_k {binary64::min_k + 618};
+    if (k >= binary64::min_k && k <= max_k)
+    {
+        const auto cache {binary64::get_cache(-k)};
+        const auto low {dragonbox::umul128(significand, cache.low)};
+        const auto high {dragonbox::umul128(significand, cache.high) + low.high};
+        const auto shift {127 - binary_exponent - dragonbox::floor_log2_pow10(k)};
+        const auto fraction_mask {(int128::uint128_t {1U} << shift) - 1U};
+        const auto fraction {((high << 64) | low.low) & fraction_mask};
+        if (fraction > significand && fraction < fraction_mask - significand)
+        {
+            return {shift >= 64 ? high >> (shift - 64) : (high << (64 - shift)) | (low.low >> shift), -k, true};
+        }
+    }
+
+    // Below the cache, 5^extra first scales the significand exactly, which leaves the last cached power of ten
+    if (k > max_k)
+    {
+        const auto extra {k - max_k};
+        const auto cache {binary64::get_cache(-max_k)};
+        const auto scaled {(pow10(static_cast<int128::uint128_t>(extra)) >> extra) * significand};
+        const auto product {umul256(scaled, int128::uint128_t {cache.high, cache.low})};
+        const auto shift {127 - binary_exponent - extra - dragonbox::floor_log2_pow10(max_k)};
+        const auto fraction_mask {(int128::uint128_t {1U} << shift) - 1U};
+        const auto fraction {static_cast<int128::uint128_t>(product) & fraction_mask};
+        if (fraction > scaled && fraction < fraction_mask - scaled)
+        {
+            return {static_cast<int128::uint128_t>(product >> shift), -k, true};
+        }
+    }
 
     big_uint value {significand};
     bool inexact {};
@@ -336,23 +390,26 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
 
     // An integer, or a fraction with few binary places, is exact as its odd part times 2^shift at exponent 0, or
     // times 5^-shift at exponent shift: the exponents closest to 0 that IEEE 754 5.4.2 prefers
+    using coefficient_type = std::conditional_t<(precision_v<DecimalType> > 19), int128::uint128_t, std::uint64_t>;
+    constexpr auto max_coefficient {pow10(static_cast<coefficient_type>(precision_v<DecimalType>))};
     const auto trailing_zeros {int128::detail::countr_zero(significand)};
     const auto odd {significand >> trailing_zeros};
     const auto shift {binary_exponent + trailing_zeros};
     if (shift >= 0)
     {
-        if (shift < 64 && odd < (enough_digits >> shift))
+        if (shift < std::numeric_limits<coefficient_type>::digits && odd < (max_coefficient >> shift))
         {
-            return pack_in_range<DecimalType>(odd << shift, 0, sign);
+            return pack_in_range<DecimalType>(static_cast<coefficient_type>(odd) << shift, 0, sign);
         }
     }
-    else if (shift >= -19)
+    else if (shift >= (precision_v<DecimalType> > 19 ? -27 : -19))
     {
-        const auto pow5 {pow10(static_cast<std::uint64_t>(-shift)) >> -shift};
+        // 5^27 is the largest power of five below 2^64, and 10^19 the largest power of ten
+        const auto pow5 {static_cast<std::uint64_t>(pow10(static_cast<coefficient_type>(-shift)) >> -shift)};
         const auto product {dragonbox::umul128(odd, pow5)};
-        if (product.high == 0U && product.low < enough_digits)
+        if (product < max_coefficient)
         {
-            return pack_in_range<DecimalType>(product.low, shift, sign);
+            return pack_in_range<DecimalType>(static_cast<coefficient_type>(product), shift, sign);
         }
     }
 

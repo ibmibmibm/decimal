@@ -86,6 +86,11 @@ static void test_known_values()
     BOOST_TEST(same_bits(from_binary<decimal128_t>(DBL_MAX), decimal128_t {max_double, 275}));
     BOOST_TEST(same_bits(from_binary<decimal128_t>(1e20), decimal128_t {ten_to_20, 0}));
 
+    // With one more digit this value is within 2e-5 of an integer, which needs the exact arithmetic
+    const boost::int128::uint128_t near_integer {UINT64_C(0x53924496D0FB), UINT64_C(0xCA5E7EC824667FD8)};
+    const auto tiny {double_from_bits(UINT64_C(0x003E78AE6EB5944E))};
+    BOOST_TEST(same_bits(from_binary<decimal128_t>(tiny), decimal128_t {near_integer, -340}));
+
     BOOST_TEST(same_bits(from_binary<decimal64_t>(0.1F), decimal64_t {UINT64_C(1000000014901161), -16}));
     BOOST_TEST(same_bits(from_binary<decimal32_t>(0.1F), decimal32_t {1000000U, -7}));
     BOOST_TEST(same_bits(from_binary<decimal64_t>(16777216.0F), decimal64_t {16777216U, 0}));
