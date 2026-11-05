@@ -171,6 +171,7 @@ run github_issue_integer_division.cpp ;
 run github_issue_mixed_compare.cpp ;
 run github_issue_integer_comparison.cpp ;
 run github_issue_mixed_compound.cpp ;
+run github_issue_fast_mod_assign.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
