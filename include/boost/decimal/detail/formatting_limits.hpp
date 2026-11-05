@@ -14,7 +14,7 @@
 namespace boost {
 namespace decimal {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, int Precision = -1>
+BOOST_DECIMAL_EXPORT template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, int Precision = -1>
 class formatting_limits
 {
 private:

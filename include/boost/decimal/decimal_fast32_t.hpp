@@ -774,12 +774,12 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast32_t::decimal_fast32_t(const Float val
     }
 }
 
-constexpr auto signbit(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto signbit(const decimal_fast32_t val) noexcept -> bool
 {
     return val.sign_;
 }
 
-constexpr auto isinf(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isinf(const decimal_fast32_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ == detail::d32_fast_inf;
@@ -789,7 +789,7 @@ constexpr auto isinf(const decimal_fast32_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto isnan(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isnan(const decimal_fast32_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ >= detail::d32_fast_qnan;
@@ -799,7 +799,7 @@ constexpr auto isnan(const decimal_fast32_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto issignaling(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto issignaling(const decimal_fast32_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ >= detail::d32_fast_snan;
@@ -809,7 +809,7 @@ constexpr auto issignaling(const decimal_fast32_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto isnormal(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isnormal(const decimal_fast32_t val) noexcept -> bool
 {
     return (val.significand_ != 0)
     #ifndef BOOST_DECIMAL_FAST_MATH
@@ -818,7 +818,7 @@ constexpr auto isnormal(const decimal_fast32_t val) noexcept -> bool
     ;
 }
 
-constexpr auto isfinite(const decimal_fast32_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isfinite(const decimal_fast32_t val) noexcept -> bool
 {
     return val.significand_ < detail::d32_fast_inf;
 }
@@ -1779,7 +1779,7 @@ constexpr auto copysignd32f(const decimal_fast32_t mag, const decimal_fast32_t s
 // If both x and y are NaN, or infinity, they have the same quantum exponents;
 // if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
 // The samequantum functions raise no exception.
-constexpr auto samequantumd32f(const decimal_fast32_t lhs, const decimal_fast32_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto samequantumd32f(const decimal_fast32_t lhs, const decimal_fast32_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto lhs_fp {fpclassify(lhs)};
@@ -1800,7 +1800,7 @@ constexpr auto samequantumd32f(const decimal_fast32_t lhs, const decimal_fast32_
 
 // Effects: if x is finite, returns its quantum exponent.
 // Otherwise, a domain error occurs and INT_MIN is returned.
-constexpr auto quantexpd32f(const decimal_fast32_t x) noexcept -> int
+BOOST_DECIMAL_EXPORT constexpr auto quantexpd32f(const decimal_fast32_t x) noexcept -> int
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(x))

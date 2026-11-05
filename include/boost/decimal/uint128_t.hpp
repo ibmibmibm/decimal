@@ -10,7 +10,7 @@
 namespace boost {
 namespace decimal {
 
-using uint128_t = int128::uint128_t;
+BOOST_DECIMAL_EXPORT using uint128_t = int128::uint128_t;
 
 }
 }

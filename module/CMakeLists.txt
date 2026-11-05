@@ -63,13 +63,8 @@ set(BOOST_DECIMAL_MODULE_TESTS
         github_issue_1035
         github_issue_1054
         github_issue_1055
+        github_issue_1057
 )
-
-# github_issue_1057 is intentionally omitted: it calls the free isnan() on the
-# wider decimal types, and clang resolves those overloads differently across the
-# module boundary (only the decimal32_t overload stays reachable), which is a
-# library-level concern independent of module support. The header suite still
-# covers it.
 
 # GCC's libstdc++ cannot yet mix the test sources' textual standard library
 # includes with import std in one consumer translation unit, so only the quick
@@ -86,6 +81,7 @@ target_link_libraries(module_quick_test PRIVATE boost_decimal_module)
 # scanned for module imports by default. Force scanning so `import boost.decimal;`
 # is resolved to the module built above.
 set_target_properties(module_quick_test PROPERTIES CXX_SCAN_FOR_MODULES ON CXX_MODULE_STD ON)
+target_compile_definitions(module_quick_test PRIVATE BOOST_DECIMAL_USE_STD_MODULE)
 add_test(NAME module_quick_test COMMAND module_quick_test)
 add_dependencies(tests module_quick_test)
 

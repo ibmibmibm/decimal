@@ -169,6 +169,12 @@ inline auto parse_format(const char*& iter) noexcept -> parameters
     return params;
 }
 
+// Not a template, so that a module consumer does not need the declaration of operator new
+inline auto allocate_chars(const std::size_t size) noexcept -> char*
+{
+    return new(std::nothrow) char[size];
+}
+
 // Prints v, which has the decimal type that the modifier of the conversion selects
 template <typename DecimalType>
 inline auto print_value(char* first, char* last, const DecimalType v, const parameters& params) noexcept -> to_chars_result
@@ -271,7 +277,7 @@ inline auto snprintf_impl(char* buffer, const std::size_t buf_size, const char* 
             str_size = max_length + to_chars_length(v, chars_format::fixed, 0);
             if (str_size > sizeof(local_buffer))
             {
-                heap_buffer.reset(new(std::nothrow) char[str_size]);
+                heap_buffer.reset(allocate_chars(str_size));
                 if (heap_buffer == nullptr)
                 {
                     error = ENOMEM;
@@ -363,7 +369,7 @@ inline auto snprintf_impl(char* buffer, const std::size_t buf_size, const char* 
 
 } // namespace detail
 
-template <typename... T>
+BOOST_DECIMAL_EXPORT template <typename... T>
 inline auto snprintf(char* buffer, const std::size_t buf_size, const char* format, const T... values) noexcept
     #ifndef BOOST_DECIMAL_HAS_CONCEPTS
     -> std::enable_if_t<detail::conjunction_v<detail::is_decimal_floating_point<T>...>, int>
@@ -374,7 +380,7 @@ inline auto snprintf(char* buffer, const std::size_t buf_size, const char* forma
     return detail::snprintf_impl(buffer, buf_size, format, values...);
 }
 
-template <typename... T>
+BOOST_DECIMAL_EXPORT template <typename... T>
 inline auto fprintf(std::FILE* buffer, const char* format, const T... values) noexcept
     #ifndef BOOST_DECIMAL_HAS_CONCEPTS
     -> std::enable_if_t<detail::conjunction_v<detail::is_decimal_floating_point<T>...>, int>
@@ -394,7 +400,7 @@ inline auto fprintf(std::FILE* buffer, const char* format, const T... values) no
     const auto size {static_cast<std::size_t>(bytes)};
     if (size >= sizeof(local_buffer))
     {
-        heap_buffer.reset(new(std::nothrow) char[size + 1U]);
+        heap_buffer.reset(detail::allocate_chars(size + 1U));
         if (heap_buffer == nullptr)
         {
             errno = ENOMEM;
@@ -411,7 +417,7 @@ inline auto fprintf(std::FILE* buffer, const char* format, const T... values) no
     return std::fwrite(str, sizeof(char), size, buffer) == size ? bytes : -1;
 }
 
-template <typename... T>
+BOOST_DECIMAL_EXPORT template <typename... T>
 inline auto printf(const char* format, const T... values) noexcept
     #ifndef BOOST_DECIMAL_HAS_CONCEPTS
     -> std::enable_if_t<detail::conjunction_v<detail::is_decimal_floating_point<T>...>, int>

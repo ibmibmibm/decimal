@@ -1208,12 +1208,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::operator Decimal() const noexcept
     return to_decimal<Decimal>(*this);
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto signbit BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto signbit BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     return rhs.bits_.high & detail::d128_sign_mask;
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_.high & detail::d128_nan_mask.high) == detail::d128_nan_mask.high;
@@ -1223,7 +1223,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_.high & detail::d128_nan_mask.high) == detail::d128_inf_mask.high;
@@ -1233,7 +1233,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_.high & detail::d128_snan_mask.high) == detail::d128_snan_mask.high;
@@ -1243,7 +1243,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTI
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto sig {rhs.full_significand()};
@@ -1264,7 +1264,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUT
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isfinite BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isfinite BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal128_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_.high & detail::d128_inf_mask.high) != detail::d128_inf_mask.high;
@@ -2214,7 +2214,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::operator%=(const decimal128_t rh
 // If both x and y are NaN, or infinity, they have the same quantum exponents;
 // if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
 // The samequantum functions raise no exception.
-BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd128(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd128(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto lhs_fp {fpclassify(lhs)};
@@ -2236,7 +2236,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd128(const decimal128_t& lhs, const
 // 3.6.5
 // Effects: if x is finite, returns its quantum exponent.
 // Otherwise, a domain error occurs and INT_MIN is returned.
-BOOST_DECIMAL_CUDA_CONSTEXPR auto quantexpd128(const decimal128_t x) noexcept -> int
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto quantexpd128(const decimal128_t x) noexcept -> int
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(x))

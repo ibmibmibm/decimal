@@ -11,7 +11,7 @@
 
 namespace boost { namespace decimal {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
+BOOST_DECIMAL_EXPORT template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decompose(const T value) noexcept
 {
     return value.to_components();

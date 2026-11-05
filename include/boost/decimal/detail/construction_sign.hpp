@@ -10,7 +10,7 @@
 namespace boost {
 namespace decimal {
 
-enum class construction_sign : bool
+BOOST_DECIMAL_EXPORT enum class construction_sign : bool
 {
     positive = false,
     negative = true

@@ -1205,12 +1205,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal64_t::edit_sign(const bool sign) noexce
     }
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto signbit BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto signbit BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     return rhs.bits_ & detail::d64_sign_mask;
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_ & detail::d64_nan_mask) == detail::d64_nan_mask;
@@ -1220,7 +1220,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isnan BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return ((rhs.bits_ & detail::d64_nan_mask) == detail::d64_inf_mask);
@@ -1230,7 +1230,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isinf BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return (rhs.bits_ & detail::d64_snan_mask) == detail::d64_snan_mask;
@@ -1240,7 +1240,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto issignaling BOOST_DECIMAL_PREVENT_MACRO_SUBSTI
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto sig {rhs.full_significand()};
@@ -1261,7 +1261,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto isnormal BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUT
     #endif
 }
 
-BOOST_DECIMAL_CUDA_CONSTEXPR auto isfinite BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto isfinite BOOST_DECIMAL_PREVENT_MACRO_SUBSTITUTION (const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return ((rhs.bits_ & detail::d64_inf_mask) != detail::d64_inf_mask);
@@ -2215,7 +2215,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal64_t::operator%=(const decimal64_t rhs)
 // If both x and y are NaN, or infinity, they have the same quantum exponents;
 // if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
 // The samequantum functions raise no exception.
-BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd64(const decimal64_t lhs, const decimal64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd64(const decimal64_t lhs, const decimal64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto lhs_fp {fpclassify(lhs)};
@@ -2237,7 +2237,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto samequantumd64(const decimal64_t lhs, const de
 // 3.6.5
 // Effects: if x is finite, returns its quantum exponent.
 // Otherwise, a domain error occurs and INT_MIN is returned.
-BOOST_DECIMAL_CUDA_CONSTEXPR auto quantexpd64(const decimal64_t x) noexcept -> int
+BOOST_DECIMAL_EXPORT BOOST_DECIMAL_CUDA_CONSTEXPR auto quantexpd64(const decimal64_t x) noexcept -> int
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (not_finite(x))

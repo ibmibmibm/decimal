@@ -13,13 +13,13 @@
 namespace boost {
 namespace decimal {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<detail::is_fast_type_v<DecimalType>, bool> = true>
+BOOST_DECIMAL_EXPORT template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<detail::is_fast_type_v<DecimalType>, bool> = true>
 constexpr DecimalType normalize(const DecimalType& value) noexcept
 {
     return value;
 }
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<!detail::is_fast_type_v<DecimalType>, bool> = true>
+BOOST_DECIMAL_EXPORT template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<!detail::is_fast_type_v<DecimalType>, bool> = true>
 constexpr DecimalType normalize(const DecimalType value) noexcept
 {
     // frexp10 reports the encoding's payload bits for a non-finite value, so reconstructing

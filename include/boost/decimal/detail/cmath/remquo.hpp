@@ -21,7 +21,7 @@
 namespace boost {
 namespace decimal {
 
-template <typename T>
+BOOST_DECIMAL_EXPORT template <typename T>
 constexpr auto remquo(const T x, const T y, int* quo) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {

@@ -792,12 +792,12 @@ class numeric_limits<boost::decimal::decimal_fast64_t> :
 namespace boost {
 namespace decimal {
 
-constexpr auto signbit(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto signbit(const decimal_fast64_t val) noexcept -> bool
 {
     return val.sign_;
 }
 
-constexpr auto isinf(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isinf(const decimal_fast64_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ == detail::d64_fast_inf;
@@ -807,7 +807,7 @@ constexpr auto isinf(const decimal_fast64_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto isnan(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isnan(const decimal_fast64_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ >= detail::d64_fast_qnan;
@@ -817,7 +817,7 @@ constexpr auto isnan(const decimal_fast64_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto issignaling(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto issignaling(const decimal_fast64_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     return val.significand_ >= detail::d64_fast_snan;
@@ -827,7 +827,7 @@ constexpr auto issignaling(const decimal_fast64_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto isnormal(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isnormal(const decimal_fast64_t val) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (val.exponent_ <= static_cast<decimal_fast64_t::exponent_type>(detail::precision_v<decimal64_t> - 1))
@@ -841,7 +841,7 @@ constexpr auto isnormal(const decimal_fast64_t val) noexcept -> bool
     #endif
 }
 
-constexpr auto isfinite(const decimal_fast64_t val) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto isfinite(const decimal_fast64_t val) noexcept -> bool
 {
     return val.significand_ < detail::d64_fast_inf;
 }
@@ -1770,7 +1770,7 @@ constexpr auto decimal_fast64_t::operator--(int) noexcept -> decimal_fast64_t
 // If both x and y are NaN, or infinity, they have the same quantum exponents;
 // if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
 // The samequantum functions raise no exception.
-constexpr auto samequantumd64f(const decimal_fast64_t lhs, const decimal_fast64_t rhs) noexcept -> bool
+BOOST_DECIMAL_EXPORT constexpr auto samequantumd64f(const decimal_fast64_t lhs, const decimal_fast64_t rhs) noexcept -> bool
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     const auto lhs_fp {fpclassify(lhs)};
@@ -1791,7 +1791,7 @@ constexpr auto samequantumd64f(const decimal_fast64_t lhs, const decimal_fast64_
 
 // Effects: if x is finite, returns its quantum exponent.
 // Otherwise, a domain error occurs and INT_MIN is returned.
-constexpr auto quantexpd64f(const decimal_fast64_t x) noexcept -> int
+BOOST_DECIMAL_EXPORT constexpr auto quantexpd64f(const decimal_fast64_t x) noexcept -> int
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (!isfinite(x))
