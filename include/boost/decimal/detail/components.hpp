@@ -64,12 +64,6 @@ struct decimal_components
     {
         return *this;
     }
-
-    template <typename T1, typename T2>
-    explicit BOOST_DECIMAL_CUDA_CONSTEXPR operator decimal_components<T1, T2>() const
-    {
-        return decimal_components<T1, T2>{static_cast<T1>(sig), static_cast<T2>(exp), sign};
-    }
 };
 
 } // namespace impl

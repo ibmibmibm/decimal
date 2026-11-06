@@ -102,20 +102,6 @@ template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
     -> std::enable_if_t<std::is_same<ReturnType, decimal_fast128_t>::value, decimal_fast128_t>;
 
-// Fallback for components -- always uses the regular constructor.
-// Defined here because its body doesn't reference any specific IEEE decimal type.
-template <typename ReturnType, typename SigType, typename ExpType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
-    -> std::enable_if_t<!std::is_same<ReturnType, decimal32_t>::value
-                        && !std::is_same<ReturnType, decimal64_t>::value
-                        && !std::is_same<ReturnType, decimal128_t>::value
-                        && !std::is_same<ReturnType, decimal_fast32_t>::value
-                        && !std::is_same<ReturnType, decimal_fast64_t>::value
-                        && !std::is_same<ReturnType, decimal_fast128_t>::value, ReturnType>
-{
-    return ReturnType{coeff, exp, sign};
-}
-
 // Inline shrink + pack for a sum/diff that exceeds max_significand_v. A shift
 // of 3 or less leaves 1 to 4 extra digits, and a chained comparison against the
 // precomputed thresholds selects them. One divmod_pow10 and one rounding in
