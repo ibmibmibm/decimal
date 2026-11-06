@@ -197,7 +197,7 @@ inline auto snprintf_impl(char* buffer, const std::size_t buf_size, const char* 
         return -1;
     }
 
-    const std::initializer_list<std::common_type_t<T...>> values_list {values...};
+    const std::initializer_list<std::common_type_t<decimal32_t, T...>> values_list {values...};
     auto value_iter = values_list.begin();
 
     // Like std::snprintf, count the full output but write only what fits before the null terminator
