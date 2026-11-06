@@ -59,7 +59,7 @@ std::vector<T> generate_same_exp_vector(int fixed_exp, unsigned seed = 42U)
 }
 
 // Small-diff workload: significands random, exponents drawn from a narrow window
-// so the difference stays inside max_shift but is rarely zero. Forces the
+// so the difference stays small but is rarely zero. Forces the
 // alignment-multiply-then-add path inside add_impl.
 template <typename T>
 std::vector<T> generate_small_diff_vector(int base_exp, int half_window, unsigned seed = 42U)
@@ -120,10 +120,8 @@ int main()
     run_same_exp<decimal_fast64_t>(0, "dec64_fast");
     run_same_exp<decimal_fast128_t>(0, "dec128_fast");
 
-    // For d64 max_shift = 21; window of 5 keeps diffs in [0, 10] so the small-diff
-    // alignment kernel fires every time. For d128 max_shift = 43 in u256 mode but
-    // 3 in the planned uint128 fast path; window of 2 keeps diffs in [0, 4] so we
-    // exercise both paths (until Phase 1 lands, after which we'd want 0-3).
+    // A window of 5 keeps diffs in [0, 10], and the uint128 kernel of d128 takes diffs up
+    // to 3, so a window of 2 keeps diffs in [0, 4] and reaches both of its paths.
     std::cerr << "\n===== Small exp diff (alignment kernel multiply+add) =====\n";
     run_small_diff<decimal32_t>(0, 5, "decimal32_t");
     run_small_diff<decimal64_t>(0, 5, "decimal64_t");
