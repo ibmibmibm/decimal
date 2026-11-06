@@ -1676,7 +1676,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal64_t lhs, const decimal
     #endif
 
     // Two fast paths, gated by user-facing exp_diff (path 2 in each mode):
-    //   1. exp_diff > 36: slow path would return dominant operand unchanged; skip
+    //   1. exp_diff > 36: the default mode rounds to the dominant operand; skip
     //      to_components/expand_significand and return it directly.
     //   2. exp_diff <= 3: aligned_add_kernel can do the whole add in uint64 (max_sig
     //      16 digits * 10^3 = 19 digits < 2^64); skip to_components/expand_significand

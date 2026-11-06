@@ -1053,10 +1053,8 @@ constexpr auto operator+(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
     }
     #endif
 
-    // Dominant-operand short-circuit: for d32 add_impl uses uint64 promoted
-    // type with max_shift = digits10(uint64) - precision - 1 = 19 - 7 - 1 = 11.
-    // Above that the slow path returns one operand unchanged anyway. Fast
-    // types maintain canonical significands so no expansion buffer is needed.
+    // Dominant-operand short-circuit: over 11 exponents apart, the default mode
+    // rounds the result to the larger operand.
     // Exponents 0 to 3 apart go to aligned_add_kernel in the default mode.
     {
         const auto lhs_sig {lhs.full_significand()};

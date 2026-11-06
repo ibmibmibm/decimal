@@ -1093,11 +1093,8 @@ constexpr auto operator+(const decimal_fast128_t& lhs, const decimal_fast128_t& 
     }
     #endif
 
-    // Dominant-operand short-circuit: for d128 d128_add_impl_new uses u256
-    // promoted type with max_shift = digits10(u256) - precision - 1
-    // = 77 - 34 - 1 = 42. Above that the slow path returns one operand
-    // unchanged anyway. Fast types maintain canonical significands so no
-    // expansion buffer is needed.
+    // Dominant-operand short-circuit: over 42 exponents apart, the default mode
+    // rounds the result to the larger operand.
     // Exponents 0 to 3 apart go to aligned_add_kernel in the default mode only:
     // a second kernel call for the other modes made the default mode slower.
     {

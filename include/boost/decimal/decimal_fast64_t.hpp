@@ -1184,11 +1184,8 @@ constexpr auto operator+(const decimal_fast64_t lhs, const decimal_fast64_t rhs)
     }
     #endif
 
-    // Dominant-operand short-circuit: when exp_diff exceeds max_shift in
-    // add_impl (= digits10(uint128) - precision - 1 = 21 for d64) the slow path
-    // returns one operand unchanged anyway. Skip the whole add_impl call. Fast
-    // types maintain canonical significands so the threshold has no
-    // worst-case-expansion buffer (unlike the IEEE 36 threshold).
+    // Dominant-operand short-circuit: over 21 exponents apart, the default mode
+    // rounds the result to the larger operand.
     // Exponents 0 to 3 apart go to aligned_add_kernel in the default mode only:
     // a second kernel call for the other modes made the default mode slower.
     {
