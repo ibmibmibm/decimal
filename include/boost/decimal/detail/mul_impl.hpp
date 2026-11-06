@@ -231,34 +231,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_default_roundin
 
 } // namespace impl
 
-// Generic multiplication kernel. The body dispatches via SFINAE-disjoint
-// helpers (impl::mul_impl_ieee / impl::mul_impl_components) so each helper's
-// body is type-checked only for the ReturnType it actually serves
-// (BOOST_DECIMAL_IF_CONSTEXPR falls back to plain `if` in C++14 and would
-// otherwise force the FMA-only branch to resolve precision_v /
-// expand_significand / mul_finalize_* against component structs that don't
-// satisfy is_decimal_floating_point_v). The outer mul_impl signature stays
-// `-> ReturnType` so existing friend declarations in decimal_fast*_t headers
-// still match.
-//
-//   (a) ReturnType is one of decimal{32,64,128}_t or decimal_fast{32,64,128}_t.
-//       Expands both operands to full precision (no-op if already canonical),
-//       multiplies, then shrinks to exactly precision digits with
-//       round-half-to-even and packs via pack_in_range (direct_pack fast path
-//       for IEEE types; constructor fallback for fast types).
-//   (b) ReturnType is a *_components struct (FMA consumes the unrounded wider
-//       product before its add step). Returns the raw product packed into the
-//       wider components type without shrinking.
-
 namespace impl {
-
-// Tag-dispatch helpers receive already-extracted components (so they don't
-// need friend access to the fast types' private to_components). The outer
-// mul_impl in the detail namespace below provides that access. Tag dispatch
-// (std::integral_constant) is used instead of `if constexpr` so the wrong
-// dispatcher isn't instantiated for any given ReturnType -- BOOST_DECIMAL_IF_CONSTEXPR
-// falls back to plain `if` in C++14 and would otherwise force both branches'
-// bodies to type-check.
 
 #ifdef _MSC_VER
 #  pragma warning(push)
@@ -266,9 +239,11 @@ namespace impl {
 #  pragma warning(disable : 4702) // Complains that unlikely branches are unreachable
 #endif
 
+// Receives extracted components, thus it needs no friend access to the fast
+// types' private to_components. The outer mul_impl below provides that access.
 template <typename ReturnType, std::int32_t TVal, typename Components>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl_dispatch(
-    const Components& lhs_in, const Components& rhs_in, std::true_type /*is_decimal_floating_point*/) noexcept -> ReturnType
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl_kernel(
+    const Components& lhs_in, const Components& rhs_in) noexcept -> ReturnType
 {
     // Expand local copies: MSVC 14.2 in C++14 mode multiplied the lhs
     // significand of a by-value parameter from before expand_significand.
@@ -350,38 +325,13 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl_dispatch(
     }
 }
 
-template <typename ReturnType, std::int32_t TVal, typename Components>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl_dispatch(
-    Components lhs_c, Components rhs_c, std::false_type /*is_decimal_floating_point*/) noexcept -> ReturnType
-{
-    // FMA components path: return wide product unrounded. ReturnType is a
-    // decimal_components<SigType, BiasedExpType> struct (decimal_val_v defined,
-    // but no precision_v / max_significand_v / direct_pack_*), so the
-    // optimized path's helpers above don't apply.
-    using mul_type = std::conditional_t<TVal < 64, std::uint_fast64_t, int128::uint128_t>;
-
-    const bool sign {lhs_c.sign != rhs_c.sign};
-    const auto res_sig {static_cast<mul_type>(lhs_c.sig) * static_cast<mul_type>(rhs_c.sig)};
-    const auto res_exp {lhs_c.exp + rhs_c.exp};
-
-    return {res_sig, res_exp, sign};
-}
-
 } // namespace impl
 
-// Outer mul_impl: keeps the original `-> ReturnType` signature so friend
-// declarations in decimal_fast*_t headers match. Extracts components via the
-// (friend-accessible) to_components() and tag-dispatches to SFINAE-disjoint
-// impl helpers. Tag dispatch (rather than if-constexpr) ensures only the
-// matching helper body is instantiated for any given ReturnType -- BOOST_DECIMAL_IF_CONSTEXPR
-// falls back to plain `if` in C++14, which would force both branches to
-// type-check.
+// Outer mul_impl: a friend of the fast types, it extracts the components.
 template <typename ReturnType, typename T>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl(const T& lhs, const T& rhs) noexcept -> ReturnType
 {
-    return impl::mul_impl_dispatch<ReturnType, decimal_val_v<T>>(
-        lhs.to_components(), rhs.to_components(),
-        std::integral_constant<bool, detail::is_decimal_floating_point_v<ReturnType>>{});
+    return impl::mul_impl_kernel<ReturnType, decimal_val_v<T>>(lhs.to_components(), rhs.to_components());
 }
 
 // d64 specialization. Used by `decimal_fast64_t * decimal_fast64_t` (which
