@@ -144,28 +144,111 @@ void test_sign_symmetry()
     }
 }
 
+// The result exponent is -precision, or the lowest exponent that holds the value, whatever the cohort of val
+template <typename T>
+void test_cohort()
+{
+    BOOST_TEST(samequantum(rescale(T{1, 0}, 2), T{1, -2}));
+    BOOST_TEST(samequantum(rescale(T{12300, -4}, 2), T{1, -2}));
+    BOOST_TEST(samequantum(rescale(T{39, 2}, 0), T{1, 0}));
+    BOOST_TEST_EQ(rescale(T{39, 2}, 0), T(39, 2));
+
+    constexpr int digits {std::numeric_limits<T>::digits};
+    BOOST_TEST(samequantum(rescale(T{1, digits}, 0), T{1, 1}));
+    BOOST_TEST(samequantum(rescale(T{10, digits - 1}, 0), T{1, 1}));
+    BOOST_TEST(samequantum(rescale(T{10, digits - 1}, -3), T{1, 3}));
+
+    const T two_digits {123, -2};
+    const T neg_zero {-T{0, 5}};
+    for (int precision : {2, 3, 5})
+    {
+        BOOST_TEST(samequantum(rescale(two_digits, precision), T{1, -precision}));
+        BOOST_TEST(samequantum(rescale(neg_zero, precision - 5), neg_zero));
+    }
+}
+
+// A zero keeps its sign, and a negative value follows the directed rounding modes
+template <typename T>
+void test_zero_and_directed_rounding()
+{
+    const T neg_zero {-T{0, 5}};
+    for (int precision : {-3, 0, 3})
+    {
+        const auto res {rescale(neg_zero, precision)};
+        BOOST_TEST(res == 0);
+        BOOST_TEST(signbit(res));
+    }
+
+    // fesetround can not change the mode without constant evaluation detection
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    const T neg_val {-125, -2};
+    const T pos_val {125, -2};
+
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(rescale(neg_val, 1), T(-12, -1));
+    BOOST_TEST_EQ(rescale(pos_val, 1), T(13, -1));
+
+    fesetround(rounding_mode::fe_dec_downward);
+    BOOST_TEST_EQ(rescale(neg_val, 1), T(-13, -1));
+    BOOST_TEST_EQ(rescale(pos_val, 1), T(12, -1));
+
+    fesetround(rounding_mode::fe_dec_default);
+    #endif
+}
+
+// from_bits keeps a raw coefficient above the precision, as 10000001e-4. rescale rounds it to the precision,
+// also when the stored exponent meets the target. from_bid gives the IEEE value zero for these bits
+void test_non_canonical()
+{
+    const auto x {from_bits(UINT32_C(0x6c389681))};
+    BOOST_TEST_EQ(to_bits(rescale(x, 3)), to_bits(decimal32_t{1000000U, -3}));
+    BOOST_TEST_EQ(to_bits(rescale(-x, 3)), to_bits(decimal32_t{1000000U, -3, true}));
+    BOOST_TEST_EQ(to_bits(rescale(x, 4)), to_bits(decimal32_t{1000000U, -3}));
+}
+
 int main()
 {
+    test_cohort<decimal32_t>();
+    test_cohort<decimal64_t>();
+    test_cohort<decimal128_t>();
+
     test<decimal32_t>();
     test<decimal64_t>();
     test<decimal128_t>();
 
     test<decimal_fast32_t>();
+    test<decimal_fast64_t>();
+    test<decimal_fast128_t>();
 
     test_rounding<decimal32_t>();
     test_rounding<decimal64_t>();
     test_rounding<decimal128_t>();
     test_rounding<decimal_fast32_t>();
+    test_rounding<decimal_fast64_t>();
+    test_rounding<decimal_fast128_t>();
 
     test_negative_precision<decimal32_t>();
     test_negative_precision<decimal64_t>();
     test_negative_precision<decimal128_t>();
     test_negative_precision<decimal_fast32_t>();
+    test_negative_precision<decimal_fast64_t>();
+    test_negative_precision<decimal_fast128_t>();
 
     test_sign_symmetry<decimal32_t>();
     test_sign_symmetry<decimal64_t>();
     test_sign_symmetry<decimal128_t>();
     test_sign_symmetry<decimal_fast32_t>();
+    test_sign_symmetry<decimal_fast64_t>();
+    test_sign_symmetry<decimal_fast128_t>();
+
+    test_zero_and_directed_rounding<decimal32_t>();
+    test_zero_and_directed_rounding<decimal64_t>();
+    test_zero_and_directed_rounding<decimal128_t>();
+    test_zero_and_directed_rounding<decimal_fast32_t>();
+    test_zero_and_directed_rounding<decimal_fast64_t>();
+    test_zero_and_directed_rounding<decimal_fast128_t>();
+
+    test_non_canonical();
 
     return boost::report_errors();
 }

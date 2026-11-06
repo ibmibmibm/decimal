@@ -11,11 +11,9 @@
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/fenv_rounding.hpp>
+#include <boost/decimal/detail/integer_search_trees.hpp>
 #include <boost/decimal/detail/quantize_impl.hpp>
-#include <boost/decimal/detail/cmath/floor.hpp>
-#include <boost/decimal/detail/cmath/ceil.hpp>
-#include <boost/decimal/detail/cmath/frexp10.hpp>
-#include <boost/decimal/detail/cmath/trunc.hpp>
+#include <boost/decimal/detail/cmath/decompose.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <type_traits>
@@ -27,12 +25,12 @@ namespace decimal {
 
 // Rounds val to precision digits after the decimal point using the active rounding mode.
 // A negative precision rounds to the corresponding power of ten, and a value that already
-// has no more than precision fractional digits is returned unchanged.
+// has no more than precision fractional digits keeps its value.
 BOOST_DECIMAL_EXPORT template <typename T>
 constexpr auto rescale(const T val, const int precision = 0) noexcept
     BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T)
 {
-    if (isnan(val) || isinf(val) || abs(val) == 0)
+    if (isnan(val) || isinf(val))
     {
         return val;
     }
@@ -46,21 +44,30 @@ constexpr auto rescale(const T val, const int precision = 0) noexcept
                                   (precision < min_precision ? min_precision : precision)};
     const auto target_exp {-clamped_precision};
 
-    int exp {};
-    auto sig {frexp10(val, &exp)};
-    const auto isneg {val < 0};
-    const auto delta {exp - target_exp};
-
-    // val cannot carry any more fractional digits than it already holds
-    if (delta >= 0)
+    auto components {decompose(val)};
+    if (components.sig == 0U)
     {
         return val;
     }
 
-    // Only ever shrinks the significand here, so this cannot fail
-    detail::quantize_rescale<T>(sig, delta, isneg);
+    auto delta {components.exp - target_exp};
+    auto exp {target_exp};
+    if (delta >= 0)
+    {
+        // Lower the exponent toward -precision only as far as the coefficient has room,
+        // so that the result does not depend on the cohort of val
+        const auto room {detail::precision_v<T> - detail::num_digits(components.sig)};
+        if (delta > room)
+        {
+            exp += delta - room;
+            delta = room;
+        }
+    }
 
-    return {sig, target_exp, isneg};
+    // The coefficient fits the precision after this, so this cannot fail
+    detail::quantize_rescale<T>(components.sig, delta, components.sign);
+
+    return {components.sig, exp, components.sign};
 }
 
 } // namespace decimal

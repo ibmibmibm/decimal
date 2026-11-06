@@ -804,7 +804,8 @@ So `rescale(123.456789, 2)` returns `123.46`, and `rescale(123.456789, 4)` retur
 
 A negative `precision` rounds to the corresponding power of ten, so `rescale(123.456789, -1)` returns `120` and `rescale(123.456789, -2)` returns `100`.
 
-If `val` already has no more than `precision` fractional digits then it is returned unchanged, so `rescale(123.456789, 8)` returns `123.456789`.
+If `val` already has no more than `precision` fractional digits then its value does not change, so `rescale(123.456789, 8)` returns `123.456789`.
+The exponent of the result does not depend on the exponent of `val`: it is `-precision`, or the lowest exponent that holds the value if that is larger. So `rescale(decimal32_t{1, 0}, 2)` returns `1.00` with the exponent `-2`.
 NaN, infinity, and zero are also returned unmodified, which means `rescale` never returns NaN for a finite input.
 `precision` is saturated to the range of quantum exponents the format is able to encode.
 
