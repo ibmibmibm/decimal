@@ -1913,36 +1913,8 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal64_t, Integer>;
-    using exp_type = decimal64_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs))
-    {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
-        {
-            return signbit(lhs) ? lhs : -lhs;
-        }
-        else if (isinf(lhs) && (signbit(lhs) == (rhs < 0)))
-        {
-            return signbit(lhs) ? -lhs : lhs;
-        }
-
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto lhs_sig {lhs.full_significand()};
-    auto lhs_exp {lhs.biased_exponent()};
-    detail::expand_significand<decimal64_t>(lhs_sig, lhs_exp);
-
-    auto rhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-    exp_type rhs_exp {0};
-    detail::normalize<decimal64_t>(rhs_sig, rhs_exp);
-    const auto final_rhs_sig {static_cast<decimal64_t::significand_type>(rhs_sig)};
-
-    return detail::d64_mul_impl<decimal64_t>(lhs_sig, lhs_exp, lhs.isneg(),
-                                           final_rhs_sig, rhs_exp, (rhs < 0));
+    // The integer converts to decimal64_t first, as in C
+    return lhs * decimal64_t{rhs};
 }
 
 template <typename Integer>

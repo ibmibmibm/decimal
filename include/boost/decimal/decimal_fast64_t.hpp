@@ -27,7 +27,6 @@
 #include <boost/decimal/detail/promotion.hpp>
 #include <boost/decimal/detail/check_non_finite.hpp>
 #include <boost/decimal/detail/quantize_impl.hpp>
-#include <boost/decimal/detail/shrink_significand.hpp>
 #include <boost/decimal/detail/cmath/isfinite.hpp>
 #include <boost/decimal/detail/cmath/fpclassify.hpp>
 #include <boost/decimal/detail/cmath/abs.hpp>
@@ -1427,34 +1426,7 @@ template <typename Integer>
 constexpr auto operator*(const decimal_fast64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal64_t, Integer>;
-    using exp_type = decimal_fast64_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs))
-    {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
-        {
-            return signbit(lhs) ? lhs : -lhs;
-        }
-        else if (isinf(lhs) && (signbit(lhs) == (rhs < 0)))
-        {
-            return signbit(lhs) ? -lhs : lhs;
-        }
-
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto rhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-    exp_type rhs_exp {0};
-    detail::normalize<decimal64_t>(rhs_sig, rhs_exp);
-    auto final_rhs_sig {static_cast<decimal_fast64_t::significand_type>(rhs_sig)};
-
-    return detail::d64_mul_impl<decimal_fast64_t>(
-            lhs.significand_, lhs.biased_exponent(), lhs.sign_,
-            final_rhs_sig, rhs_exp, (rhs < 0)
-            );
+    return lhs * decimal_fast64_t{rhs};
 }
 
 template <typename Integer>
@@ -1568,81 +1540,14 @@ template <typename Integer>
 constexpr auto operator/(const decimal_fast64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal_fast64_t, Integer>;
-    using exp_type = detail::decimal_fast64_t_components::biased_exponent_type;
-
-    const bool sign {lhs.isneg() != (rhs < 0)};
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    // Check pre-conditions
-    constexpr decimal_fast64_t zero {0, 0};
-    constexpr decimal_fast64_t inf {direct_init_d64(detail::d64_fast_inf, 0, false)};
-
-    const auto lhs_fp {fpclassify(lhs)};
-
-    switch (lhs_fp)
-    {
-        case FP_NAN:
-            return issignaling(lhs) ? nan_conversion(lhs) : lhs;;
-        case FP_INFINITE:
-            return sign ? -lhs : lhs;
-        case FP_ZERO:
-            return sign ? -zero : zero;
-        default:
-            static_cast<void>(lhs);
-    }
-
-    if (rhs == 0)
-    {
-        return sign ? -inf : inf;
-    }
-    #endif
-
-    const detail::decimal_fast64_t_components lhs_components {lhs.full_significand(), lhs.biased_exponent(), lhs.isneg()};
-
-    auto rhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-    exp_type rhs_exp {};
-    detail::decimal_fast64_t_components rhs_components {detail::shrink_significand<decimal_fast64_t::significand_type>(rhs_sig, rhs_exp), rhs_exp, rhs < 0};
-
-    return detail::d64_generic_div_impl<decimal_fast64_t>(lhs_components, rhs_components, sign);
+    return lhs / decimal_fast64_t{rhs};
 }
 
 template <typename Integer>
 constexpr auto operator/(const Integer lhs, const decimal_fast64_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal_fast64_t, Integer>;
-    using exp_type = detail::decimal_fast64_t_components::biased_exponent_type;
-
-    const bool sign {(lhs < 0) != rhs.isneg()};
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    // Check pre-conditions
-    constexpr decimal_fast64_t zero {0, 0};
-    constexpr decimal_fast64_t inf {direct_init_d64(detail::d64_fast_inf, 0, false)};
-
-    const auto rhs_fp {fpclassify(rhs)};
-
-    switch (rhs_fp)
-    {
-        case FP_NAN:
-            return issignaling(rhs) ? nan_conversion(rhs) : rhs;
-        case FP_INFINITE:
-            return sign ? -zero : zero;
-        case FP_ZERO:
-            return sign ? -inf : inf;
-        default:
-            static_cast<void>(lhs);
-    }
-    #endif
-
-    const detail::decimal_fast64_t_components rhs_components {rhs.full_significand(), rhs.biased_exponent(), rhs.isneg()};
-
-    auto lhs_sig {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
-    exp_type lhs_exp {};
-    const detail::decimal_fast64_t_components lhs_components {detail::shrink_significand<decimal_fast64_t::significand_type>(lhs_sig, lhs_exp), lhs_exp, lhs < 0};
-
-    return detail::d64_generic_div_impl<decimal_fast64_t>(lhs_components, rhs_components, sign);
+    return decimal_fast64_t{lhs} / rhs;
 }
 
 constexpr auto operator%(const decimal_fast64_t lhs, const decimal_fast64_t rhs) noexcept -> decimal_fast64_t

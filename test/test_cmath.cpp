@@ -211,7 +211,7 @@ template <typename Dec>
 void test_ceil()
 {
     
-    std::uniform_int_distribution<int> dist(0, 10);
+    std::uniform_int_distribution<int> dist(1, 10);
 
     BOOST_TEST(isnan(ceil(std::numeric_limits<Dec>::quiet_NaN() * dist(rng))));
     BOOST_TEST(isnan(ceil(-std::numeric_limits<Dec>::quiet_NaN() * dist(rng))));
