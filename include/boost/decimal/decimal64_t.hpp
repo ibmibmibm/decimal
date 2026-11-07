@@ -1661,7 +1661,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal64_t lhs, const Integer
 
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal64_t>(
@@ -1767,7 +1767,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal64_t lhs, const Integer
 
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal64_t>(
@@ -1797,7 +1797,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal64_t
 
     auto sig_lhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
     exp_type exp_lhs {0};
-    detail::normalize<decimal64_t>(sig_lhs, exp_lhs);
+    detail::normalize<decimal64_t>(sig_lhs, exp_lhs, lhs < 0);
     const auto final_sig_lhs {static_cast<decimal64_t::significand_type>(detail::make_positive_unsigned(sig_lhs))};
 
     auto sig_rhs {rhs.full_significand()};
@@ -1911,7 +1911,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal64_t lhs, const Integer
 
     auto rhs_sig {static_cast<integer_type>(detail::make_positive_unsigned(rhs))};
     exp_type rhs_exp {};
-    detail::normalize<decimal64_t>(rhs_sig, rhs_exp);
+    detail::normalize<decimal64_t>(rhs_sig, rhs_exp, rhs < 0);
     detail::decimal64_t_components rhs_components {static_cast<sig_type>(rhs_sig), rhs_exp, rhs < 0};
 
     return detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs_components, sign);
@@ -1953,7 +1953,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal64_t
 
     exp_type lhs_exp {};
     auto lhs_sig {static_cast<integer_type>(detail::make_positive_unsigned(lhs))};
-    detail::normalize<decimal64_t>(lhs_sig, lhs_exp);
+    detail::normalize<decimal64_t>(lhs_sig, lhs_exp, lhs < 0);
     detail::decimal64_t_components lhs_components {static_cast<sig_type>(lhs_sig), lhs_exp, lhs < 0};
     detail::decimal64_t_components rhs_components {rhs_sig, rhs_exp, rhs.isneg()};
 
