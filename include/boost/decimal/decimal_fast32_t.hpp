@@ -1121,6 +1121,11 @@ constexpr auto operator+(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                         lhs.isneg(), rhs.isneg());
                 }
             }
+            // Normalized operands need no expansion, thus only the band kernel remains
+            else if (detail::takes_band_kernel<decimal_fast32_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return detail::band_add_selected<decimal_fast32_t, std::uint64_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs_exp, rhs.isneg(), static_cast<unsigned>(exp_diff));
+            }
         }
     }
 
@@ -1213,6 +1218,11 @@ constexpr auto operator-(const decimal_fast32_t lhs, const decimal_fast32_t rhs)
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
                         lhs.isneg(), !rhs.isneg());
                 }
+            }
+            // Normalized operands need no expansion, thus only the band kernel remains
+            else if (detail::takes_band_kernel<decimal_fast32_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return detail::band_add_selected<decimal_fast32_t, std::uint64_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs_exp, !rhs.isneg(), static_cast<unsigned>(exp_diff));
             }
         }
     }

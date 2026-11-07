@@ -1705,7 +1705,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Two fast paths (see decimal64_t.hpp:operator+ for full explanation).
+    // Two fast paths (see decimal64_t.hpp:operator+ for full explanation), and the band kernel.
     // Both gated on non-zero operands so zero short-circuit logic is preserved
     // by falling through to d128_add_impl_new.
     {
@@ -1744,6 +1744,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
                         lhs.isneg(), rhs.isneg());
                 }
+            }
+            else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return lhs_exp > rhs_exp ?
+                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs.isneg(), static_cast<unsigned>(exp_diff)) :
+                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, rhs.isneg(), lhs_sig, lhs.isneg(), static_cast<unsigned>(exp_diff));
             }
         }
     }
@@ -1791,7 +1797,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Two fast paths; see operator+ above. Both gated on non-zero operands so
+    // Fast paths; see operator+ above. Both gated on non-zero operands so
     // zero short-circuit logic is preserved by falling through. For operator-,
     // rhs sign is flipped before kernel dispatch.
     {
@@ -1830,6 +1836,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
                         lhs.isneg(), !rhs.isneg());
                 }
+            }
+            else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+            {
+                return lhs_exp > rhs_exp ?
+                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, !rhs.isneg(), static_cast<unsigned>(exp_diff)) :
+                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, !rhs.isneg(), lhs_sig, lhs.isneg(), static_cast<unsigned>(exp_diff));
             }
         }
     }

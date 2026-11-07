@@ -83,7 +83,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool
     -> std::enable_if_t<std::is_same<ReturnType, decimal32_t>::value, decimal32_t>;
 
 template <typename ReturnType, typename SigType, typename ExpType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
     -> std::enable_if_t<std::is_same<ReturnType, decimal64_t>::value, decimal64_t>;
 
 template <typename ReturnType, typename SigType, typename ExpType>
@@ -372,6 +372,15 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_kernel(const SigType a, const ExpType
 }
 
 // One call with selected arguments, because the larger exponent is random
+// Operands that already have all the digits can skip expand_significand and add_impl and go
+// to band_add_kernel, when they are 4 or more exponents apart and the result is normal
+template <typename ReturnType, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto takes_band_kernel(const SigType lhs_sig, const SigType rhs_sig, const ExpType big_exp) noexcept -> bool
+{
+    constexpr SigType min_full {static_cast<SigType>((static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1U}) / SigType{10U})};
+    return lhs_sig >= min_full && rhs_sig >= min_full && big_exp + precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10;
+}
+
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_selected(const SigType lhs_sig, const ExpType lhs_exp, const bool lhs_sign,
                                                                                const SigType rhs_sig, const ExpType rhs_exp, const bool rhs_sign,
