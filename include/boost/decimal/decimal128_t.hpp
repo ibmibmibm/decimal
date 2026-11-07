@@ -1983,7 +1983,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
     auto lhs_components {lhs.to_components()};
     detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
 
-    const detail::decimal128_t_components rhs_components {detail::make_positive_unsigned(rhs), 0, rhs < 0};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    decimal128_t::biased_exponent_type rhs_exp {0};
+    detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
+    const detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
 
     return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
 }
@@ -2017,7 +2020,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     auto rhs_components {rhs.to_components()};
     detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
 
-    const detail::decimal128_t_components lhs_components {detail::make_positive_unsigned(lhs), 0, lhs < 0};
+    auto lhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(lhs))};
+    decimal128_t::biased_exponent_type lhs_exp {0};
+    // Only an integer of more than p digits needs rounding, and a zero keeps exponent 0
+    if (lhs_sig > detail::max_significand_v<decimal128_t>)
+    {
+        detail::normalize<decimal128_t>(lhs_sig, lhs_exp, lhs < 0);
+    }
+    const detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs < 0};
 
     return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
 }
