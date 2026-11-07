@@ -170,6 +170,7 @@ run github_issue_to_float.cpp ;
 run github_issue_long_double.cpp ;
 run github_issue_nextafter.cpp ;
 run github_issue_nexttoward.cpp ;
+run github_issue_nextafter_overflow.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
