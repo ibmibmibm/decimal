@@ -177,7 +177,7 @@ inline constexpr auto generic_binary_to_decimal(
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5U == 0U)
             {
-                vrIsTrailingZeros = multipleOfPowerOf5(mv, q - 1);
+                vrIsTrailingZeros = multipleOfPowerOf5(mv, q);
             }
             else if (acceptBounds)
             {
@@ -231,12 +231,12 @@ inline constexpr auto generic_binary_to_decimal(
         }
         else if (q < 127)
         {
-            // We need to compute min(ntz(mv), pow5Factor(mv) - e2) >= q-1
-            // <=> ntz(mv) >= q-1  &&  pow5Factor(mv) - e2 >= q-1
-            // <=> ntz(mv) >= q-1    (e2 is negative and -e2 >= q)
-            // <=> (mv & ((1 << (q-1)) - 1)) == 0
+            // We need to compute min(ntz(mv), pow5Factor(mv) - e2) >= q
+            // <=> ntz(mv) >= q  &&  pow5Factor(mv) - e2 >= q
+            // <=> ntz(mv) >= q    (e2 is negative and -e2 >= q)
+            // <=> (mv & ((1 << q) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
-            vrIsTrailingZeros = multipleOfPowerOf2(mv, q - 1);
+            vrIsTrailingZeros = multipleOfPowerOf2(mv, q);
 
             #ifdef BOOST_DECIMAL_DEBUG_RYU
             printf("vr is trailing zeros=%s\n", vrIsTrailingZeros ? "true" : "false");
