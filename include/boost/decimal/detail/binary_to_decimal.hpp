@@ -11,6 +11,7 @@
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/dragonbox/dragonbox.hpp>
+#include <boost/decimal/detail/fast_float/compute_float64.hpp>
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/int128.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
@@ -76,169 +77,37 @@ constexpr auto dragonbox_scaled(const std::uint64_t two_fc, const int binary_exp
     return {integer_part, minus_k, !is_integer};
 }
 
-// An unsigned integer of up to 36 32-bit limbs, enough for a double times the powers of ten used below
-struct big_uint
-{
-    std::uint32_t limbs[36] {};
-    int size {};
-
-    explicit constexpr big_uint(const std::uint64_t value) noexcept
-        : limbs {static_cast<std::uint32_t>(value), static_cast<std::uint32_t>(value >> 32U)},
-          size {(value >> 32U) != 0U ? 2 : 1}
-    {
-    }
-
-    constexpr auto multiply(const std::uint32_t factor) noexcept -> void
-    {
-        std::uint64_t carry {};
-        for (int i {}; i < size; ++i)
-        {
-            const auto product {std::uint64_t {limbs[i]} * factor + carry};
-            limbs[i] = static_cast<std::uint32_t>(product);
-            carry = product >> 32U;
-        }
-        if (carry != 0U)
-        {
-            limbs[size++] = static_cast<std::uint32_t>(carry);
-        }
-    }
-
-    // Returns the remainder
-    constexpr auto divide(const std::uint32_t divisor) noexcept -> std::uint32_t
-    {
-        std::uint64_t remainder {};
-        for (int i {size - 1}; i >= 0; --i)
-        {
-            const auto current {(remainder << 32U) | limbs[i]};
-            limbs[i] = static_cast<std::uint32_t>(current / divisor);
-            remainder = current % divisor;
-        }
-        while (size > 1 && limbs[size - 1] == 0U)
-        {
-            --size;
-        }
-        return static_cast<std::uint32_t>(remainder);
-    }
-
-    constexpr auto shift_left(const int bits) noexcept -> void
-    {
-        const auto words {bits / 32};
-        const auto rest {bits % 32};
-        for (int i {size - 1}; i >= 0; --i)
-        {
-            limbs[i + words] = limbs[i];
-        }
-        for (int i {}; i < words; ++i)
-        {
-            limbs[i] = 0U;
-        }
-        size += words;
-        if (rest != 0)
-        {
-            std::uint32_t carry {};
-            for (int i {words}; i < size; ++i)
-            {
-                const auto shifted {limbs[i] >> (32 - rest)};
-                limbs[i] = (limbs[i] << rest) | carry;
-                carry = shifted;
-            }
-            if (carry != 0U)
-            {
-                limbs[size++] = carry;
-            }
-        }
-    }
-
-    // Returns whether any of the bits shifted out was set
-    constexpr auto shift_right(const int bits) noexcept -> bool
-    {
-        const auto words {bits / 32};
-        const auto rest {bits % 32};
-        bool lost {};
-        for (int i {}; i < words && i < size; ++i)
-        {
-            lost = lost || limbs[i] != 0U;
-        }
-        if (words >= size)
-        {
-            limbs[0] = 0U;
-            size = 1;
-            return lost;
-        }
-        if (rest != 0)
-        {
-            lost = lost || (limbs[words] << (32 - rest)) != 0U;
-        }
-        for (int i {words}; i < size; ++i)
-        {
-            const auto next {i + 1 < size ? limbs[i + 1] : 0U};
-            limbs[i - words] = rest == 0 ? limbs[i] : (limbs[i] >> rest) | (next << (32 - rest));
-        }
-        size -= words;
-        while (size > 1 && limbs[size - 1] == 0U)
-        {
-            --size;
-        }
-        return lost;
-    }
-
-    constexpr auto to_uint128() const noexcept -> int128::uint128_t
-    {
-        int128::uint128_t result {};
-        for (int i {size - 1}; i >= 0; --i)
-        {
-            result = (result << 32U) | limbs[i];
-        }
-        return result;
-    }
-};
-
 // x * 10^k exactly with 37 or 38 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
-constexpr auto exact_scaled(const std::uint64_t significand, const int binary_exponent) noexcept
+BOOST_DECIMAL_CXX20_CONSTEXPR auto exact_scaled(const std::uint64_t significand, const int binary_exponent) noexcept
     -> scaled_value<int128::uint128_t>
 {
-    constexpr std::uint32_t pow5_13 {UINT32_C(1220703125)};
-    constexpr std::uint32_t pow10_9 {UINT32_C(1000000000)};
-
     const auto estimate {dragonbox::floor_log10_pow2(binary_exponent + 63 - countl_zero(significand))};
     const auto k {36 - estimate};
 
-    big_uint value {significand};
+    fast_float::big_uint<> value {int128::uint128_t {significand}};
     bool inexact {};
     if (k >= 0)
     {
-        auto pow5_left {k};
-        for (; pow5_left >= 13; pow5_left -= 13)
-        {
-            value.multiply(pow5_13);
-        }
-        std::uint32_t pow5_rest {1U};
-        for (int i {}; i < pow5_left; ++i)
-        {
-            pow5_rest *= 5U;
-        }
-        value.multiply(pow5_rest);
-
+        value.mul_pow5(k);
         const auto shift {binary_exponent + k};
         if (shift >= 0)
         {
-            value.shift_left(shift);
+            value.shl(shift);
         }
         else
         {
-            inexact = value.shift_right(-shift);
+            inexact = value.shr(-shift);
         }
     }
     else
     {
-        value.shift_left(binary_exponent);
+        value.shl(binary_exponent);
         auto pow10_left {-k};
-        for (; pow10_left >= 9; pow10_left -= 9)
+        for (; pow10_left >= 19; pow10_left -= 19)
         {
-            inexact = value.divide(pow10_9) != 0U || inexact;
+            inexact = value.divide(UINT64_C(10000000000000000000)) != 0U || inexact;
         }
-        inexact = value.divide(static_cast<std::uint32_t>(pow10(static_cast<std::uint64_t>(pow10_left)))) != 0U ||
-                  inexact;
+        inexact = value.divide(pow10(static_cast<std::uint64_t>(pow10_left))) != 0U || inexact;
     }
     return {value.to_uint128(), -k, inexact};
 }

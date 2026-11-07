@@ -61,3 +61,9 @@ The result is correctly rounded in the current rounding mode (see xref:cfenv.ado
 An exact result takes the exponent closest to 0, and an inexact one uses all the digits of the type.
 `0.07` as a `double` is `0.070000000000000006661338147750939242541790008544921875`, so `from_binary<decimal64_t>(0.07)` is `7000000000000001e-17`, while `from_binary<decimal64_t>(2.5)` is `25e-1`.
 Infinities and NaN convert as they do with the constructor.
+
+[#bin_float_to_binary]
+== Conversion to Binary
+
+The conversion operators round the exact decimal value to the nearest binary value, and a tie goes to the even value: `static_cast<double>(4e23_DD)` is `4e23`.
+A value above the largest finite value of the binary type gives an infinity, and a value below the smallest normal value gives a subnormal value or zero: `static_cast<double>(1e309_DD)` is infinity, and `static_cast<double>(5e-324_DD)` is the smallest subnormal `double`.
