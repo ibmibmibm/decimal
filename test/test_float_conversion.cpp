@@ -117,6 +117,25 @@ void test_ryu()
     BOOST_TEST(floating_point_to_fd128(std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
     BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::infinity() * dist(gen)).exponent == fd128_exceptional_exponent);
     BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
+
+    // The lower end of the interval has trailing zeros in its last digits, so the shortest digits are 646
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST(floating_point_to_fd128(6.46e26L).mantissa == 646U);
+    BOOST_TEST(floating_point_to_fd128(1.0435e26L).mantissa == 10435U);
+    BOOST_TEST(floating_point_to_fd128(656177904623787416832.0L).mantissa == UINT64_C(6561779046237874168));
+    BOOST_TEST(floating_point_to_fd128(static_cast<long double>(UINT64_C(12500000000000004688)) * 32768).mantissa ==
+               UINT64_C(4096000000000001536));
+    #endif
+
+    // The removed digits are 560 and not a tie, so the last digit rounds up
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    const auto fd {floating_point_to_fd128(74787340373893776834560.0L)};
+    BOOST_TEST(fd.mantissa == (unsigned_128_type {UINT64_C(4), UINT64_C(1000364079055570371)}));
+    #else
+    const auto fd {floating_point_to_fd128(34623143365181110578251157253715394560.0L)};
+    BOOST_TEST(fd.mantissa == (unsigned_128_type {UINT64_C(1876924362740321), UINT64_C(17418691559299806659)}));
+    #endif
+    BOOST_TEST_EQ(fd.exponent, 3);
 }
 
 // A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
