@@ -1160,7 +1160,7 @@ template <typename Decimal>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator+=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal32_t&)
 {
-    *this = *this + rhs;
+    *this = static_cast<decimal32_t>(*this + rhs);
     return *this;
 }
 
@@ -1279,7 +1279,7 @@ template <typename Decimal>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator-=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal32_t&)
 {
-    *this = *this - rhs;
+    *this = static_cast<decimal32_t>(*this - rhs);
     return *this;
 }
 
@@ -1851,7 +1851,7 @@ template <typename Decimal>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator*=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal32_t&)
 {
-    *this = *this * rhs;
+    *this = static_cast<decimal32_t>(*this * rhs);
     return *this;
 }
 
@@ -2076,7 +2076,7 @@ template <typename Decimal>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator/=(const Decimal rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal32_t&)
 {
-    *this = *this / rhs;
+    *this = static_cast<decimal32_t>(*this / rhs);
     return *this;
 }
 
