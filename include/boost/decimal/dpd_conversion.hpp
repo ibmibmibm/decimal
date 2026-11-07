@@ -993,6 +993,31 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto from_dpd(const int128::uint128_t bits) noexcep
     return from_dpd_d128<DecimalType>(bits);
 }
 
+namespace detail {
+
+// The DPD decoders take only a target of their own width
+template <typename T>
+constexpr bool is_dpd32_target_v = std::is_same<T, decimal32_t>::value || std::is_same<T, decimal_fast32_t>::value;
+
+template <typename T>
+constexpr bool is_dpd64_target_v = std::is_same<T, decimal64_t>::value || std::is_same<T, decimal_fast64_t>::value;
+
+} // namespace detail
+
+BOOST_DECIMAL_EXPORT template <typename DecimalType = decimal32_t, typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto from_dpd(const Integer bits) noexcept
+    BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_other_int32_v, Integer, detail::is_dpd32_target_v, DecimalType, DecimalType)
+{
+    return from_dpd<DecimalType>(static_cast<std::uint32_t>(bits));
+}
+
+BOOST_DECIMAL_EXPORT template <typename DecimalType = decimal64_t, typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto from_dpd(const Integer bits) noexcept
+    BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_other_int64_v, Integer, detail::is_dpd64_target_v, DecimalType, DecimalType)
+{
+    return from_dpd<DecimalType>(static_cast<std::uint64_t>(bits));
+}
+
 #ifdef BOOST_DECIMAL_HAS_INT128
 
 BOOST_DECIMAL_EXPORT template <typename DecimalType = decimal128_t>

@@ -211,6 +211,14 @@ constexpr bool is_ieee_type_v = is_ieee_type<T>::value;
 template <typename T>
 constexpr bool is_fast_type_v = !is_ieee_type_v<T>;
 
+// Integers that from_bid and from_dpd convert to std::uint32_t or std::uint64_t,
+// such as unsigned long long when std::uint64_t is unsigned long
+template <typename T>
+constexpr bool is_other_int32_v = std::is_integral<T>::value && sizeof(T) == 4 && !std::is_same<T, std::uint32_t>::value;
+
+template <typename T>
+constexpr bool is_other_int64_v = std::is_integral<T>::value && sizeof(T) == 8 && !std::is_same<T, std::uint64_t>::value;
+
 template <typename...>
 struct conjunction : std::true_type {};
 

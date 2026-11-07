@@ -79,6 +79,11 @@ constexpr T from_bid(std::uint64_t bits) noexcept;
 template <typename T = decimal128_t>
 constexpr T from_bid(uint128_t bits) noexcept;
 
+// Any other integer of 32 or 64 bits, for example unsigned long long.
+// T defaults to decimal32_t for 32 bits and to decimal64_t for 64 bits, and can be any decimal type.
+template <typename T, typename Integer>
+constexpr T from_bid(Integer bits) noexcept;
+
 // ----- DPD Conversions -----
 
 constexpr std::uint32_t to_dpd_d32(decimal32_t val) noexcept;
@@ -104,6 +109,11 @@ constexpr T from_dpd(std::uint64_t bits) noexcept;
 
 template <typename T = decimal128_t>
 constexpr T from_dpd(uint128_t bits) noexcept;
+
+// Any other integer of 32 or 64 bits, for example unsigned long long.
+// T defaults to decimal32_t for 32 bits and to decimal64_t for 64 bits, and has the width of the integer.
+template <typename T, typename Integer>
+constexpr T from_dpd(Integer bits) noexcept;
 
 #ifdef BOOST_DECIMAL_HAS_INT128
 

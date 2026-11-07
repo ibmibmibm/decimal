@@ -243,6 +243,20 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto from_bid(const int128::uint128_t bits) noexcep
     return from_bid_d128f(bits);
 }
 
+BOOST_DECIMAL_EXPORT template <typename T = decimal32_t, typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto from_bid(const Integer bits) noexcept
+    BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_other_int32_v, Integer, detail::is_decimal_floating_point_v, T, T)
+{
+    return from_bid<T>(static_cast<std::uint32_t>(bits));
+}
+
+BOOST_DECIMAL_EXPORT template <typename T = decimal64_t, typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto from_bid(const Integer bits) noexcept
+    BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_other_int64_v, Integer, detail::is_decimal_floating_point_v, T, T)
+{
+    return from_bid<T>(static_cast<std::uint64_t>(bits));
+}
+
 #if defined(__GNUC__) && __GNUC__ == 7
 #  pragma GCC diagnostic pop
 #endif
