@@ -564,17 +564,17 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto sequential_less_imp
         return lhs_sig == 0U ? !rhs_sign : lhs_sign;
     }
 
-    if (lhs_sign != rhs_sign)
-    {
-        return lhs_sign;
-    }
-
     const auto lhs_exp {lhs_components.exp};
     const auto rhs_exp {rhs_components.exp};
     const auto delta_exp {lhs_exp - rhs_exp};
 
     BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
     {
+        if (lhs_sign != rhs_sign)
+        {
+            return lhs_sign;
+        }
+
         // The exponents of the leading digits decide first. When they are equal, the significand
         // with the larger exponent has fewer digits, and scaled to the digits of the other it fits.
         if (delta_exp != 0)
@@ -598,26 +598,40 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto sequential_less_imp
         return lhs_sign ? lhs_sig > rhs_sig : lhs_sig < rhs_sig;
     }
 
-    constexpr auto max_delta_diff {std::numeric_limits<comp_type>::digits10 - detail::precision_v<DecimalType>};
+    // A gap of p or more decides by the exponents alone. Smaller gaps scale both sides from the table,
+    // so a random gap costs no mispredicted branch, and the products have at most 18 or 35 digits.
+    constexpr auto max_delta_diff {detail::decimal_val_v<DecimalType> < 64 ? 11 : 19};
 
     if (BOOST_DECIMAL_UNLIKELY(delta_exp > max_delta_diff || delta_exp < -max_delta_diff))
     {
+        if (lhs_sign != rhs_sign)
+        {
+            return lhs_sign;
+        }
         return lhs_sign ? lhs_exp > rhs_exp : lhs_exp < rhs_exp;
     }
 
-    comp_type lhs_scaled {lhs_sig};
-    comp_type rhs_scaled {rhs_sig};
-
-    if (delta_exp > 0)
+    BOOST_DECIMAL_IF_CONSTEXPR (sizeof(comp_type) == sizeof(std::uint64_t))
     {
-        lhs_scaled *= detail::pow10(static_cast<comp_type>(delta_exp));
-    }
-    else if (delta_exp < 0)
-    {
-        rhs_scaled *= detail::pow10(static_cast<comp_type>(-delta_exp));
+        const auto lhs_scaled {static_cast<std::uint64_t>(lhs_sig) * detail::pow10(static_cast<std::uint64_t>(delta_exp > 0 ? delta_exp : 0))};
+        const auto rhs_scaled {static_cast<std::uint64_t>(rhs_sig) * detail::pow10(static_cast<std::uint64_t>(delta_exp < 0 ? -delta_exp : 0))};
+        const auto lhs_mask {-static_cast<std::int64_t>(lhs_sign)};
+        const auto rhs_mask {-static_cast<std::int64_t>(rhs_sign)};
+        return ((static_cast<std::int64_t>(lhs_scaled) ^ lhs_mask) - lhs_mask) < ((static_cast<std::int64_t>(rhs_scaled) ^ rhs_mask) - rhs_mask);
     }
 
-    return lhs_sign ? lhs_scaled > rhs_scaled : lhs_scaled < rhs_scaled;
+    // One product of the significand with the larger exponent. Only the bits decide the order,
+    // because random signs and exponents make a branch mispredict.
+    const auto swapped {static_cast<unsigned>(delta_exp < 0)};
+    const auto larger {static_cast<std::uint64_t>(swapped != 0U ? rhs_sig : lhs_sig)};
+    const auto smaller {static_cast<std::uint64_t>(swapped != 0U ? lhs_sig : rhs_sig)};
+    const auto product {detail::umul128(larger, detail::pow10(static_cast<std::uint64_t>(swapped != 0U ? -delta_exp : delta_exp)))};
+    const auto above {static_cast<unsigned>(product.high != 0U) | static_cast<unsigned>(product.low > smaller)};
+    const auto below {static_cast<unsigned>(product.high == 0U) & static_cast<unsigned>(product.low < smaller)};
+    const auto flip {swapped ^ static_cast<unsigned>(lhs_sign)};
+    const auto same_sign {(flip & above) | (~flip & below & 1U)};
+    const auto signs_differ {static_cast<unsigned>(lhs_sign != rhs_sign)};
+    return ((signs_differ & static_cast<unsigned>(lhs_sign)) | (~signs_differ & same_sign & 1U)) != 0U;
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType = decimal32_t, BOOST_DECIMAL_INTEGRAL T1,
