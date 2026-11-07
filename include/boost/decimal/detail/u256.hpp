@@ -11,6 +11,33 @@
 #include <boost/decimal/detail/config.hpp>
 #include "int128.hpp"
 
+#if !(defined(__CUDACC__) && defined(BOOST_DECIMAL_ENABLE_CUDA))
+
+// Include intrinsics if available
+#if defined(_MSC_VER)
+#  if defined(_M_AMD64)
+#    ifndef BOOST_DECIMAL_BUILD_MODULE
+#      include <intrin.h>
+#    endif
+#    if defined(__ADX__)
+#      define BOOST_DECIMAL_ADD_CARRY _addcarryx_u64
+#    else
+#      define BOOST_DECIMAL_ADD_CARRY _addcarry_u64
+#    endif
+#    define BOOST_DECIMAL_SUB_BORROW _subborrow_u64
+#  endif
+#elif defined(__ARM_NEON__)
+#  ifndef BOOST_DECIMAL_BUILD_MODULE
+#    include <arm_neon.h>
+#  endif
+#  define BOOST_DECIMAL_HAS_ARM_INTRINSICS
+#elif defined(__i386__)
+// The 32-bit x86 path of i256_sub uses __builtin_sub_overflow, which needs no header
+#  define BOOST_DECIMAL_HAS_x86_INTRINSICS
+#endif
+
+#endif
+
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cstdint>
 #include <cstring>

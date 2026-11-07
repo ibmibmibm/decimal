@@ -93,55 +93,6 @@
 #  endif
 #endif
 
-#if defined(__CUDACC__) && defined(BOOST_DECIMAL_ENABLE_CUDA)
-
-// Include intrinsics if available
-#if defined(_MSC_VER)
-#  ifndef BOOST_DECIMAL_BUILD_MODULE
-#    include <intrin.h>
-#  endif
-#  if defined(_M_AMD64)
-#    define BOOST_DECIMAL_HAS_MSVC_64BIT_INTRINSICS
-#  else
-#    define BOOST_DECIMAL_HAS_MSVC_32BIT_INTRINSICS
-#  endif
-#  if defined(__ADX__) && defined(BOOST_DECIMAL_HAS_MSVC_64BIT_INTRINSICS)
-#    define BOOST_DECIMAL_ADD_CARRY _addcarryx_u64
-#    define BOOST_DECIMAL_SUB_BORROW _subborrow_u64
-#  elif defined(BOOST_DECIMAL_HAS_MSVC_64BIT_INTRINSICS)
-#    define BOOST_DECIMAL_ADD_CARRY _addcarry_u64
-#    define BOOST_DECIMAL_SUB_BORROW _subborrow_u64
-#  endif
-#elif defined(__x86_64__)
-#  ifndef BOOST_DECIMAL_BUILD_MODULE
-#    include <x86intrin.h>
-#  endif
-#  define BOOST_DECIMAL_HAS_X64_INTRINSICS
-#  ifdef __ADX__
-#    define BOOST_DECIMAL_ADD_CARRY _addcarryx_u64
-#    define BOOST_DECIMAL_SUB_BORROW _subborrow_u64
-#  else
-#    define BOOST_DECIMAL_ADD_CARRY _addcarry_u64
-#    define BOOST_DECIMAL_SUB_BORROW _subborrow_u64
-#  endif
-#elif defined(__ARM_NEON__)
-#  ifndef BOOST_DECIMAL_BUILD_MODULE
-#    include <arm_neon.h>
-#  endif
-#  define BOOST_DECIMAL_HAS_ARM_INTRINSICS
-#elif defined(__i386__)
-#  ifndef BOOST_DECIMAL_BUILD_MODULE
-#    include <immintrin.h>
-#  endif
-#  define BOOST_DECIMAL_HAS_x86_INTRINSICS
-#else
-#  define BOOST_DECIMAL_HAS_NO_INTRINSICS
-#endif
-
-#else
-#  define BOOST_DECIMAL_HAS_NO_INTRINSICS
-#endif
-
 // Use 128-bit integers and suppress warnings for using extensions
 #if (defined(BOOST_HAS_INT128) || (defined(__SIZEOF_INT128__) && !defined(_MSC_VER))) && !(defined(__CUDACC__) && defined(BOOST_DECIMAL_ENABLE_CUDA))
 

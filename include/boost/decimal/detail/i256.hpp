@@ -116,7 +116,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR bool i256_sub_impl(const u256& a, const u256& b, u2
 
 BOOST_DECIMAL_CUDA_CONSTEXPR bool i256_sub(const u256& a, const u256& b, u256& res) noexcept
 {
-    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
+    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(a))
     {
         return impl::i256_sub_impl(a, b, res);
     }
@@ -155,7 +155,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR bool i256_sub(const u256& a, const u256& b, u256& r
 
 BOOST_DECIMAL_CUDA_CONSTEXPR bool i256_sub(const u256& a, const u256& b, u256& result) noexcept
 {
-    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
+    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(a))
     {
         return impl::i256_sub_impl(a, b, result);
     }
@@ -207,7 +207,7 @@ inline std::uint64_t subcll(const std::uint64_t a, const std::uint64_t b, const 
 
 BOOST_DECIMAL_CUDA_CONSTEXPR bool i256_sub(const u256& a, const u256& b, u256& result) noexcept
 {
-    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
+    if (BOOST_DECIMAL_IS_CONSTANT_EVALUATED(a))
     {
         return impl::i256_sub_impl(a, b, result);
     }
