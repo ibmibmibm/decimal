@@ -266,6 +266,9 @@ private:
     template <typename T, typename SigType>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::far_operand(T larger, SigType sig) noexcept -> T;
 
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs, int128::uint128_t lhs_sig, std::int32_t lhs_exp, bool lhs_sign,
+                                                           int128::uint128_t rhs_sig, std::int32_t rhs_exp, bool rhs_sign) noexcept -> decimal128_t;
+
     // The form of detail::select_operand for GCC
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto select_parts(const bool use_lhs, const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
     {
@@ -668,6 +671,15 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool
     return decimal128_t{coeff, exp, sign};
 }
 
+// An integer of at most p digits is exact at exponent 0, so it needs no rounding
+template <typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_from_integer(const Integer val) noexcept -> decimal128_t
+{
+    const auto mag {magnitude_of(val)};
+    // Every integer of 64 bits or less fits
+    return sizeof(Integer) <= sizeof(std::uint64_t) || mag <= d128_max_significand_value ? direct_pack_d128(mag, 0, val < 0) : decimal128_t{val};
+}
+
 } // namespace detail
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::unbiased_exponent() const noexcept -> exponent_type
@@ -915,7 +927,7 @@ template <BOOST_DECIMAL_SIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const T1 coeff, const T2 exp) noexcept : decimal128_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const T1 coeff, const T2 exp) noexcept : decimal128_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const bool value) noexcept : decimal128_t(static_cast<std::uint64_t>(value), 0, false) {}
 
@@ -1652,6 +1664,61 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
 #  pragma warning(pop)
 #endif
 
+// The sum of finite operands, given also as parts, with rhs negated for a difference. Nonzero
+// operands 0 to 3 exponents apart, or with a short larger operand, go to aligned_add_kernel,
+// full operands in the band to band_add_kernel, and in the default mode operands over 75
+// apart give the larger one. d128_add_impl_new does the rest, and the zero rules.
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs,
+                                                                          const int128::uint128_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
+                                                                          const int128::uint128_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal128_t
+{
+    if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
+    {
+        const auto exp_gap {lhs_exp - rhs_exp};
+        const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
+        // Also when the operand with the larger exponent keeps p digits after the shift
+        if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
+        {
+            auto round {_boost_decimal_global_rounding_mode};
+            #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+            if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
+            {
+                round = _boost_decimal_global_runtime_rounding_mode;
+            }
+            #endif
+            if (BOOST_DECIMAL_LIKELY(round == rounding_mode::fe_dec_to_nearest))
+            {
+                if (exp_diff > 75)
+                {
+                    const bool use_lhs {lhs_exp > rhs_exp};
+                    return detail::far_operand(detail::select_operand(use_lhs, lhs, rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
+                }
+                return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
+                    lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
+            }
+            // The other modes use the same kernel out of line
+            if (exp_diff < 34)
+            {
+                return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
+                    lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
+            }
+        }
+        else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+        {
+            return lhs_exp > rhs_exp ?
+                detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_sign, static_cast<unsigned>(exp_diff)) :
+                detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, rhs_sign, lhs_sig, lhs_sign, static_cast<unsigned>(exp_diff));
+        }
+    }
+
+    detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs_sign};
+    detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs_sign};
+    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
+    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
+
+    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+}
+
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
@@ -1666,71 +1733,23 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Two fast paths (see decimal64_t.hpp:operator+ for full explanation), and the band kernel.
-    // Both gated on non-zero operands so zero short-circuit logic is preserved
-    // by falling through to d128_add_impl_new.
-    {
-        const auto lhs_sig {lhs.full_significand()};
-        const auto rhs_sig {rhs.full_significand()};
-        if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
-        {
-            const auto lhs_exp {lhs.biased_exponent()};
-            const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_gap {lhs_exp - rhs_exp};
-            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
-            // Also when the operand with the larger exponent keeps p digits after the shift
-            if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
-            {
-                auto round {_boost_decimal_global_rounding_mode};
-                #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
-                if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
-                {
-                    round = _boost_decimal_global_runtime_rounding_mode;
-                }
-                #endif
-                if (BOOST_DECIMAL_LIKELY(round == rounding_mode::fe_dec_to_nearest))
-                {
-                    if (exp_diff > 75)
-                    {
-                        const bool use_lhs {lhs_exp > rhs_exp};
-                        return detail::far_operand(detail::select_operand(use_lhs, lhs, rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
-                    }
-                    return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), rhs.isneg());
-                }
-                // The other modes use the same kernel out of line
-                if (exp_diff < 34)
-                {
-                    return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), rhs.isneg());
-                }
-            }
-            else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
-            {
-                return lhs_exp > rhs_exp ?
-                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, rhs.isneg(), static_cast<unsigned>(exp_diff)) :
-                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, rhs.isneg(), lhs_sig, lhs.isneg(), static_cast<unsigned>(exp_diff));
-            }
-        }
-    }
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    return d128_add_core(lhs, rhs, lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                         rhs.full_significand(), rhs.biased_exponent(), rhs.isneg());
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {rhs};
-    return lhs + value;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(lhs))
+    {
+        return lhs + decimal128_t{rhs};
+    }
+
+    const bool sign {rhs < 0};
+    return d128_add_core(lhs, detail::direct_pack_d128(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(), mag, 0, sign);
 }
 
 template <typename Integer>
@@ -1759,81 +1778,38 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Fast paths; see operator+ above. Both gated on non-zero operands so
-    // zero short-circuit logic is preserved by falling through. For operator-,
-    // rhs sign is flipped before kernel dispatch.
-    {
-        const auto lhs_sig {lhs.full_significand()};
-        const auto rhs_sig {rhs.full_significand()};
-        if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
-        {
-            const auto lhs_exp {lhs.biased_exponent()};
-            const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_gap {lhs_exp - rhs_exp};
-            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
-            // Also when the operand with the larger exponent keeps p digits after the shift
-            if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
-            {
-                auto round {_boost_decimal_global_rounding_mode};
-                #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
-                if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
-                {
-                    round = _boost_decimal_global_runtime_rounding_mode;
-                }
-                #endif
-                if (BOOST_DECIMAL_LIKELY(round == rounding_mode::fe_dec_to_nearest))
-                {
-                    if (exp_diff > 75)
-                    {
-                        const bool use_lhs {lhs_exp > rhs_exp};
-                        return detail::far_operand(detail::select_operand(use_lhs, lhs, -rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
-                    }
-                    return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), !rhs.isneg());
-                }
-                // The other modes use the same kernel out of line
-                if (exp_diff < 34)
-                {
-                    return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), !rhs.isneg());
-                }
-            }
-            else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
-            {
-                return lhs_exp > rhs_exp ?
-                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs.isneg(), rhs_sig, !rhs.isneg(), static_cast<unsigned>(exp_diff)) :
-                    detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, !rhs.isneg(), lhs_sig, lhs.isneg(), static_cast<unsigned>(exp_diff));
-            }
-        }
-    }
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
-    rhs_components.sign = !rhs_components.sign;
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    return d128_add_core(lhs, -rhs, lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                         rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {rhs};
-    return lhs - value;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(lhs))
+    {
+        return lhs - decimal128_t{rhs};
+    }
+
+    const bool sign {!(rhs < 0)};
+    return d128_add_core(lhs, detail::direct_pack_d128(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(), mag, 0, sign);
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal128_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {lhs};
-    return value - rhs;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(rhs))
+    {
+        return decimal128_t{lhs} - rhs;
+    }
+
+    const bool sign {lhs < 0};
+    return d128_add_core(detail::direct_pack_d128(mag, 0, sign), -rhs, mag, 0, sign, rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
@@ -1879,7 +1855,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t lhs, const Intege
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
     // The integer converts to decimal128_t first, as in C
-    return lhs * decimal128_t{rhs};
+    return lhs * detail::d128_from_integer(rhs);
 }
 
 template <typename Integer>
@@ -1931,7 +1907,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
     auto lhs_components {lhs.to_components()};
     detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
 
-    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     decimal128_t::biased_exponent_type rhs_exp {0};
     detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
     const detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
@@ -1968,7 +1944,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     auto rhs_components {rhs.to_components()};
     detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
 
-    auto lhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(lhs))};
+    auto lhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
     decimal128_t::biased_exponent_type lhs_exp {0};
     // Only an integer of more than p digits needs rounding, and a zero keeps exponent 0
     if (lhs_sig > detail::max_significand_v<decimal128_t>)

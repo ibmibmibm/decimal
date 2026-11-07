@@ -593,7 +593,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto integer_order_impl(Decimal lhs, Integer rhs) n
         rhs_sign = rhs < static_cast<Integer>(0);
     }
 
-    const auto rhs_significand {detail::make_positive_unsigned(rhs)};
+    const auto rhs_significand {detail::magnitude_of(rhs)};
     const auto magnitude {compare_integer_magnitude(lhs_significand, static_cast<int>(lhs.biased_exponent()), rhs_significand)};
 
     // The signs decide unless the decimal is a zero, whose sign does not order it. There is

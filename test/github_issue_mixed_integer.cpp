@@ -39,10 +39,23 @@ void test_wide(const Integer big)
     test_operand(x, -(big / 10 + 5));
 }
 
+// A short operand converts exactly, and a zero operand takes the other path
+template <typename T, typename Integer>
+void test_short()
+{
+    const T x {3, -1};
+
+    test_operand(x, Integer{7});
+    test_operand(x, Integer{-7});
+    test_operand(x, Integer{0});
+}
+
 template <typename T, typename Integer>
 void test_all_modes(const Integer big)
 {
     test_wide<T>(big);
+    test_short<T, Integer>();
+    test_short<T, int>();
 
     #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
     // fesetround has an effect only with the detection of constant evaluation
@@ -51,6 +64,8 @@ void test_all_modes(const Integer big)
     {
         fesetround(mode);
         test_wide<T>(big);
+        test_short<T, Integer>();
+        test_short<T, int>();
     }
     fesetround(rounding_mode::fe_dec_to_nearest);
     #endif

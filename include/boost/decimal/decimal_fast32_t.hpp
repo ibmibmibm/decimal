@@ -603,7 +603,7 @@ constexpr decimal_fast32_t::decimal_fast32_t(T1 coeff, T2 exp, const detail::con
 }
 
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
-constexpr decimal_fast32_t::decimal_fast32_t(const T1 coeff, const T2 exp) noexcept : decimal_fast32_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+constexpr decimal_fast32_t::decimal_fast32_t(const T1 coeff, const T2 exp) noexcept : decimal_fast32_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 constexpr decimal_fast32_t::decimal_fast32_t(const bool value) noexcept : decimal_fast32_t(static_cast<significand_type>(value), 0, false) {}
 
@@ -1312,7 +1312,24 @@ template <typename Integer>
 constexpr auto operator*(const decimal_fast32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t)
 {
-    return lhs * decimal_fast32_t{rhs};
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (!isfinite(lhs))
+    {
+        return lhs * decimal_fast32_t{rhs};
+    }
+    #endif
+
+    // A nonzero integer of at most p digits is exact, so it is normalized here
+    using sig_type = decimal_fast32_t::significand_type;
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag - 1U < detail::max_significand_v<decimal_fast32_t>)
+    {
+        const auto shift {detail::precision_v<decimal_fast32_t> - detail::num_digits(static_cast<sig_type>(mag))};
+        const auto sig {static_cast<sig_type>(mag) * detail::pow10(static_cast<sig_type>(shift))};
+        const detail::decimal_fast32_t_components rhs_c {sig, -shift, rhs < 0};
+        return detail::mul_impl<decimal_fast32_t>(lhs.to_components(), rhs_c);
+    }
+    return detail::mul_impl<decimal_fast32_t>(lhs, decimal_fast32_t{rhs});
 }
 
 template <typename Integer>
@@ -1424,6 +1441,25 @@ template <typename Integer>
 constexpr auto operator/(const decimal_fast32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t)
 {
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    // The integer is finite, so only the decimal can be a special value
+    if (BOOST_DECIMAL_UNLIKELY(lhs.significand_ - 1U >= detail::max_significand_v<decimal_fast32_t>))
+    {
+        return lhs / decimal_fast32_t{rhs};
+    }
+    #endif
+
+    // A nonzero integer of at most p digits is exact, and the division scales it
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag - 1U < detail::max_significand_v<decimal_fast32_t>)
+    {
+        const detail::decimal_fast32_t_components rhs_c {static_cast<decimal_fast32_t::significand_type>(mag), 0, rhs < 0};
+        return detail::generic_div_impl<decimal_fast32_t>(lhs.to_components(), rhs_c);
+    }
+    if (mag != 0U)
+    {
+        return detail::generic_div_impl<decimal_fast32_t>(lhs, decimal_fast32_t{rhs});
+    }
     return lhs / decimal_fast32_t{rhs};
 }
 
@@ -1431,7 +1467,22 @@ template <typename Integer>
 constexpr auto operator/(const Integer lhs, const decimal_fast32_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t)
 {
-    return decimal_fast32_t{lhs} / rhs;
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    // The integer is finite, so only the decimal can be a special value
+    if (BOOST_DECIMAL_UNLIKELY(rhs.significand_ - 1U >= detail::max_significand_v<decimal_fast32_t>))
+    {
+        return decimal_fast32_t{lhs} / rhs;
+    }
+    #endif
+
+    // An integer of at most p digits is exact, and the division scales it
+    const auto mag {detail::magnitude_of(lhs)};
+    if (mag <= detail::max_significand_v<decimal_fast32_t>)
+    {
+        const detail::decimal_fast32_t_components lhs_c {static_cast<decimal_fast32_t::significand_type>(mag), 0, lhs < 0};
+        return detail::generic_div_impl<decimal_fast32_t>(lhs_c, rhs.to_components());
+    }
+    return detail::generic_div_impl<decimal_fast32_t>(decimal_fast32_t{lhs}, rhs);
 }
 
 constexpr auto operator%(const decimal_fast32_t lhs, const decimal_fast32_t rhs) noexcept -> decimal_fast32_t
