@@ -163,6 +163,44 @@ void test_product_overflow()
     test_pair(10000000000000000000000000_DLF, 34028236692094e25_DLF);
     BOOST_TEST(1_DLF < 340283);
     BOOST_TEST(1_DL < 340283);
+
+    // A product just above 2^64, whose low word equals the other significand
+    test_pair(47982804795392_DD, 1000000000105604e14_DD);
+}
+
+// Integers against other cohorts of the same value, and a 64-bit value against a small decimal
+template <typename T>
+void test_integers()
+{
+    constexpr auto big {(std::numeric_limits<unsigned long long>::max)()};
+
+    BOOST_TEST(T{1} < big);
+    BOOST_TEST(-T{1} < big);
+    BOOST_TEST(T{1} != big);
+    BOOST_TEST(!(T{1} > big));
+    BOOST_TEST(big > T{1});
+
+    BOOST_TEST(T(500, -2) == 5);
+    BOOST_TEST(5 == T(500, -2));
+    BOOST_TEST(T(501, -2) != 5);
+    BOOST_TEST(T(501, -2) > 5);
+    BOOST_TEST(T(499, -2) < 5);
+    BOOST_TEST(T(500, -2) != -5);
+    BOOST_TEST(T(500, -2) > -5);
+    BOOST_TEST(-T(500, -2) == -5);
+    BOOST_TEST(-T(500, -2) < 5);
+    BOOST_TEST(-T(501, -2) < -5);
+    BOOST_TEST(-T(499, -2) > -5);
+
+    BOOST_TEST(T(0, -3) == 0);
+    BOOST_TEST(-T(0, -3) == 0);
+    BOOST_TEST(!(-T(0, -3) < 0));
+    BOOST_TEST(-T(0, -3) > -1);
+    BOOST_TEST(T(0, -3) < 1);
+    BOOST_TEST(T(1, -30) > 0);
+    BOOST_TEST(T(1, -30) < 1);
+    BOOST_TEST(-T(1, -30) < 0);
+    BOOST_TEST(-T(1, -30) > -1);
 }
 
 template <typename A, typename B>
@@ -237,6 +275,13 @@ int main()
     test_wide_gaps<decimal_fast128_t>();
 
     test_product_overflow();
+
+    test_integers<decimal32_t>();
+    test_integers<decimal64_t>();
+    test_integers<decimal128_t>();
+    test_integers<decimal_fast32_t>();
+    test_integers<decimal_fast64_t>();
+    test_integers<decimal_fast128_t>();
 
     test_mixed_types<decimal32_t, decimal64_t>();
     test_mixed_types<decimal32_t, decimal128_t>();
