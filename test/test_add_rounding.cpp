@@ -74,6 +74,8 @@ void test_quantum(const T x, const T y, const T sum)
 int main()
 {
     constexpr row<decimal32_t> add32[] {
+        // The band kernel multiplies the larger significand by 1000, thus 32 bits are not enough
+        {9999999_DF, 1234567e-5_DF, {1000001e1_DF, 1000001e1_DF, 1000002e1_DF, 1000001e1_DF, 1000001e1_DF}},
         {3169968e4_DF, 5154500e3_DF, {3685418e4_DF, 3685418e4_DF, 3685418e4_DF, 3685418e4_DF, 3685418e4_DF}},
         {7624039e1_DF, 1810111e-1_DF, {7642140e1_DF, 7642140e1_DF, 7642141e1_DF, 7642140e1_DF, 7642140e1_DF}},
         {9999815e-8_DF, 5095259e-10_DF, {1005077e-7_DF, 1005077e-7_DF, 1005077e-7_DF, 1005076e-7_DF, 1005076e-7_DF}},

@@ -1630,7 +1630,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
 
 // The sum of finite operands. The parts must be those of lhs and rhs, and a difference passes
 // the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart go to
-// aligned_add_kernel, and in the default mode operands over 75 apart give the larger one.
+// aligned_add_kernel, full operands in the band to band_add_kernel, and in the default mode
+// operands over 75 apart give the larger one.
 // d128_add_impl_new does the rest, and the zero rules.
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs,
                                                                           const int128::uint128_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
@@ -1658,6 +1659,12 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const
                 return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
                     lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
             }
+        }
+        else if (detail::takes_band_kernel<decimal128_t>(lhs_sig, rhs_sig, lhs_exp > rhs_exp ? lhs_exp : rhs_exp))
+        {
+            return lhs_exp > rhs_exp ?
+                detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_sign, static_cast<unsigned>(exp_diff)) :
+                detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, rhs_sign, lhs_sig, lhs_sign, static_cast<unsigned>(exp_diff));
         }
     }
 
