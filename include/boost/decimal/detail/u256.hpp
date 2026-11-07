@@ -864,41 +864,20 @@ BOOST_DECIMAL_CUDA_CONSTEXPR int128::uint128_t umul256_hi(const int128::uint128_
 
 BOOST_DECIMAL_CUDA_CONSTEXPR u256 umul256(const int128::uint128_t& a, const int128::uint128_t& b) noexcept
 {
-    u256 result{};
+    const int128::uint128_t ll {umul128(a.low, b.low)};
+    const int128::uint128_t lh {umul128(a.low, b.high)};
+    const int128::uint128_t hl {umul128(a.high, b.low)};
+    // As in umul256_hi, sums of two uint128_t need no carry compares
+    const int128::uint128_t mid {int128::uint128_t{ll.high} + int128::uint128_t{lh.low} + int128::uint128_t{hl.low}};
+    const int128::uint128_t top {umul128(a.high, b.high) + int128::uint128_t{lh.high} + int128::uint128_t{hl.high} + int128::uint128_t{mid.high}};
 
-    const int128::uint128_t a_low {a.low};
-    const int128::uint128_t a_high {a.high};
-    const auto b_low {b.low};
-    const auto b_high {b.high};
-
-    const auto p0 = a_low * b_low;
-    const auto p1 = a_low * b_high;
-    const auto p2 = a_high * b_low;
-    const auto p3 = a_high * b_high;
-
-    const auto p1_plus_p2 = p1 + p2;
-    const std::uint64_t carry_p1p2 = (p1_plus_p2 < p1) ? UINT64_C(1) : UINT64_C(0);
-
-    const auto middle = p1_plus_p2 + p0.high;
-    const std::uint64_t carry_mid = (middle < p1_plus_p2) ? UINT64_C(1) : UINT64_C(0);
-
-    result.bytes[0] = p0.low;
-    result.bytes[1] = middle.low;
-
-    auto high_sum = p3 + int128::uint128_t{0, middle.high};
-    high_sum += int128::uint128_t{carry_p1p2 + carry_mid, 0};
-
-    result.bytes[2] = high_sum.low;
-    result.bytes[3] = high_sum.high;
-
-    return result;
+    return u256{top.high, top.low, mid.low, ll.low};
 }
 
 // Returns the high 256 bits of a u256 * u256 -> u512 product
 BOOST_DECIMAL_CUDA_CONSTEXPR u256 umul512_hi(const u256& a, const u256& b) noexcept
 {
-    // Schoolbook product of 64-bit limbs. It is faster than four umul256 products,
-    // because umul256 adds branches and carry compares.
+    // Schoolbook product of 64-bit limbs, which is faster than four umul256 products
     std::uint64_t r[8] {};
     for (int i {0}; i < 4; ++i)
     {
