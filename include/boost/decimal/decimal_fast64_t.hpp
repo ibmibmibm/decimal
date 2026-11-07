@@ -310,6 +310,16 @@ public:
 
     friend constexpr auto direct_init_d64(decimal_fast64_t::significand_type significand, decimal_fast64_t::exponent_type exponent, bool sign) noexcept -> decimal_fast64_t;
 
+    // The form of detail::select_operand for GCC
+    friend constexpr auto select_parts(const bool use_lhs, const decimal_fast64_t& lhs, const decimal_fast64_t& rhs) noexcept -> decimal_fast64_t
+    {
+        decimal_fast64_t r {};
+        r.significand_ = detail::select_bits(use_lhs, lhs.significand_, rhs.significand_);
+        r.exponent_ = detail::select_bits(use_lhs, lhs.exponent_, rhs.exponent_);
+        r.sign_ = detail::select_bits(use_lhs, static_cast<unsigned>(lhs.sign_), static_cast<unsigned>(rhs.sign_)) != 0U;
+        return r;
+    }
+
     #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 
     explicit constexpr decimal_fast64_t(const char* str);
@@ -1233,7 +1243,7 @@ constexpr auto operator+(const decimal_fast64_t lhs, const decimal_fast64_t rhs)
                 {
                     if (exp_diff > 21)
                     {
-                        return lhs_exp > rhs_exp ? lhs : rhs;
+                        return detail::select_operand(lhs_exp > rhs_exp, lhs, rhs);
                     }
                     return detail::aligned_add_kernel<decimal_fast64_t, std::uint64_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1319,7 +1329,7 @@ constexpr auto operator-(const decimal_fast64_t lhs, const decimal_fast64_t rhs)
                 {
                     if (exp_diff > 21)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        return detail::select_operand(lhs_exp > rhs_exp, lhs, -rhs);
                     }
                     return detail::aligned_add_kernel<decimal_fast64_t, std::uint64_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),

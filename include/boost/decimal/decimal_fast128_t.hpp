@@ -309,6 +309,12 @@ public:
 
     friend constexpr auto direct_init_d128(significand_type significand, exponent_type exponent, bool sign) noexcept -> decimal_fast128_t;
 
+    // The form of detail::select_operand for GCC: a copy is faster than parts in 32 bytes
+    friend constexpr auto select_parts(const bool use_lhs, const decimal_fast128_t& lhs, const decimal_fast128_t& rhs) noexcept -> decimal_fast128_t
+    {
+        return *(use_lhs ? &lhs : &rhs);
+    }
+
     #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 
     constexpr decimal_fast128_t(const char* str);
@@ -1142,7 +1148,7 @@ constexpr auto operator+(const decimal_fast128_t& lhs, const decimal_fast128_t& 
                 {
                     if (exp_diff > 42)
                     {
-                        return lhs_exp > rhs_exp ? lhs : rhs;
+                        return detail::select_operand(lhs_exp > rhs_exp, lhs, rhs);
                     }
                     return detail::aligned_add_kernel<decimal_fast128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1224,7 +1230,7 @@ constexpr auto operator-(const decimal_fast128_t& lhs, const decimal_fast128_t& 
                 {
                     if (exp_diff > 42)
                     {
-                        return lhs_exp > rhs_exp ? lhs : -rhs;
+                        return detail::select_operand(lhs_exp > rhs_exp, lhs, -rhs);
                     }
                     return detail::aligned_add_kernel<decimal_fast128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),

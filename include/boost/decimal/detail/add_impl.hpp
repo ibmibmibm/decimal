@@ -116,6 +116,19 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool
     return ReturnType{coeff, exp, sign};
 }
 
+// x or y, with no branch for GCC to mispredict: it can turn a ternary back into a jump
+template <typename T>
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto select_bits(const bool take_x, const T x, const T y) noexcept -> T
+{
+    const auto mask {static_cast<T>(T{0} - static_cast<T>(take_x))};
+    return static_cast<T>((x & mask) | (y & static_cast<T>(~mask)));
+}
+
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto select_bits(const bool take_x, const int128::uint128_t& x, const int128::uint128_t& y) noexcept -> int128::uint128_t
+{
+    return {select_bits(take_x, x.high, y.high), select_bits(take_x, x.low, y.low)};
+}
+
 // Inline shrink + pack for a sum/diff that exceeds max_significand_v. A shift
 // of 3 or less leaves 1 to 4 extra digits, and a chained comparison against the
 // precomputed thresholds selects them. One divmod_pow10 and one rounding in
@@ -184,6 +197,37 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto far_operand(const T larger, SigType sig) noexc
     return pack_in_range<T>(sig, exp, larger.isneg());
 }
 
+// GCC compiles a ternary to a random jump, and elsewhere a value built by parts stalls its load
+template <typename T>
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto select_operand(const bool use_lhs, const T& lhs, const T& rhs) noexcept -> T
+{
+    #if defined(__GNUC__) && !defined(__clang__)
+    return select_parts(use_lhs, lhs, rhs);
+    #else
+    return *(use_lhs ? &lhs : &rhs);
+    #endif
+}
+
+// The sum of a and b, both at exponent exp, with no branch on the signs or the order
+template <typename ReturnType, typename SigType, typename ExpType, bool AnyMode>
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_sum(const SigType a, const unsigned a_neg, const SigType b, const unsigned b_neg,
+                                                                         const ExpType exp, const rounding_mode round) noexcept -> ReturnType
+{
+    constexpr SigType ten_to_p {static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1}};
+    const bool same_sign {a_neg == b_neg};
+    const bool a_below {a < b};
+    const auto magnitude {select_bits(same_sign, static_cast<SigType>(a + b),
+                          select_bits(a_below, static_cast<SigType>(b - a), static_cast<SigType>(a - b)))};
+    const bool b_decides {!same_sign && a_below};
+    // An exact cancel is -0 only in the downward mode
+    const bool sign {BOOST_DECIMAL_UNLIKELY(magnitude == 0U) ? round == rounding_mode::fe_dec_downward : select_bits(b_decides, b_neg, a_neg) != 0U};
+    if (magnitude < ten_to_p)
+    {
+        return pack_in_range<ReturnType>(magnitude, exp, sign);
+    }
+    return aligned_shrink_and_pack<ReturnType, SigType, ExpType, AnyMode>(magnitude, exp, sign, round);
+}
+
 // Aligned-add kernel that stays in the narrower integer width (uint64 for d64,
 // uint128 for d128) instead of the kernel's normal promoted width (uint128 or
 // u256). Two precision-p operands shifted by up to `narrow_max_shift` digits
@@ -203,74 +247,35 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_add_kernel(
     bool lhs_sign, bool rhs_sign, const rounding_mode mode = rounding_mode::fe_dec_to_nearest) noexcept -> ReturnType
 {
     const auto round {AnyMode ? mode : rounding_mode::fe_dec_to_nearest};
-    SigType a {};
-    SigType b {};
-    ExpType result_exp {};
-    if (shift == 0U)
-    {
-        a = big_lhs;
-        b = big_rhs;
-        result_exp = lhs_exp;
-    }
-    else
+
+    // Random signs and exponents mispredict a branch, and a 64-bit product is cheap
+    BOOST_DECIMAL_IF_CONSTEXPR (sizeof(SigType) == sizeof(std::uint64_t))
     {
         const auto pow_shift {detail::pow10<SigType>(static_cast<SigType>(shift))};
-        if (lhs_exp < rhs_exp)
-        {
-            a = big_lhs;
-            b = static_cast<SigType>(big_rhs * pow_shift);
-            result_exp = lhs_exp;
-        }
-        else
-        {
-            a = static_cast<SigType>(big_lhs * pow_shift);
-            b = big_rhs;
-            result_exp = rhs_exp;
-        }
-    }
-
-    // Same-sign: magnitudes add. Sum can overflow by up to `shift` digits
-    // (1 for shift=0 same-exp, up to `shift` for small-diff).
-    if (lhs_sign == rhs_sign)
-    {
-        const SigType sum {static_cast<SigType>(a + b)};
-        constexpr SigType ten_to_p_ss {
-            static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1}};
-        if (sum < ten_to_p_ss)
-        {
-            return pack_in_range<ReturnType>(sum, result_exp, lhs_sign);
-        }
-        return aligned_shrink_and_pack<ReturnType, SigType, ExpType, AnyMode>(sum, result_exp, lhs_sign, round);
-    }
-
-    // Opposite signs: magnitudes subtract. For shift=0 the result <= max(a, b) <= max_sig
-    // so no overflow check is needed; for shift>0 the result can be up to
-    // max_sig * 10^shift and may need shrink.
-    SigType mag {};
-    bool result_sign {};
-    if (a >= b)
-    {
-        mag = static_cast<SigType>(a - b);
-        // An exact cancel is -0 only in the downward mode
-        result_sign = a != b ? lhs_sign : round == rounding_mode::fe_dec_downward;
+        const bool lhs_first {lhs_exp < rhs_exp};
+        return aligned_sum<ReturnType, SigType, ExpType, AnyMode>(static_cast<SigType>(big_lhs * select_bits(lhs_first, SigType{1U}, pow_shift)), static_cast<unsigned>(lhs_sign),
+                                                                  static_cast<SigType>(big_rhs * select_bits(lhs_first, pow_shift, SigType{1U})), static_cast<unsigned>(rhs_sign),
+                                                                  select_bits(lhs_first, lhs_exp, rhs_exp), round);
     }
     else
     {
-        mag = static_cast<SigType>(b - a);
-        result_sign = rhs_sign;
+        // The same for a wide type, whose product and selects only a nonzero shift needs
+        SigType low_sig {big_lhs};
+        SigType scaled {big_rhs};
+        auto low_exp {lhs_exp};
+        auto low_neg {static_cast<unsigned>(lhs_sign)};
+        auto scaled_neg {static_cast<unsigned>(rhs_sign)};
+        if (shift != 0U)
+        {
+            const bool lhs_first {lhs_exp < rhs_exp};
+            low_sig = select_bits(lhs_first, big_lhs, big_rhs);
+            scaled = static_cast<SigType>(select_bits(lhs_first, big_rhs, big_lhs) * detail::pow10<SigType>(static_cast<SigType>(shift)));
+            low_exp = select_bits(lhs_first, lhs_exp, rhs_exp);
+            low_neg = select_bits(lhs_first, static_cast<unsigned>(lhs_sign), static_cast<unsigned>(rhs_sign));
+            scaled_neg = select_bits(lhs_first, static_cast<unsigned>(rhs_sign), static_cast<unsigned>(lhs_sign));
+        }
+        return aligned_sum<ReturnType, SigType, ExpType, AnyMode>(low_sig, low_neg, scaled, scaled_neg, low_exp, round);
     }
-    if (shift == 0U)
-    {
-        // No overflow possible in same-exp opposite-sign subtraction.
-        return pack_in_range<ReturnType>(mag, result_exp, result_sign);
-    }
-    constexpr SigType ten_to_p_os {
-        static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1}};
-    if (mag < ten_to_p_os)
-    {
-        return pack_in_range<ReturnType>(mag, result_exp, result_sign);
-    }
-    return aligned_shrink_and_pack<ReturnType, SigType, ExpType, AnyMode>(mag, result_exp, result_sign, round);
 }
 
 // a and b have p digits, ea - eb = d >= 4. s is a * 10^3 plus b cut there, and
@@ -303,14 +308,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_kernel(const SigType a, const ExpType
                 r = static_cast<SigType>(dr.remainder);
             }
             const auto half {static_cast<SigType>(pd >> 1U)};
-            cmp = r < half ? -1 : (r == half ? 0 : 1);
+            cmp = static_cast<int>(r > half) - static_cast<int>(r < half);
             exact = r == 0U;
         }
 
         // A difference with a rest takes one less, and the rest is 10^d - r
-        const bool less {sa != sb && !exact};
-        auto s {static_cast<SigType>(sa == sb ? a + q : a - q - static_cast<SigType>(less))};
-        cmp = less ? -cmp : cmp;
+        const bool less {static_cast<bool>(static_cast<unsigned>(sa != sb) & static_cast<unsigned>(!exact))};
+        auto s {select_bits(sa == sb, static_cast<SigType>(a + q), static_cast<SigType>(a - q - static_cast<SigType>(less)))};
+        cmp = select_bits(less, -cmp, cmp);
 
         if (s < ten_p && s >= ten_p_minus_1)
         {
@@ -364,6 +369,19 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_kernel(const SigType a, const ExpType
     }
 
     return pack_in_range<ReturnType>(q, ea - static_cast<ExpType>(g) + static_cast<ExpType>(k), sa);
+}
+
+// One call with selected arguments, because the larger exponent is random
+template <typename ReturnType, typename SigType, typename ExpType>
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_selected(const SigType lhs_sig, const ExpType lhs_exp, const bool lhs_sign,
+                                                                               const SigType rhs_sig, const ExpType rhs_exp, const bool rhs_sign,
+                                                                               const unsigned shift) noexcept -> ReturnType
+{
+    const bool lhs_larger {lhs_exp > rhs_exp};
+    const auto lhs_neg {static_cast<unsigned>(lhs_sign)};
+    const auto rhs_neg {static_cast<unsigned>(rhs_sign)};
+    return band_add_kernel<ReturnType, SigType>(select_bits(lhs_larger, lhs_sig, rhs_sig), select_bits(lhs_larger, lhs_exp, rhs_exp), select_bits(lhs_larger, lhs_neg, rhs_neg) != 0U,
+                                                      select_bits(lhs_larger, rhs_sig, lhs_sig), select_bits(lhs_larger, rhs_neg, lhs_neg) != 0U, shift);
 }
 
 // Directed modes: a call that the compiler can keep out of line.
@@ -479,9 +497,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto add_impl(const T& lhs, const T& rhs) noexcept 
         const auto big_exp {exp_diff > 0 ? lhs_exp : rhs_exp};
         if (shift_abs > u64_small_diff_limit && big_exp + detail::precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10)
         {
-            return exp_diff > 0 ?
-                band_add_kernel<ReturnType, std::uint64_t>(static_cast<std::uint64_t>(big_lhs), lhs_exp, lhs.isneg(), static_cast<std::uint64_t>(big_rhs), rhs.isneg(), shift_abs) :
-                band_add_kernel<ReturnType, std::uint64_t>(static_cast<std::uint64_t>(big_rhs), rhs_exp, rhs.isneg(), static_cast<std::uint64_t>(big_lhs), lhs.isneg(), shift_abs);
+            return band_add_selected<ReturnType>(static_cast<std::uint64_t>(big_lhs), lhs_exp, lhs.isneg(),
+                                                 static_cast<std::uint64_t>(big_rhs), rhs_exp, rhs.isneg(), shift_abs);
         }
     }
 
@@ -686,9 +703,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_impl_new(const T& lhs, const T& rhs) 
             // result has its first digit p - 2 or more above the big exponent.
             else if ((lhs_exp > rhs_exp ? lhs_exp : rhs_exp) + detail::precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10)
             {
-                return lhs_exp > rhs_exp ?
-                    band_add_kernel<ReturnType, int128::uint128_t>(big_lhs, lhs_exp, lhs.isneg(), big_rhs, rhs.isneg(), static_cast<unsigned>(shift)) :
-                    band_add_kernel<ReturnType, int128::uint128_t>(big_rhs, rhs_exp, rhs.isneg(), big_lhs, lhs.isneg(), static_cast<unsigned>(shift));
+                return band_add_selected<ReturnType>(big_lhs, lhs_exp, lhs.isneg(), big_rhs, rhs_exp, rhs.isneg(), static_cast<unsigned>(shift));
             }
         }
 
