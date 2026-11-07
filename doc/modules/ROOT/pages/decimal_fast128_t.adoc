@@ -72,7 +72,7 @@ template <typename SignedIntegral, typename Integral>
 constexpr decimal_fast128_t(SignedIntegral coeff, Integral exp) noexcept;
 
 template <typename Integral>
-constexpr decimal_fast128_t& operator=(const Integeral& RHS) noexcept;
+constexpr decimal_fast128_t& operator=(const Integral& RHS) noexcept;
 
 // 3.2.4.4 Conversion to integral type
 // If the value exceeds the range of the integral,

@@ -273,7 +273,16 @@ public:
 
     #ifdef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     explicit constexpr decimal_fast32_t(long double val) noexcept = delete;
+    auto operator=(long double val) noexcept -> decimal_fast32_t& = delete;
     #endif
+
+    template <typename Float>
+    BOOST_DECIMAL_CXX20_CONSTEXPR auto operator=(const Float& val) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_floating_point_v, Float, decimal_fast32_t&);
+
+    template <typename Integer>
+    constexpr auto operator=(const Integer& val) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t&);
 
     #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
 
@@ -1642,6 +1651,22 @@ constexpr auto decimal_fast32_t::operator--(int) noexcept -> decimal_fast32_t
     const auto temp {*this};
     --(*this);
     return temp;
+}
+
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto decimal_fast32_t::operator=(const Float& val) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_floating_point_v, Float, decimal_fast32_t&)
+{
+    *this = decimal_fast32_t{val};
+    return *this;
+}
+
+template <typename Integer>
+constexpr auto decimal_fast32_t::operator=(const Integer& val) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t&)
+{
+    *this = decimal_fast32_t{val};
+    return *this;
 }
 
 constexpr decimal_fast32_t::operator bool() const noexcept

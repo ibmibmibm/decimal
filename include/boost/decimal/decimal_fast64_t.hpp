@@ -307,7 +307,16 @@ public:
 
     #ifdef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     explicit constexpr decimal_fast64_t(long double val) noexcept = delete;
+    auto operator=(long double val) noexcept -> decimal_fast64_t& = delete;
     #endif
+
+    template <typename Float>
+    BOOST_DECIMAL_CXX20_CONSTEXPR auto operator=(const Float& val) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_floating_point_v, Float, decimal_fast64_t&);
+
+    template <typename Integer>
+    constexpr auto operator=(const Integer& val) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t&);
 
     friend constexpr auto direct_init_d64(decimal_fast64_t::significand_type significand, decimal_fast64_t::exponent_type exponent, bool sign) noexcept -> decimal_fast64_t;
 
@@ -1086,6 +1095,22 @@ constexpr auto operator+(const decimal_fast64_t val) noexcept -> decimal_fast64_
 constexpr auto operator-(const decimal_fast64_t val) noexcept -> decimal_fast64_t
 {
     return direct_init_d64(val.significand_, val.exponent_, !val.sign_);
+}
+
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto decimal_fast64_t::operator=(const Float& val) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_floating_point_v, Float, decimal_fast64_t&)
+{
+    *this = decimal_fast64_t{val};
+    return *this;
+}
+
+template <typename Integer>
+constexpr auto decimal_fast64_t::operator=(const Integer& val) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t&)
+{
+    *this = decimal_fast64_t{val};
+    return *this;
 }
 
 constexpr decimal_fast64_t::operator bool() const noexcept
