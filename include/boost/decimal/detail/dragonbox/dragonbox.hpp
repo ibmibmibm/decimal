@@ -18,6 +18,7 @@
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #endif
 
 namespace boost {
@@ -139,16 +140,20 @@ constexpr auto cache_128(const int k) noexcept -> cache_entry
     return {fast_float::significand_table::significand_64[index] + static_cast<std::uint64_t>(low < up), low};
 }
 
-struct binary32_format
+// A binary format of at most 32 bits. The shorter interval has an integer left endpoint for the exponents
+// 2 to LeftIntegerMax, and a tie at TieExponent, which Dragonbox derives from the significand bits.
+template <int SignificandBits, int ExponentBias, int TieExponent, int LeftIntegerMax>
+struct binary32_carrier_format
 {
     using carrier_uint = std::uint32_t;
 
-    static constexpr int significand_bits {23};
-    static constexpr int exponent_bias {-127};
-    static constexpr int min_exponent {-126};
+    static constexpr int significand_bits {SignificandBits};
+    static constexpr int exponent_bias {ExponentBias};
+    static constexpr int min_exponent {ExponentBias + 1};
     static constexpr int min_k {-31};
     static constexpr int kappa {1};
-    static constexpr int shorter_interval_tie_exponent {-35};
+    static constexpr int shorter_interval_tie_exponent {TieExponent};
+    static constexpr int left_integer_max {LeftIntegerMax};
     static constexpr std::uint32_t big_divisor {100};
     static constexpr std::uint32_t small_divisor {10};
     static constexpr std::uint64_t divide_magic_number {6554};
@@ -205,6 +210,19 @@ struct binary32_format
     }
 };
 
+using binary32_format = binary32_carrier_format<23, -127, -35, 3>;
+using binary16_format = binary32_carrier_format<10, -15, -17, 7>;
+
+// bfloat16 has the exponents of float with fewer significand bits, so 10^k goes past the float table
+struct bfloat16_format : binary32_carrier_format<7, -127, -12, 3>
+{
+    static constexpr auto get_cache(const int minus_k) noexcept -> std::uint64_t
+    {
+        const auto cache {cache_128(-minus_k)};
+        return cache.high + static_cast<std::uint64_t>(cache.low != 0U);
+    }
+};
+
 struct binary64_format
 {
     using carrier_uint = std::uint64_t;
@@ -214,6 +232,7 @@ struct binary64_format
     static constexpr int min_exponent {-1022};
     static constexpr int kappa {2};
     static constexpr int shorter_interval_tie_exponent {-77};
+    static constexpr int left_integer_max {3};
     static constexpr std::uint64_t big_divisor {1000};
     static constexpr std::uint64_t small_divisor {100};
     static constexpr std::uint64_t divide_magic_number {656};
@@ -287,7 +306,7 @@ constexpr auto shorter_interval_case(const int binary_exponent, const bool sign)
 
     auto xi {Format::left_endpoint(cache, beta)};
     const auto zi {Format::right_endpoint(cache, beta)};
-    if (binary_exponent < 2 || binary_exponent > 3)
+    if (binary_exponent < 2 || binary_exponent > Format::left_integer_max)
     {
         ++xi;
     }
@@ -406,6 +425,27 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd64(const double val) noex
     return to_decimal<binary64_format>(significand, exponent, sign);
 }
 
+// The same for a 16-bit type, with its own interval.
+template <typename Format, typename T>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd16(const T val) noexcept -> floating_decimal<std::uint32_t>
+{
+    const auto bits {bit_cast<std::uint16_t>(val)};
+    const auto significand {static_cast<std::uint32_t>(bits & ((1U << Format::significand_bits) - 1U))};
+    const auto exponent {static_cast<int>((bits & 0x7FFFU) >> Format::significand_bits)};
+    const auto sign {(bits >> 15U) != 0U};
+    if (exponent == 0 && significand == 0U)
+    {
+        return {0U, 0, sign};
+    }
+    // The interval of the smallest bfloat16 holds 9e-41 and 1e-40, and Dragonbox takes the larger. Each other 16-bit
+    // value gives the nearest of its shortest decimals.
+    if (std::is_same<Format, bfloat16_format>::value && exponent == 0 && significand == 1U)
+    {
+        return {9U, -41, sign};
+    }
+    return to_decimal<Format>(significand, exponent, sign);
+}
+
 } // namespace dragonbox
 
 // Dragonbox for float and double, Ryu for the wider types Dragonbox does not cover.
@@ -426,6 +466,39 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd(const double val) noexce
 {
     return dragonbox::floating_point_to_fd64(val);
 }
+
+// The 16-bit types have their own interval, and the 32 and 64-bit ones have the format of float and double
+#ifdef BOOST_DECIMAL_HAS_FLOAT16
+BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd(const std::float16_t val) noexcept
+    -> dragonbox::floating_decimal<std::uint32_t>
+{
+    return dragonbox::floating_point_to_fd16<dragonbox::binary16_format>(val);
+}
+#endif
+
+#ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
+BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd(const std::bfloat16_t val) noexcept
+    -> dragonbox::floating_decimal<std::uint32_t>
+{
+    return dragonbox::floating_point_to_fd16<dragonbox::bfloat16_format>(val);
+}
+#endif
+
+#ifdef BOOST_DECIMAL_HAS_FLOAT32
+BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd(const std::float32_t val) noexcept
+    -> dragonbox::floating_decimal<std::uint32_t>
+{
+    return dragonbox::floating_point_to_fd32(static_cast<float>(val));
+}
+#endif
+
+#ifdef BOOST_DECIMAL_HAS_FLOAT64
+BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd(const std::float64_t val) noexcept
+    -> dragonbox::floating_decimal<std::uint64_t>
+{
+    return dragonbox::floating_point_to_fd64(static_cast<double>(val));
+}
+#endif
 
 #if BOOST_DECIMAL_LDBL_BITS == 64
 

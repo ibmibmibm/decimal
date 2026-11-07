@@ -9,6 +9,7 @@
 #include <random>
 #include <cmath>
 #include <climits>
+#include <cstring>
 
 #if defined(__clang__)
 #  pragma clang diagnostic push
@@ -103,6 +104,22 @@ void test_compute_float80_128()
 #  pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #endif
 
+// Ryu converts only the types wider than double
+template <typename T>
+void test_ryu()
+{
+    std::mt19937_64 gen(42);
+    std::uniform_real_distribution<T> dist (1, 2);
+
+    using namespace boost::decimal::detail::ryu;
+
+    BOOST_TEST(floating_point_to_fd128(T(0) * dist(gen)).mantissa == 0U);
+    BOOST_TEST(floating_point_to_fd128(std::numeric_limits<T>::infinity() * dist(gen)).exponent == fd128_exceptional_exponent);
+    BOOST_TEST(floating_point_to_fd128(std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
+    BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::infinity() * dist(gen)).exponent == fd128_exceptional_exponent);
+    BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
+}
+
 // A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
 void test_narrow_midpoint()
 {
@@ -135,6 +152,99 @@ void test_narrow_midpoint()
     #endif
 }
 
+// A 16-bit type gives its own shortest digits, not those of the same value as a float
+void test_narrow_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    #ifdef BOOST_DECIMAL_HAS_FLOAT16
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::float16_t>(0.1F)}, 0.1_DF);
+    BOOST_TEST_EQ(decimal64_t {static_cast<std::float16_t>(0.1F)}, 0.1_DD);
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::float16_t>(16384)}, 16380_DF);
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::float16_t>(0.0078125F)}, 0.007812_DF);
+    BOOST_TEST_EQ(decimal32_t {std::numeric_limits<std::float16_t>::min()}, 6.104e-5_DF);
+    BOOST_TEST_EQ(decimal32_t {std::numeric_limits<std::float16_t>::denorm_min()}, 6e-8_DF);
+    BOOST_TEST_EQ(decimal128_t {static_cast<std::float16_t>(-0.015625F)}, -0.01563_DL);
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::float16_t>(-0.0F)}, 0_DF);
+    #endif
+
+    #ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::bfloat16_t>(0.1F)}, 0.1_DF);
+    BOOST_TEST_EQ(decimal32_t {static_cast<std::bfloat16_t>(0.03125F)}, 0.0312_DF);
+    BOOST_TEST_EQ(decimal32_t {std::numeric_limits<std::bfloat16_t>::max()}, 3.39e38_DF);
+    BOOST_TEST_EQ(decimal32_t {std::numeric_limits<std::bfloat16_t>::denorm_min()}, 9e-41_DF);
+    BOOST_TEST_EQ(decimal64_t {-std::numeric_limits<std::bfloat16_t>::denorm_min()}, -9e-41_DD);
+    #endif
+}
+
+// Each finite 16-bit value, also -0, comes back with the same bits through decimal32_t
+template <typename T>
+void test_narrow_round_trip()
+{
+    for (std::uint32_t i {}; i < 65536U; ++i)
+    {
+        const auto bits {static_cast<std::uint16_t>(i)};
+        T x {};
+        std::memcpy(&x, &bits, sizeof(bits));
+        if (!std::isfinite(static_cast<float>(x)))
+        {
+            continue;
+        }
+        const auto back {static_cast<T>(boost::decimal::decimal32_t {x})};
+        std::uint16_t back_bits {};
+        std::memcpy(&back_bits, &back, sizeof(back_bits));
+        BOOST_TEST_EQ(back_bits, bits);
+    }
+}
+
+// Each positive finite 16-bit value x = m * 2^e gives the nearest of the shortest decimals in its rounding interval.
+// compare_exact gives the sign of d * 10^k - n * 2^b, so the test does not use the conversion it checks.
+template <typename T>
+void test_narrow_nearest_shortest(const int fraction_bits, const int bias)
+{
+    using boost::decimal::detail::fast_float::compare_exact;
+    const auto max_biased {(1 << (15 - fraction_bits)) - 1};
+    for (std::uint32_t bits {1U}; bits < (static_cast<std::uint32_t>(max_biased) << fraction_bits); ++bits)
+    {
+        const auto biased {static_cast<int>(bits >> fraction_bits)};
+        const auto fraction {bits & ((1U << fraction_bits) - 1U)};
+        const std::uint64_t m {biased == 0 ? fraction : fraction | (1U << fraction_bits)};
+        const std::int64_t e {(biased == 0 ? 1 : biased) - bias - fraction_bits};
+        const auto narrow_below {fraction == 0U && biased > 1};
+        const auto inclusive {m % 2U == 0U};
+
+        const auto narrow_bits {static_cast<std::uint16_t>(bits)};
+        T x {};
+        std::memcpy(&x, &narrow_bits, sizeof(narrow_bits));
+        int k {};
+        auto d {static_cast<std::uint64_t>(boost::decimal::frexp10(boost::decimal::decimal32_t {x}, &k))};
+        while (d % 10U == 0U)
+        {
+            d /= 10U;
+            ++k;
+        }
+
+        // c * 10^j is in the interval between the midpoints with the neighbors of x
+        const auto inside {[&](const std::uint64_t c, const std::int64_t j)
+        {
+            const auto above_low {narrow_below ? compare_exact(j, c, 4U * m - 1U, e - 2) : compare_exact(j, c, 2U * m - 1U, e - 1)};
+            const auto below_high {compare_exact(j, c, 2U * m + 1U, e - 1)};
+            return (above_low > 0 || (inclusive && above_low == 0)) && (below_high < 0 || (inclusive && below_high == 0));
+        }};
+        BOOST_TEST(inside(d, k));
+        if (d >= 10U)
+        {
+            BOOST_TEST(!inside(d / 10U, k + 1) && !inside(d / 10U + 1U, k + 1));
+        }
+        // A neighbor with as many digits is not nearer to x than d
+        BOOST_TEST(!inside(d + 1U, k) || compare_exact(k - 1, (2U * d + 1U) * 5U, m, e) >= 0);
+        BOOST_TEST(!inside(d - 1U, k) || compare_exact(k - 1, (2U * d - 1U) * 5U, m, e) <= 0);
+        // Below 1 * 10^k, the decimal with one digit is 9 * 10^(k - 1)
+        BOOST_TEST(d != 1U || !inside(9U, k - 1) || compare_exact(k - 2, 95U, m, e) <= 0);
+    }
+}
+
 template <typename T>
 void test_generic_binary_to_decimal()
 {
@@ -148,12 +258,6 @@ void test_generic_binary_to_decimal()
     BOOST_TEST_EQ(result[0], 0);
     BOOST_TEST_EQ(result[1], 5206161169240293376);
     BOOST_TEST_EQ(result[2], 4575641699882439235);
-
-    BOOST_TEST(floating_point_to_fd128(T(0) * dist(gen)).mantissa == 0U);
-    BOOST_TEST(floating_point_to_fd128(std::numeric_limits<T>::infinity() * dist(gen)).exponent == fd128_exceptional_exponent);
-    BOOST_TEST(floating_point_to_fd128(std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
-    BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::infinity() * dist(gen)).exponent == fd128_exceptional_exponent);
-    BOOST_TEST(floating_point_to_fd128(-std::numeric_limits<T>::quiet_NaN() * dist(gen)).exponent == fd128_exceptional_exponent);
 
     // https://github.com/boostorg/decimal/issues/242
     BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<T, double>::value)
@@ -511,7 +615,20 @@ int main()
     test_generic_binary_to_decimal<long double>();
     #endif
 
+    #if BOOST_DECIMAL_LDBL_BITS == 80 || BOOST_DECIMAL_LDBL_BITS == 128
+    test_ryu<long double>();
+    #endif
+
     test_narrow_midpoint();
+    test_narrow_shortest();
+    #ifdef BOOST_DECIMAL_HAS_FLOAT16
+    test_narrow_round_trip<std::float16_t>();
+    test_narrow_nearest_shortest<std::float16_t>(10, 15);
+    #endif
+    #ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
+    test_narrow_round_trip<std::bfloat16_t>();
+    test_narrow_nearest_shortest<std::bfloat16_t>(7, 127);
+    #endif
 
     test_parser();
     test_push_eight<std::uint64_t>(0U);
