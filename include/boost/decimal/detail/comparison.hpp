@@ -432,52 +432,76 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator!=(Decimal1 lhs, Decimal2 rhs) noexcep
 template <BOOST_DECIMAL_FAST_DECIMAL_FLOATING_TYPE DecimalType>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto fast_less_impl(const DecimalType& lhs, const DecimalType& rhs) noexcept -> bool
 {
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (not_finite(lhs) || not_finite(rhs))
+    // One test finds a zero or a value that is not finite in either operand, except in
+    // two words, where the test costs more than the separate tests.
+    using sig_type = decltype(lhs.significand_);
+    constexpr auto max_sig {static_cast<sig_type>(detail::max_significand_v<DecimalType>)};
+    if (detail::decimal_val_v<DecimalType> >= 128 ||
+        BOOST_DECIMAL_UNLIKELY((static_cast<unsigned>(static_cast<sig_type>(lhs.significand_ - 1U) >= max_sig) |
+                                static_cast<unsigned>(static_cast<sig_type>(rhs.significand_ - 1U) >= max_sig)) != 0U))
     {
-        if (isnan(lhs) || isnan(rhs) ||
-            (!lhs.isneg() && rhs.isneg()))
+    #ifndef BOOST_DECIMAL_FAST_MATH
+        if (not_finite(lhs) || not_finite(rhs))
         {
-            return false;
+            if (isnan(lhs) || isnan(rhs) ||
+                (!lhs.isneg() && rhs.isneg()))
+            {
+                return false;
+            }
+            else if (lhs.isneg() && !rhs.isneg())
+            {
+                return true;
+            }
+            else if (isfinite(lhs) && isinf(rhs))
+            {
+                return !signbit(rhs);
+            }
+            else if (isinf(lhs) && isfinite(rhs))
+            {
+                return signbit(rhs);
+            }
         }
-        else if (lhs.isneg() && !rhs.isneg())
-        {
-            return true;
-        }
-        else if (isfinite(lhs) && isinf(rhs))
-        {
-            return !signbit(rhs);
-        }
-        else if (isinf(lhs) && isfinite(rhs))
-        {
-            return signbit(rhs);
-        }
-    }
     #endif
 
-    // Needed to correctly compare signed and unsigned zeros.
-    // Every zero compares equal to every other zero, so neither of a pair of them is less
-    // (IEEE 754-2008 5.11). Ordering -0 before +0 is the job of totalorder, not of operator<.
-    if (lhs.significand_ == 0U || rhs.significand_ == 0U)
-    {
-        if (lhs.significand_ == 0U && rhs.significand_ == 0U)
+        // Needed to correctly compare signed and unsigned zeros.
+        // Every zero compares equal to every other zero, so neither of a pair of them is less
+        // (IEEE 754-2008 5.11). Ordering -0 before +0 is the job of totalorder, not of operator<.
+        if (lhs.significand_ == 0U || rhs.significand_ == 0U)
         {
-            return false;
+            if (lhs.significand_ == 0U && rhs.significand_ == 0U)
+            {
+                return false;
+            }
+            return lhs.significand_ == 0U ? !rhs.sign_ : lhs.sign_;
         }
-        return lhs.significand_ == 0U ? !rhs.sign_ : lhs.sign_;
     }
 
-    if (lhs.sign_ != rhs.sign_)
+    BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> < 128)
     {
-        return lhs.sign_;
+        // Normalized values order by exponent and then significand, so one signed key holds the
+        // whole order. The key of a nonzero value is positive, so its negation is less than it.
+        constexpr auto below_min_sig {detail::pow10(static_cast<std::uint64_t>(detail::precision_v<DecimalType> > 16 ? 0 : detail::precision_v<DecimalType> - 1)) - 1U};
+        const auto lhs_mask {-static_cast<std::int64_t>(lhs.sign_)};
+        const auto rhs_mask {-static_cast<std::int64_t>(rhs.sign_)};
+        const auto lhs_key {(static_cast<std::int64_t>(lhs.exponent_) << 53) + static_cast<std::int64_t>(static_cast<std::uint64_t>(lhs.significand_) - below_min_sig)};
+        const auto rhs_key {(static_cast<std::int64_t>(rhs.exponent_) << 53) + static_cast<std::int64_t>(static_cast<std::uint64_t>(rhs.significand_) - below_min_sig)};
+        return ((lhs_key ^ lhs_mask) - lhs_mask) < ((rhs_key ^ rhs_mask) - rhs_mask);
     }
-
-    if (lhs.exponent_ != rhs.exponent_)
+    else
     {
-        return lhs.sign_ ? lhs.exponent_ > rhs.exponent_ : lhs.exponent_ < rhs.exponent_;
+        // The same key in two words: the exponent sits above the 49 high bits of the significand
+        const auto lhs_high {(static_cast<std::uint64_t>(lhs.exponent_) << 49) + int128::uint128_t{lhs.significand_}.high};
+        const auto rhs_high {(static_cast<std::uint64_t>(rhs.exponent_) << 49) + int128::uint128_t{rhs.significand_}.high};
+        const auto lhs_low {int128::uint128_t{lhs.significand_}.low};
+        const auto rhs_low {int128::uint128_t{rhs.significand_}.low};
+        const auto same_high {static_cast<unsigned>(lhs_high == rhs_high)};
+        const auto above {static_cast<unsigned>(lhs_high > rhs_high) | (same_high & static_cast<unsigned>(lhs_low > rhs_low))};
+        const auto below {static_cast<unsigned>(lhs_high < rhs_high) | (same_high & static_cast<unsigned>(lhs_low < rhs_low))};
+        const auto lhs_negative {static_cast<unsigned>(lhs.sign_)};
+        const auto signs_differ {lhs_negative ^ static_cast<unsigned>(rhs.sign_)};
+        const auto same_sign {(lhs_negative & above) | (~lhs_negative & below & 1U)};
+        return ((signs_differ & lhs_negative) | (~signs_differ & same_sign & 1U)) != 0U;
     }
-
-    return lhs.sign_ ? lhs.significand_ > rhs.significand_ : lhs.significand_ < rhs.significand_;
 }
 
 template <BOOST_DECIMAL_INTEGRAL T, BOOST_DECIMAL_INTEGRAL U>
