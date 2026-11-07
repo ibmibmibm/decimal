@@ -376,57 +376,30 @@ auto mul_128_256_shift(
     BOOST_DECIMAL_ASSERT(shift > 0);
     BOOST_DECIMAL_ASSERT(shift < 256);
 
-    const unsigned_128_type b00 = static_cast<unsigned_128_type>(a[0]) * b[0]; // 0
-    const unsigned_128_type b01 = static_cast<unsigned_128_type>(a[0]) * b[1]; // 64
-    const unsigned_128_type b02 = static_cast<unsigned_128_type>(a[0]) * b[2]; // 128
-    const unsigned_128_type b03 = static_cast<unsigned_128_type>(a[0]) * b[3]; // 196
-    const unsigned_128_type b10 = static_cast<unsigned_128_type>(a[1]) * b[0]; // 64
-    const unsigned_128_type b11 = static_cast<unsigned_128_type>(a[1]) * b[1]; // 128
-    const unsigned_128_type b12 = static_cast<unsigned_128_type>(a[1]) * b[2]; // 196
-    const unsigned_128_type b13 = static_cast<unsigned_128_type>(a[1]) * b[3]; // 256
-
-    const unsigned_128_type s0 = b00;       // 0   x
-    const unsigned_128_type s1 = b01 + b10; // 64  x
-    const unsigned_128_type c1 = s1 < b01;  // 196 x
-    const unsigned_128_type s2 = b02 + b11; // 128 x
-    const unsigned_128_type c2 = s2 < b02;  // 256 x
-    const unsigned_128_type s3 = b03 + b12; // 196 x
-    const unsigned_128_type c3 = s3 < b03;  // 324 x
-
-    const unsigned_128_type p0 = s0 + (s1 << 64);                                // 0
-    const unsigned_128_type d0 = p0 < b00;                                       // 128
-    const unsigned_128_type q1 = s2 + (s1 >> 64) + (s3 << 64);                   // 128
-    const unsigned_128_type d1 = q1 < s2;                                        // 256
-    const unsigned_128_type p1 = q1 + (c1 << 64) + d0;                           // 128
-    const unsigned_128_type d2 = p1 < q1;                                        // 256
-    const unsigned_128_type p2 = b13 + (s3 >> 64) + c2 + (c3 << 64) + d1 + d2;   // 256
-
-    if (shift < 128)
+    // The 384-bit product in 64-bit words, which keeps the carries in registers
+    std::uint64_t p[8] {};
+    for (std::size_t i {}; i < 2U; ++i)
     {
-        const unsigned_128_type r0 = corr + ((p0 >> shift) | (p1 << (128 - shift)));
-        const unsigned_128_type r1 = ((p1 >> shift) | (p2 << (128 - shift))) + (r0 < corr);
-        result[0] = static_cast<std::uint64_t>(r0);
-        result[1] = static_cast<std::uint64_t>(r0 >> 64);
-        result[2] = static_cast<std::uint64_t>(r1);
-        result[3] = static_cast<std::uint64_t>(r1 >> 64);
+        std::uint64_t carry {};
+        for (std::size_t k {}; k < 4U; ++k)
+        {
+            const auto t {static_cast<unsigned_128_type>(a[i]) * b[k] + unsigned_128_type {p[i + k]} + unsigned_128_type {carry}};
+            p[i + k] = t.low;
+            carry = t.high;
+        }
+        p[i + 4U] = carry;
     }
-    else if (shift == 128)
+
+    // The 256 bits from bit shift up, plus corr
+    const auto word {shift / 64U};
+    const auto bit {shift % 64U};
+    std::uint64_t carry {corr};
+    for (std::size_t k {}; k < 4U; ++k)
     {
-        const unsigned_128_type r0 = corr + p1;
-        const unsigned_128_type r1 = p2 + (r0 < corr);
-        result[0] = static_cast<std::uint64_t>(r0);
-        result[1] = static_cast<std::uint64_t>(r0 >> 64);
-        result[2] = static_cast<std::uint64_t>(r1);
-        result[3] = static_cast<std::uint64_t>(r1 >> 64);
-    }
-    else
-    {
-        const unsigned_128_type r0 = corr + ((p1 >> (shift - 128)) | (p2 << (256 - shift)));
-        const unsigned_128_type r1 = (p2 >> (shift - 128)) + (r0 < corr);
-        result[0] = static_cast<std::uint64_t>(r0);
-        result[1] = static_cast<std::uint64_t>(r0 >> 64);
-        result[2] = static_cast<std::uint64_t>(r1);
-        result[3] = static_cast<std::uint64_t>(r1 >> 64);
+        // p[k + word + 1] << (64 - bit) in two steps, so that bit == 0 gives 0
+        const auto r {(p[k + word] >> bit) | ((p[k + word + 1U] << 1U) << (63U - bit))};
+        result[k] = r + carry;
+        carry = static_cast<std::uint64_t>(result[k] < carry);
     }
 }
 
@@ -478,13 +451,18 @@ inline constexpr auto generic_computeInvPow5(const std::uint32_t i, std::uint64_
 
 inline constexpr auto pow5Factor(unsigned_128_type value) noexcept -> std::uint32_t
 {
+    // value is a multiple of 5 if value / 5 = value * 5^-1 mod 2^128 is at most (2^128 - 1) / 5,
+    // which needs no long division
+    constexpr unsigned_128_type inverse {UINT64_C(0xCCCCCCCCCCCCCCCC), UINT64_C(0xCCCCCCCCCCCCCCCD)};
+    constexpr unsigned_128_type limit {UINT64_C(0x3333333333333333), UINT64_C(0x3333333333333333)};
     for (std::uint32_t count = 0; value > 0U; ++count)
     {
-        if (value % 5U != 0U)
+        const auto quotient {value * inverse};
+        if (quotient > limit)
         {
             return count;
         }
-        value /= 5U;
+        value = quotient;
     }
     return 0;
 }
@@ -502,17 +480,79 @@ inline constexpr auto multipleOfPowerOf2(const unsigned_128_type value, const st
     return (value & ((static_cast<unsigned_128_type>(1) << p) - 1U)) == 0U;
 }
 
+// Bits j to j + 127 of x
+inline constexpr auto shift_right_128(const std::uint64_t* const x, const std::uint32_t j) noexcept -> unsigned_128_type
+{
+    const auto word {j / 64U};
+    const auto bit {j % 64U};
+
+    // x[i + 1] << (64 - bit) in two steps, so that bit == 0 gives 0
+    return unsigned_128_type {(x[word + 1U] >> bit) | ((x[word + 2U] << 1U) << (63U - bit)),
+                              (x[word] >> bit) | ((x[word + 1U] << 1U) << (63U - bit))};
+}
+
+// Returns (4 m + c) * mul >> j for c = 0, 2 and -1 - mmShift, which are vr, vp and vm.
+// The three share the product m * mul, because (4 m + c) * mul = 4 m * mul + c * mul.
 inline constexpr
-auto mulShift(const unsigned_128_type m, const std::uint64_t* const mul, const uint32_t j) noexcept -> unsigned_128_type
+auto mulShiftAll(const unsigned_128_type m, const std::uint64_t* const mul, const std::uint32_t j, const std::uint32_t mmShift,
+                 unsigned_128_type& vp, unsigned_128_type& vm) noexcept -> unsigned_128_type
 {
     BOOST_DECIMAL_ASSERT(j > 128);
+    BOOST_DECIMAL_ASSERT(j < 256);
 
-    std::uint64_t a[2] {};
-    a[0] = static_cast<std::uint64_t>(m);
-    a[1] = static_cast<std::uint64_t>(m >> 64);
-    std::uint64_t result[4] {};
-    mul_128_256_shift(a, mul, j, 0, result);
-    return (static_cast<unsigned_128_type>(result[1]) << 64) | result[0];
+    // 4 m * mul in 64-bit words, below 2^371
+    std::uint64_t r[6] {};
+    std::uint64_t carry {};
+    for (std::size_t k {}; k < 4U; ++k)
+    {
+        const auto t {static_cast<unsigned_128_type>(m.low) * mul[k] + unsigned_128_type {carry}};
+        r[k] = t.low;
+        carry = t.high;
+    }
+    r[4] = carry;
+    if (m.high != 0U)
+    {
+        carry = 0U;
+        for (std::size_t k {}; k < 4U; ++k)
+        {
+            const auto t {static_cast<unsigned_128_type>(m.high) * mul[k] + unsigned_128_type {r[k + 1U]} + unsigned_128_type {carry}};
+            r[k + 1U] = t.low;
+            carry = t.high;
+        }
+        r[5] = carry;
+    }
+    for (std::size_t k {5U}; k > 0U; --k)
+    {
+        r[k] = (r[k] << 2U) | (r[k - 1U] >> 62U);
+    }
+    r[0] <<= 2U;
+
+    // 2 mul and (1 + mmShift) mul
+    std::uint64_t p[6] {};
+    std::uint64_t n[6] {};
+    std::uint64_t pc {};
+    std::uint64_t nb {};
+    for (std::size_t k {}; k < 6U; ++k)
+    {
+        const auto w {k < 4U ? mul[k] : UINT64_C(0)};
+        const auto prev {k > 0U && k < 5U ? mul[k - 1U] : UINT64_C(0)};
+        const auto twice {(w << 1U) | (prev >> 63U)};
+        const auto sub {mmShift != 0U ? twice : w};
+
+        const auto s {r[k] + twice};
+        const auto c1 {static_cast<std::uint64_t>(s < twice)};
+        p[k] = s + pc;
+        pc = c1 | static_cast<std::uint64_t>(p[k] < pc);
+
+        const auto d {r[k] - sub};
+        const auto b1 {static_cast<std::uint64_t>(r[k] < sub)};
+        n[k] = d - nb;
+        nb = b1 | static_cast<std::uint64_t>(d < nb);
+    }
+
+    vp = shift_right_128(p, j);
+    vm = shift_right_128(n, j);
+    return shift_right_128(r, j);
 }
 
 // Returns floor(log_10(2^e)).

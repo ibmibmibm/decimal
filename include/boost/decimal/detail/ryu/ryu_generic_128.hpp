@@ -71,6 +71,43 @@ static char* s(unsigned_128_type v) {
 }
 #endif
 
+// x / 10 is the top 128 bits of x * ceil(2^131 / 10) shifted right by 3, exact for all x as in 64 bits.
+// The division of uint128_t by 10 calls a long division.
+constexpr auto div10(const unsigned_128_type x) noexcept -> unsigned_128_type
+{
+    constexpr std::uint64_t high {UINT64_C(0xCCCCCCCCCCCCCCCC)};
+    constexpr std::uint64_t low {UINT64_C(0xCCCCCCCCCCCCCCCD)};
+    const auto ll {unsigned_128_type {x.low} * low};
+    const auto lh {unsigned_128_type {x.low} * high};
+    const auto hl {unsigned_128_type {x.high} * low};
+    const auto mid {unsigned_128_type {ll.high} + unsigned_128_type {lh.low} + unsigned_128_type {hl.low}};
+    const auto top {unsigned_128_type {x.high} * high + unsigned_128_type {lh.high} + unsigned_128_type {hl.high} + unsigned_128_type {mid.high}};
+    return top >> 3U;
+}
+
+// x mod 10^8 from x mod 2^8 and (x >> 8) mod 5^8, where 2^64 mod 5^8 is 176616.
+// It avoids the 128-bit division.
+constexpr auto mod_pow10_8(const unsigned_128_type x) noexcept -> std::uint64_t
+{
+    constexpr std::uint64_t pow5_8 {390625U};
+    const auto y {x >> 8U};
+    const auto r {((y.high % pow5_8) * UINT64_C(176616) + y.low % pow5_8) % pow5_8};
+    return (r << 8U) | (x.low & 255U);
+}
+
+// 5^-k mod 2^128 for k from 0 to 8, which divides a multiple of 5^k exactly
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE unsigned_128_type inv_pow5[9] = {
+    {UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000001)},
+    {UINT64_C(0xCCCCCCCCCCCCCCCC), UINT64_C(0xCCCCCCCCCCCCCCCD)},
+    {UINT64_C(0x28F5C28F5C28F5C2), UINT64_C(0x8F5C28F5C28F5C29)},
+    {UINT64_C(0x6E978D4FDF3B645A), UINT64_C(0x1CAC083126E978D5)},
+    {UINT64_C(0x495182A9930BE0DE), UINT64_C(0xD288CE703AFB7E91)},
+    {UINT64_C(0xDB76B3BB83CF2CF9), UINT64_C(0x5D4E8FB00BCBE61D)},
+    {UINT64_C(0xC57E23F24D8FD5CB), UINT64_C(0x790FB65668C26139)},
+    {UINT64_C(0xC1193A63A91CC45B), UINT64_C(0xE5032477AE8D46A5)},
+    {UINT64_C(0xF36B7213EE9F5A78), UINT64_C(0xC767074B22E90E21)},
+};
+
 inline constexpr auto generic_binary_to_decimal(
         const unsigned_128_type bits,
         const std::uint32_t mantissaBits, const std::uint32_t exponentBits, const bool explicitLeadingBit) noexcept -> struct floating_decimal_128
@@ -162,9 +199,7 @@ inline constexpr auto generic_binary_to_decimal(
         const std::int32_t i = -e2 + static_cast<std::int32_t>(q) + k;
         std::uint64_t pow5[4] {};
         generic_computeInvPow5(q, pow5);
-        vr = mulShift(4U * m2, pow5, static_cast<std::uint32_t>(i));
-        vp = mulShift(4U * m2 + 2U, pow5, static_cast<std::uint32_t>(i));
-        vm = mulShift(4U * m2 - 1U - mmShift, pow5, static_cast<std::uint32_t>(i));
+        vr = mulShiftAll(m2, pow5, static_cast<std::uint32_t>(i), mmShift, vp, vm);
 
         #ifdef BOOST_DECIMAL_DEBUG_RYU
         printf("%s * 2^%d / 10^%d\n", s(mv), e2, q);
@@ -175,7 +210,7 @@ inline constexpr auto generic_binary_to_decimal(
         if (q <= 55)
         {
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
-            if (mv % 5U == 0U)
+            if (multipleOfPowerOf5(mv, 1))
             {
                 vrIsTrailingZeros = multipleOfPowerOf5(mv, q - 1);
             }
@@ -203,9 +238,7 @@ inline constexpr auto generic_binary_to_decimal(
         const int32_t j = static_cast<int32_t>(q) - k;
         uint64_t pow5[4U] {};
         generic_computePow5(static_cast<uint32_t>(i), pow5);
-        vr = mulShift(4U * m2, pow5, static_cast<std::uint32_t>(j));
-        vp = mulShift(4U * m2 + 2U, pow5, static_cast<std::uint32_t>(j));
-        vm = mulShift(4U * m2 - 1U - mmShift, pow5, static_cast<std::uint32_t>(j));
+        vr = mulShiftAll(m2, pow5, static_cast<std::uint32_t>(j), mmShift, vp, vm);
 
         #ifdef BOOST_DECIMAL_DEBUG_RYU
         printf("%s * 5^%d / 10^%d\n", s(mv), -e2, q);
@@ -256,16 +289,51 @@ inline constexpr auto generic_binary_to_decimal(
     uint8_t lastRemovedDigit = 0;
     unsigned_128_type output {};
 
-    while (vp / UINT64_C(10) > vm / UINT64_C(10))
+    // A multiple of 10^k lies in (vm, vp] if vp mod 10^k < vp - vm. With the remainders
+    // mod 10^8, the digits go 8 at a time and then one at a time in 64 bits.
+    auto rp {mod_pow10_8(vp)};
+    while (vp - vm > rp)
     {
-        vmIsTrailingZeros &= vm % 10U == 0U;
-        vrIsTrailingZeros &= lastRemovedDigit == 0;
-        lastRemovedDigit = static_cast<uint8_t>(vr % 10U);
-        vr /= 10U;
-        vp /= 10U;
-        vm /= 10U;
-        ++removed;
+        const auto rr {mod_pow10_8(vr)};
+        const auto rm {mod_pow10_8(vm)};
+        vmIsTrailingZeros &= rm == 0U;
+        vrIsTrailingZeros &= lastRemovedDigit == 0 && rr % 10000000U == 0U;
+        lastRemovedDigit = static_cast<uint8_t>(rr / 10000000U);
+        vr = ((vr - rr) >> 8U) * inv_pow5[8];
+        vp = ((vp - rp) >> 8U) * inv_pow5[8];
+        vm = ((vm - rm) >> 8U) * inv_pow5[8];
+        rp = mod_pow10_8(vp);
+        removed += 8U;
     }
+
+    // vm <= vr <= vp and vp - vm <= vp mod 10^8, so vr and vm mod 10^8 follow
+    const auto delta {(vp - vm).low};
+    auto qp {rp};
+    auto qr {rp - (vp - vr).low};
+    auto qm {rp - delta};
+    std::uint64_t ap {};
+    std::uint64_t ar {};
+    std::uint64_t am {};
+    std::uint64_t pow10 {1U};
+    std::uint32_t k {};
+    while (ap + qp % 10U * pow10 < delta)
+    {
+        vrIsTrailingZeros &= lastRemovedDigit == 0;
+        lastRemovedDigit = static_cast<uint8_t>(qr % 10U);
+        ap += qp % 10U * pow10;
+        ar += static_cast<std::uint64_t>(lastRemovedDigit) * pow10;
+        am += qm % 10U * pow10;
+        qp /= 10U;
+        qr /= 10U;
+        qm /= 10U;
+        pow10 *= 10U;
+        ++k;
+    }
+    // floor(vm / 10^k) is the new vr if vr - vm is at most vr mod 10^k
+    vmIsTrailingZeros &= am == 0U;
+    auto vrIsVm {(vr - vm).low <= ar};
+    vr = ((vr - ar) >> k) * inv_pow5[k];
+    removed += k;
 
     #ifdef BOOST_DECIMAL_DEBUG_RYU
     printf("V+=%s\nV =%s\nV-=%s\n", s(vp), s(vr), s(vm));
@@ -274,15 +342,19 @@ inline constexpr auto generic_binary_to_decimal(
 
     if (vmIsTrailingZeros)
     {
-        while (vm % 10U == 0U)
+        vm = ((vm - am) >> k) * inv_pow5[k];
+        auto vm_div10 {div10(vm)};
+        while (vm == vm_div10 * 10U)
         {
+            const auto vr_div10 {div10(vr)};
             vrIsTrailingZeros &= lastRemovedDigit == 0;
-            lastRemovedDigit = static_cast<uint8_t>(vr % 10U);
-            vr /= 10U;
-            vp /= 10U;
-            vm /= 10U;
+            lastRemovedDigit = static_cast<uint8_t>(vr - vr_div10 * 10U);
+            vr = vr_div10;
+            vm = vm_div10;
+            vm_div10 = div10(vm);
             ++removed;
         }
+        vrIsVm = vr == vm;
     }
 
     #ifdef BOOST_DECIMAL_DEBUG_RYU
@@ -296,7 +368,7 @@ inline constexpr auto generic_binary_to_decimal(
         lastRemovedDigit = 4;
     }
     // We need to take vr+1 if vr is outside bounds, or we need to round up.
-    output = vr + static_cast<unsigned_128_type>((vr == vm && (!acceptBounds || !vmIsTrailingZeros)) || (lastRemovedDigit >= 5));
+    output = vr + static_cast<unsigned_128_type>((vrIsVm && (!acceptBounds || !vmIsTrailingZeros)) || (lastRemovedDigit >= 5));
     const auto exp = e10 + static_cast<std::int32_t>(removed);
 
     #ifdef BOOST_DECIMAL_DEBUG_RYU
