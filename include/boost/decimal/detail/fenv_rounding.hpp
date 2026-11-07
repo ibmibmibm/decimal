@@ -127,6 +127,16 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int l_table[77] = {
     233,  236,  240,  243,  246,  250,  253
 };
 
+// ceil(2^(l + 63 - shift) / 5^shift): a 64-bit dividend without its low shift bits, times this,
+// gives floor(coeff / 10^shift) in the high word shifted right by l - shift - 1
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t m_pow5_u64_table[20] = {
+    UINT64_C(0), UINT64_C(0xCCCCCCCCCCCCCCCD), UINT64_C(0xA3D70A3D70A3D70B), UINT64_C(0x83126E978D4FDF3C),
+    UINT64_C(0xD1B71758E219652C), UINT64_C(0xA7C5AC471B478424), UINT64_C(0x8637BD05AF6C69B6), UINT64_C(0xD6BF94D5E57A42BD),
+    UINT64_C(0xABCC77118461CEFD), UINT64_C(0x89705F4136B4A598), UINT64_C(0xDBE6FECEBDEDD5BF), UINT64_C(0xAFEBFF0BCB24AAFF),
+    UINT64_C(0x8CBCCC096F5088CC), UINT64_C(0xE12E13424BB40E14), UINT64_C(0xB424DC35095CD810), UINT64_C(0x901D7CF73AB0ACDA),
+    UINT64_C(0xE69594BEC44DE15C), UINT64_C(0xB877AA3236A4B44A), UINT64_C(0x9392EE8E921D5D08), UINT64_C(0xEC1E4A7DB69561A6)
+};
+
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t m_low_uint128_table[39] = {
     {UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000)},
     {UINT64_C(0x9999999999999999), UINT64_C(0x999999999999999A)},
@@ -523,18 +533,36 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_u256(const u256& coeff, const int
 }
 
 // Overload set used to dispatch from coefficient_rounding without an `if constexpr`
-// dependency. uint128 and u256 dividends route to their reciprocal-multiply paths;
+// dependency. 64-bit, uint128 and u256 dividends route to their reciprocal-multiply paths;
 // other widths fall through to the ordinary divmod.
 template <typename T>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const T& coeff, int /*shift*/, const T& pow10_val) noexcept
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const T& coeff, int shift, const T& pow10_val) noexcept
 {
-    return divmod(coeff, pow10_val);
+    // A shift of zero divides by one, which is slow in a hardware division
+    if (shift == 0)
+    {
+        return divmod_result<T>{coeff, T {0U}};
+    }
+    #if !defined(__CUDACC__) || !defined(BOOST_DECIMAL_ENABLE_CUDA)
+    // A dividend of 64 bits or less takes a multiply by the reciprocal of 5^shift, in place
+    // of a slow hardware division
+    BOOST_DECIMAL_IF_CONSTEXPR (sizeof(T) <= sizeof(std::uint64_t))
+    {
+        const auto product {umul128(static_cast<std::uint64_t>(coeff) >> shift, pow10_recip::m_pow5_u64_table[shift])};
+        const auto q {static_cast<T>(product.high >> (pow10_recip::l_table[shift] - shift - 1))};
+        return divmod_result<T>{q, static_cast<T>(coeff - q * pow10_val)};
+    }
+    else
+    #endif
+    {
+        return divmod(coeff, pow10_val);
+    }
 }
 
 inline BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_dispatch(const int128::uint128_t& coeff, int shift, const int128::uint128_t& pow10_val) noexcept
     -> divmod_result<int128::uint128_t>
 {
-    if (shift >= 1 && shift <= 38)
+    if (shift >= 0 && shift <= 38)
     {
         return divmod_pow10_uint128(coeff, shift);
     }
