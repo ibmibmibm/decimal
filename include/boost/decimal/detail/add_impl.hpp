@@ -226,7 +226,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_sum(const S
 //
 // Caller must guarantee:
 //   - default rounding mode is fe_dec_to_nearest, or AnyMode is true
-//   - shift in [0, 3] where 0 means same-exponent (no multiply)
+//   - shift in [0, 3], or the shifted operand keeps p digits; 0 means same-exponent
 //   - both operands non-zero (zero short-circuit happens upstream)
 template <typename ReturnType, typename SigType, typename ExpType, bool AnyMode = false>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_add_kernel(

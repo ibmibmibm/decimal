@@ -1629,9 +1629,9 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
 #endif
 
 // The sum of finite operands. The parts must be those of lhs and rhs, and a difference passes
-// the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart go to
-// aligned_add_kernel, full operands in the band to band_add_kernel, and in the default mode
-// operands over 75 apart give the larger one.
+// the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart, or with
+// a short larger operand, go to aligned_add_kernel, full operands in the band to
+// band_add_kernel, and in the default mode operands over 75 apart give the larger one.
 // d128_add_impl_new does the rest, and the zero rules.
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs,
                                                                           const int128::uint128_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
@@ -1641,7 +1641,8 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const
     {
         const auto exp_gap {lhs_exp - rhs_exp};
         const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
-        if (exp_diff > 75 || exp_diff <= 3)
+        // Also when the operand with the larger exponent keeps p digits after the shift
+        if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
         {
             if (BOOST_DECIMAL_LIKELY(detail::current_rounding_mode() == rounding_mode::fe_dec_to_nearest))
             {
@@ -1654,7 +1655,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const
                     lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
             }
             // The other modes use the same kernel out of line
-            if (exp_diff <= 3)
+            if (exp_diff < 34)
             {
                 return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
                     lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
