@@ -14,7 +14,6 @@
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <algorithm>
-#include <array>
 #include <climits>
 #include <limits>
 #include <cmath>
@@ -25,16 +24,31 @@ namespace decimal {
 namespace detail {
 namespace fast_float {
 
-BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::array<long double, 56> powers_of_ten_ld = {
-        1e0L, 1e1L, 1e2L, 1e3L, 1e4L, 1e5L, 1e6L,
-        1e7L, 1e8L, 1e9L, 1e10L, 1e11L, 1e12L, 1e13L,
-        1e14L, 1e15L, 1e16L, 1e17L, 1e18L, 1e19L, 1e20L,
-        1e21L, 1e22L, 1e23L, 1e24L, 1e25L, 1e26L, 1e27L,
-        1e28L, 1e29L, 1e30L, 1e31L, 1e32L, 1e33L, 1e34L,
-        1e35L, 1e36L, 1e37L, 1e38L, 1e39L, 1e40L, 1e41L,
-        1e42L, 1e43L, 1e44L, 1e45L, 1e46L, 1e47L, 1e48L,
-        1e49L, 1e50L, 1e51L, 1e52L, 1e53L, 1e54L, 1e55L
+// A struct of arrays has one definition of each table, also in C++14
+template <bool b>
+struct long_double_clinger_table_imp
+{
+    // 10^k up to the largest power that the format holds exactly: 10^27 for x87 and 10^48 for binary128
+    static constexpr long double powers_of_ten[] = {
+            1e0L, 1e1L, 1e2L, 1e3L, 1e4L, 1e5L, 1e6L,
+            1e7L, 1e8L, 1e9L, 1e10L, 1e11L, 1e12L, 1e13L,
+            1e14L, 1e15L, 1e16L, 1e17L, 1e18L, 1e19L, 1e20L,
+            1e21L, 1e22L, 1e23L, 1e24L, 1e25L, 1e26L, 1e27L,
+            #if BOOST_DECIMAL_LDBL_BITS == 128
+            1e28L, 1e29L, 1e30L, 1e31L, 1e32L, 1e33L, 1e34L,
+            1e35L, 1e36L, 1e37L, 1e38L, 1e39L, 1e40L, 1e41L,
+            1e42L, 1e43L, 1e44L, 1e45L, 1e46L, 1e47L, 1e48L
+            #endif
+    };
 };
+
+#if !(defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L) && (!defined(_MSC_VER) || _MSC_VER != 1900)
+
+template <bool b> constexpr long double long_double_clinger_table_imp<b>::powers_of_ten[];
+
+#endif
+
+using long_double_clinger_table = long_double_clinger_table_imp<true>;
 
 // A struct of arrays has one definition of each table, also in C++14
 template <bool b>
@@ -111,11 +125,11 @@ constexpr auto fast_path(const std::int64_t q, const Unsigned_Integer &w, bool n
 
     if (q < 0)
     {
-        ld /= powers_of_ten_ld[static_cast<std::size_t>(-q)];
+        ld /= long_double_clinger_table::powers_of_ten[static_cast<std::size_t>(-q)];
     }
     else
     {
-        ld *= powers_of_ten_ld[static_cast<std::size_t>(q)];
+        ld *= long_double_clinger_table::powers_of_ten[static_cast<std::size_t>(q)];
     }
 
     if (negative)
@@ -223,7 +237,7 @@ constexpr auto multiply_top(const int128::uint128_t x, const std::uint64_t high,
 constexpr auto multiply_top(const int128::uint128_t x, const std::int64_t step) noexcept -> top_product
 {
     const auto index {static_cast<std::size_t>(step - significand_table_min_power)};
-    return multiply_top(x, significand_64[index], significand_128[index]);
+    return multiply_top(x, significand_table::significand_64[index], significand_table::significand_128[index]);
 }
 
 // 10^p is at most half of the smallest subnormal value for p <= long_double_min_power10
@@ -379,7 +393,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto compute_float80_128(const std::int64_t q, con
 
     #if BOOST_DECIMAL_LDBL_BITS == 80 || BOOST_DECIMAL_LDBL_BITS == 128
     // Clinger: if w and 10^|q| are exact, one multiply or divide rounds w * 10^q correctly
-    constexpr std::int64_t max_exponent {BOOST_DECIMAL_LDBL_BITS == 80 ? 27 : 48};
+    constexpr auto max_exponent {static_cast<std::int64_t>(sizeof(long_double_clinger_table::powers_of_ten) /
+                                                           sizeof(long double)) - 1};
     if (q >= -max_exponent && q <= max_exponent && static_cast<int128::uint128_t>(w) <= (int128::uint128_t {1U} << static_cast<unsigned>(limits::digits)) - 1U)
     {
         // An x87 significand fits in 64 bits, which convert without the library call for 128 bits

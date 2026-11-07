@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/config.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
+#include <cstddef>
 #include <cstdint>
 #endif
 
@@ -20,13 +21,17 @@ namespace decimal {
 namespace detail { 
 namespace fast_float {
 
+// A struct of arrays has one definition of each table, see https://github.com/boostorg/math/issues/923
+template <bool b>
+struct significand_table_imp
+{
     // The significands of powers of ten from -342 to 326, extended out to sixty-four
     // bits. The array contains the powers of ten approximated
     // as a 64-bit significand. It goes from 10^BOOST_DECIMAL_FASTFLOAT_SMALLEST_POWER to
     // 10^BOOST_DECIMAL_FASTFLOAT_LARGEST_POWER (inclusively).
     // The significand is truncated, and never rounded up. 
     // Uses about 5KB.
-BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t significand_64[] = {
+static constexpr std::uint64_t significand_64[] = {
     UINT64_C(0xeef453d6923bd65a),
     UINT64_C(0x9558b4661b6565f8), UINT64_C(0xbaaee17fa23ebf76),
     UINT64_C(0xe95a99df8ace6f53), UINT64_C(0x91d8a02bb6c10594),
@@ -376,7 +381,8 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t significand_64[] = {
     // A complement to significand_64
     // complete to a 128-bit significand.
     // Uses about 5KB but is rarely accessed.
-BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t significand_128[] = {
+    // The rounding of the pair is in significand_table_min_up_power and significand_table_max_exact_power.
+static constexpr std::uint64_t significand_128[] = {
     UINT64_C(0x113faa2906a13b3f),
     UINT64_C(0x4ac7ca59a424c507), UINT64_C(0x5d79bcf00d2df649),
     UINT64_C(0xf4d82c2c107973dc), UINT64_C(0x79071b9b8a4be869),
@@ -722,12 +728,33 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t significand_128[] = {
     UINT64_C(0xc7098b7305241885),
     UINT64_C(0xb8cbee4fc66d1ea7)
 };
+};
 
-// The tables hold 10^k for k from significand_table_min_power to significand_table_max_power, exactly for k from 0 to
-// significand_table_max_exact_power
+#if !(defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L) && (!defined(_MSC_VER) || _MSC_VER != 1900)
+
+template <bool b> constexpr std::uint64_t significand_table_imp<b>::significand_64[];
+template <bool b> constexpr std::uint64_t significand_table_imp<b>::significand_128[];
+
+#endif
+
+using significand_table = significand_table_imp<true>;
+
+// The tables hold 10^k for k from significand_table_min_power to significand_table_max_power.
+// tools/check_power_tables.py, which CI runs, checks each row, and the rows of coarse_power_table, with exact integers.
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int significand_table_min_power {-342};
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int significand_table_max_power {326};
+
+// The 128-bit pair is 10^k rounded up for k from significand_table_min_up_power to -1, exact for k from 0 to
+// significand_table_max_exact_power, and rounded down elsewhere. cache_128 in dragonbox.hpp relies on this rule.
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int significand_table_min_up_power {-27};
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int significand_table_max_exact_power {55};
+
+static_assert(sizeof(significand_table::significand_64) / sizeof(std::uint64_t) ==
+              static_cast<std::size_t>(significand_table_max_power - significand_table_min_power + 1),
+              "one entry of significand_64 per power");
+static_assert(sizeof(significand_table::significand_128) / sizeof(std::uint64_t) ==
+              static_cast<std::size_t>(significand_table_max_power - significand_table_min_power + 1),
+              "one entry of significand_128 per power");
 
 } // namespace fast_float
 } // namespace detail

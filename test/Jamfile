@@ -340,6 +340,7 @@ run test_upward_rounding.cpp
 run test_zeta.cpp ;
 
 run limits_link_1.cpp limits_link_2.cpp limits_link_3.cpp ;
+run significand_table_link_1.cpp significand_table_link_2.cpp ;
 
 # Run the examples too
 run ../example/adl.cpp ;

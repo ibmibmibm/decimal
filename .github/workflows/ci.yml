@@ -1133,3 +1133,11 @@ jobs:
           cd ../boost-root/__build__
           cmake --build . --target tests
           ctest --output-on-failure --no-tests=error
+
+  power-tables:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check each row of the power tables with exact integers
+        run: python3 tools/check_power_tables.py

@@ -80,12 +80,12 @@ template <int bit_precision>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto compute_product_approximation(const std::int64_t q, const std::uint64_t w) noexcept -> int128::uint128_t
 {
     const auto index {static_cast<std::size_t>(q - significand_table_min_power)};
-    auto first_product {umul128(w, significand_64[index])};
+    auto first_product {umul128(w, significand_table::significand_64[index])};
 
     constexpr std::uint64_t precision_mask {UINT64_MAX >> bit_precision};
     if ((first_product.high & precision_mask) == precision_mask)
     {
-        const auto second_product {umul128(w, significand_128[index])};
+        const auto second_product {umul128(w, significand_table::significand_128[index])};
         first_product += int128::uint128_t {second_product.high};
     }
 
@@ -246,13 +246,26 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto compute_float_wide(const std::int64_t q, cons
     return order < 0 || (order == 0 && (m & 1U) == 0U) ? lower : upper;
 }
 
-// 10^-22 to 10^22, each rounded to nearest
-BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE double double_powers_of_ten[] = {
-    1e-22, 1e-21, 1e-20, 1e-19, 1e-18, 1e-17, 1e-16, 1e-15, 1e-14, 1e-13, 1e-12, 1e-11,
-    1e-10, 1e-9,  1e-8,  1e-7,  1e-6,  1e-5,  1e-4,  1e-3,  1e-2,  1e-1,  1e0,   1e1,
-    1e2,   1e3,   1e4,   1e5,   1e6,   1e7,   1e8,   1e9,   1e10,  1e11,  1e12,  1e13,
-    1e14,  1e15,  1e16,  1e17,  1e18,  1e19,  1e20,  1e21,  1e22
+// A struct of arrays has one definition of each table, also in C++14
+template <bool b>
+struct clinger_table_imp
+{
+    // 10^-22 to 10^22, each rounded to nearest
+    static constexpr double powers_of_ten[] = {
+        1e-22, 1e-21, 1e-20, 1e-19, 1e-18, 1e-17, 1e-16, 1e-15, 1e-14, 1e-13, 1e-12, 1e-11,
+        1e-10, 1e-9,  1e-8,  1e-7,  1e-6,  1e-5,  1e-4,  1e-3,  1e-2,  1e-1,  1e0,   1e1,
+        1e2,   1e3,   1e4,   1e5,   1e6,   1e7,   1e8,   1e9,   1e10,  1e11,  1e12,  1e13,
+        1e14,  1e15,  1e16,  1e17,  1e18,  1e19,  1e20,  1e21,  1e22
+    };
 };
+
+#if !(defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L) && (!defined(_MSC_VER) || _MSC_VER != 1900)
+
+template <bool b> constexpr double clinger_table_imp<b>::powers_of_ten[];
+
+#endif
+
+using clinger_table = clinger_table_imp<true>;
 
 // Clinger, if FLT_EVAL_METHOD is 0: with w and 10^|q| exact in double, one multiply or divide rounds correctly. A float
 // multiplies by the rounded 10^q, off by under 2 units: it rounds as the exact value unless a midpoint is that near.
@@ -265,7 +278,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto clinger_fast_path(const std::int64_t q, const
         auto result {static_cast<double>(w)};
         BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<T, float>::value)
         {
-            result *= double_powers_of_ten[q + 22];
+            result *= clinger_table::powers_of_ten[q + 22];
             if ((bit_cast<std::uint64_t>(result) & ((UINT64_C(1) << 29U) - 1U)) - ((UINT64_C(1) << 28U) - 2U) <= 4U)
             {
                 return false;
@@ -273,7 +286,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto clinger_fast_path(const std::int64_t q, const
         }
         else
         {
-            result = q < 0 ? result / double_powers_of_ten[22 - q] : result * double_powers_of_ten[q + 22];
+            result = q < 0 ? result / clinger_table::powers_of_ten[22 - q] :
+                             result * clinger_table::powers_of_ten[q + 22];
         }
         value = static_cast<T>(negative ? -result : result);
         return true;
