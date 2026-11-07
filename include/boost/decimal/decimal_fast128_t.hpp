@@ -1321,7 +1321,11 @@ constexpr auto operator*(const decimal_fast128_t& lhs, const Integer rhs) noexce
     #ifndef BOOST_DECIMAL_FAST_MATH
     if (not_finite(lhs))
     {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
+        if (isinf(lhs) && rhs == 0)
+        {
+            return direct_init_d128(detail::d128_fast_qnan, 0, false);
+        }
+        else if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
         {
             return signbit(lhs) ? lhs : -lhs;
         }

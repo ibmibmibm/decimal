@@ -1893,36 +1893,8 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    using promoted_significand_type = detail::promote_significand_t<decimal32_t, Integer>;
-    using exp_type = decimal32_t::biased_exponent_type;
-
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(lhs))
-    {
-        if (isinf(lhs) && (signbit(lhs) != (rhs < 0)))
-        {
-            return signbit(lhs) ? lhs : -lhs;
-        }
-        else if (isinf(lhs) && (signbit(lhs) == (rhs < 0)))
-        {
-            return signbit(lhs) ? -lhs : lhs;
-        }
-
-        return detail::check_non_finite(lhs);
-    }
-    #endif
-
-    auto sig_lhs {lhs.full_significand()};
-    auto exp_lhs {lhs.biased_exponent()};
-    detail::expand_significand<decimal32_t>(sig_lhs, exp_lhs);
-
-    auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
-    exp_type exp_rhs {0};
-    detail::normalize(sig_rhs, exp_rhs);
-    const auto final_sig_rhs {static_cast<decimal32_t::significand_type>(sig_rhs)};
-
-    return detail::mul_impl<decimal32_t>(sig_lhs, exp_lhs, lhs.isneg(),
-                                       final_sig_rhs, exp_rhs, (rhs < 0));
+    // The integer converts to decimal32_t first, as in C
+    return lhs * decimal32_t{rhs};
 }
 
 template <typename Integer>
