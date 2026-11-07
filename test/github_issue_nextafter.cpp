@@ -6,6 +6,7 @@
 
 #include <boost/decimal.hpp>
 #include <boost/core/lightweight_test.hpp>
+#include <cstring>
 #include <limits>
 #include <type_traits>
 
@@ -130,6 +131,32 @@ void test_mixed_order()
     #endif
 }
 
+// A signaling NaN of the result type comes back unchanged. One of the other type keeps its sign and its signaling
+// state, but not its payload.
+void test_nan()
+{
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    const auto x {-snand64("123")};
+    const auto x_first {nextafter(x, "1"_DD)};
+    const auto x_second {nextafter("1"_DD, x)};
+    BOOST_TEST_EQ(std::memcmp(&x_first, &x, sizeof(x)), 0);
+    BOOST_TEST_EQ(std::memcmp(&x_second, &x, sizeof(x)), 0);
+
+    const auto narrow {-snand32("123")};
+    for (const auto result : {nextafter(narrow, "1"_DD), nextafter("1"_DD, narrow)})
+    {
+        BOOST_TEST(issignaling(result));
+        BOOST_TEST(signbit(result));
+    }
+
+    // A NaN that already has the result type keeps its payload in a call with two types
+    const auto mixed_first {nextafter(x, "1"_DF)};
+    const auto mixed_second {nextafter("1"_DF, x)};
+    BOOST_TEST_EQ(std::memcmp(&mixed_first, &x, sizeof(x)), 0);
+    BOOST_TEST_EQ(std::memcmp(&mixed_second, &x, sizeof(x)), 0);
+    #endif
+}
+
 int main()
 {
     test_subnormal();
@@ -140,6 +167,7 @@ int main()
     test_normal();
     test_mixed_types();
     test_mixed_order();
+    test_nan();
 
     test_shared<decimal32_t>();
     test_shared<decimal64_t>();

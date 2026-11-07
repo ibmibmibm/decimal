@@ -45,6 +45,12 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto next_value(SigType sig, int exp, const
         ++sig;
         if (sig > detail::max_significand_v<DecimalType>)
         {
+            // The step up from the largest finite value is infinity in each rounding mode
+            if (exp == detail::max_biased_exp_v<DecimalType> - detail::bias_v<DecimalType>)
+            {
+                return is_neg ? -std::numeric_limits<DecimalType>::infinity() : std::numeric_limits<DecimalType>::infinity();
+            }
+
             sig = min_full_sig;
             ++exp;
         }

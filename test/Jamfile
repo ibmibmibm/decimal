@@ -175,6 +175,8 @@ run github_issue_to_float.cpp : : : <define>BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERS
 run github_issue_long_double.cpp ;
 run github_issue_nextafter.cpp ;
 run github_issue_nexttoward.cpp ;
+run github_issue_nextafter_overflow.cpp ;
+run github_issue_nextafter_overflow.cpp : : : <define>BOOST_DECIMAL_FAST_MATH <pch>off : github_issue_nextafter_overflow_fast_math ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;

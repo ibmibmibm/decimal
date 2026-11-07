@@ -212,6 +212,16 @@ void test_non_finite()
     BOOST_TEST_EQ(nexttoward("1"_DF, -inf), "0.9999999"_DF);
     BOOST_TEST(isnan(nexttoward("1"_DF, std::numeric_limits<long double>::quiet_NaN())));
 
+    // A binary signaling NaN gives a quiet decimal NaN, and a decimal one comes back unchanged
+    const auto quiet {nexttoward("1"_DF, std::numeric_limits<long double>::signaling_NaN())};
+    BOOST_TEST(isnan(quiet) && !issignaling(quiet));
+    const auto x {-snand32("123")};
+    const auto same {nexttoward(x, 1.0L)};
+    BOOST_TEST_EQ(std::memcmp(&same, &x, sizeof(x)), 0);
+    // A decimal NaN takes precedence over a NaN direction
+    const auto first {nexttoward(x, std::numeric_limits<long double>::quiet_NaN())};
+    BOOST_TEST_EQ(std::memcmp(&first, &x, sizeof(x)), 0);
+
     #if BOOST_DECIMAL_LDBL_BITS == 80
     // An unnormal number, with the leading bit clear, is a NaN as for the hardware
     const unsigned char unnormal_bytes[10] {0, 0, 0, 0, 0, 0, 0, 0x40, 0xFF, 0x3F};
