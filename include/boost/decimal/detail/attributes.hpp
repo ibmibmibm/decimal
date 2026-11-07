@@ -24,13 +24,6 @@ namespace detail {
 // Values from IEEE 754-2019 table 3.6
 namespace impl {
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto storage_width_v() noexcept -> int
-{
-    return decimal_val_v<DecimalType> < 64 ? 32 :
-           decimal_val_v<DecimalType> < 128 ? 64 : 128;
-}
-
 template <typename DecimalType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto precision_v() noexcept -> int
 {
@@ -66,20 +59,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto emin_v() noexcept -> int
            decimal_val_v<DecimalType> < 128 ? -383 : -6143;
 }
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto combination_field_width_v() noexcept -> int
-{
-    return decimal_val_v<DecimalType> < 64 ? 11 :
-           decimal_val_v<DecimalType> < 128 ? 13 : 17;
-}
-
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto trailing_significand_field_width_v() noexcept -> int
-{
-    return decimal_val_v<DecimalType> < 64 ? 20 :
-           decimal_val_v<DecimalType> < 128 ? 50 : 110;
-}
-
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType, std::enable_if_t<decimal_val_v<DecimalType> < 128, bool> = true>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto max_significand_v() noexcept
 {
@@ -95,13 +74,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto max_significand_v() noexcept
 }
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto max_string_length_v() noexcept -> int
-{
-    return decimal_val_v<DecimalType> < 64 ? 15 :
-           decimal_val_v<DecimalType> < 128 ? 25 : 41;
-}
-
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto is_fast_type_v() noexcept -> bool
 {
     // The fast types all assign 1 additional bit over the regular types
@@ -109,9 +81,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto is_fast_type_v() noexcept -> bool
 }
 
 } // namespace impl
-
-template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto storage_width_v = impl::storage_width_v<Dec>();
 
 template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto precision_v = impl::precision_v<Dec>();
@@ -136,28 +105,12 @@ template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto etiny_v = -impl::bias_v<Dec>();
 
 template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto combination_field_width_v = impl::combination_field_width_v<Dec>();
-
-template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto trailing_significand_field_width_v = impl::trailing_significand_field_width_v<Dec>();
-
-template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_significand_v = impl::max_significand_v<Dec>();
 
-// sign + decimal digits + '.' + 'e' + '+/-' + max digits of exponent + null term
-template <typename Dec, std::enable_if_t<detail::is_decimal_floating_point_v<Dec>, bool> = true>
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_string_length_v = impl::max_string_length_v<Dec>();
-
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto storage_width {storage_width_v<decimal32_t>};
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto precision {precision_v<decimal32_t>};
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto bias {bias_v<decimal32_t>};
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_biased_exp {max_biased_exp_v<decimal32_t>};
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto emax {emax_v<decimal32_t>};
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto emin {emin_v<decimal32_t>};
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto etiny {etiny_v<decimal32_t>};
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto combination_field_width {combination_field_width_v<decimal32_t>};
 BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_significand {max_significand_v<decimal32_t>};
-BOOST_DECIMAL_ATTRIBUTE_UNUSED BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE auto max_string_length {max_string_length_v<decimal32_t>};
 
 } //namespace detail
 } //namespace decimal

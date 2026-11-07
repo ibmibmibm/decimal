@@ -87,8 +87,6 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t     d128_11_exp_high_word_
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t d128_not_11_significand_mask {UINT64_C(0x1FFFFFFFFFFFF), UINT64_MAX};
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t d128_11_significand_mask {UINT64_C(0x7FFFFFFFFFFF), UINT64_MAX};
 
-BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t d128_biggest_no_combination_significand {d128_not_11_significand_mask};
-
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t     d128_max_biased_exponent {UINT64_C(12287)};
 BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t d128_max_significand_value {UINT64_C(0x1ED09BEAD87C0), UINT64_C(0x378D8E63FFFFFFFF)};
 
@@ -594,7 +592,6 @@ public:
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto scalbnd128(decimal128_t num, int exp) noexcept -> decimal128_t;
     template <typename T>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::scalbln_out_of_line(T num, long exp) noexcept -> T;
-    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto fmad128(decimal128_t x, decimal128_t y, decimal128_t z) noexcept -> decimal128_t;
 };
 
 #ifdef BOOST_DECIMAL_HAS_INT128

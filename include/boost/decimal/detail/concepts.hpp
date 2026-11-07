@@ -98,9 +98,6 @@ struct detector<Default, std::void_t<Op<Args...>>, Op, Args...>
 template <template<typename...> typename Op, typename... Args>
 using is_detected = typename detector<nonesuch, void, Op, Args...>::value_t;
 
-template <template<typename...> typename Op, typename... Args>
-using detected_t = typename detector<nonesuch, void, Op, Args...>::type;
-
 #define BOOST_DECIMAL_HAS_MEMBER_FUNCTION(member)                                      \
 template <typename T>                                                               \
 using has_##member##_t = decltype(std::declval<T&>().member());                     \

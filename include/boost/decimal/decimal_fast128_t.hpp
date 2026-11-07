@@ -522,7 +522,6 @@ public:
     friend constexpr auto scalbnd128f(decimal_fast128_t num, int exp) noexcept -> decimal_fast128_t;
     template <typename T>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::scalbln_out_of_line(T num, long exp) noexcept -> T;
-    friend constexpr auto fmad128f(decimal_fast128_t x, decimal_fast128_t y, decimal_fast128_t z) noexcept -> decimal_fast128_t;
 
     // Decimal functions
     // 3.6.4 Same Quantum

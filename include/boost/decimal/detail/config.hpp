@@ -112,7 +112,6 @@ typedef unsigned __int128 builtin_uint128_t;
 
 #  define BOOST_DECIMAL_HAS_INT128
 #  define BOOST_DECIMAL_INT128_MAX  static_cast<boost::decimal::detail::builtin_int128_t>((static_cast<boost::decimal::detail::builtin_uint128_t>(1) << 127) - 1)
-#  define BOOST_DECIMAL_INT128_MIN  (-BOOST_DECIMAL_INT128_MAX - 1)
 #  define BOOST_DECIMAL_UINT128_MAX ((2 * static_cast<boost::decimal::detail::builtin_uint128_t>(BOOST_DECIMAL_INT128_MAX)) + 1)
 #endif
 
@@ -246,12 +245,6 @@ typedef unsigned __int128 builtin_uint128_t;
 #  define BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
 #endif
 
-#if defined(__clang__) && __clang_major__ < 19
-#  define BOOST_DECIMAL_CLANG_STATIC static
-#else
-#  define BOOST_DECIMAL_CLANG_STATIC
-#endif
-
 #ifdef BOOST_DECIMAL_BUILD_MODULE
 #  define BOOST_DECIMAL_EXPORT export
 #else
@@ -260,10 +253,8 @@ typedef unsigned __int128 builtin_uint128_t;
 
 #if defined(__cpp_inline_variables) && __cpp_inline_variables >= 201606L
 #  define BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE inline constexpr
-#  define BOOST_DECIMAL_CONSTEXPR_VARIABLE_SPECIALIZATION BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE
 #else
 #  define BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE static constexpr
-#  define BOOST_DECIMAL_CONSTEXPR_VARIABLE_SPECIALIZATION BOOST_DECIMAL_CLANG_STATIC constexpr
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -374,16 +365,6 @@ static_assert(std::is_same<long double, __float128>::value, "__float128 should b
 
 #if defined(__cpp_char8_t) && __cpp_char8_t >= 201811L
 #  define BOOST_DECIMAL_HAS_CHAR8_T
-#endif
-
-#if defined(__has_cpp_attribute) && __has_cpp_attribute(fallthrough) >= 201603L
-#  define BOOST_DECIMAL_FALLTHROUGH [[fallthrough]];
-#elif defined(__clang__)
-#  define BOOST_DECIMAL_FALLTHROUGH [[clang::fallthrough]];
-#elif defined(__GNUC__)
-#  define BOOST_DECIMAL_FALLTHROUGH __attribute__ ((fallthrough));
-#else
-#  define BOOST_DECIMAL_FALLTHROUGH
 #endif
 
 #endif // BOOST_DECIMAL_DETAIL_CONFIG_HPP
