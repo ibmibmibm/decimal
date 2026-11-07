@@ -67,6 +67,7 @@ The exponent supplied at construction is not recoverable, because normalization 
 Any quantum a fast type appears to carry reflects only the magnitude of its value, so these operations cannot do what their IEEE definitions promise.
 
 Use one of the IEEE types if you need the quantum operations.
+The named forms for the fast types, such as `samequantumd32f` and `quantexpd32f`, are removed for the same reason, so use `samequantumd32` and `quantexpd32` on a `decimal32_t` instead.
 To round to a fixed number of fractional digits on any type, including the fast types, use xref:cmath.adoc#cmath_rescale[`rescale`] instead.
 
 == Overview

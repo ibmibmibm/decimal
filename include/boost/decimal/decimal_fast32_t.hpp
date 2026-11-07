@@ -525,8 +525,6 @@ public:
         BOOST_DECIMAL_REQUIRES(detail::is_decimal_floating_point_v, T);
 
     // Specific decimal functionality
-    friend constexpr auto samequantumd32f(decimal_fast32_t lhs, decimal_fast32_t rhs) noexcept -> bool;
-    friend constexpr auto quantexpd32f(decimal_fast32_t x) noexcept -> int;
     template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize(T lhs, T rhs) noexcept -> T;
 };
@@ -1798,43 +1796,6 @@ constexpr auto scalbnd32f(const decimal_fast32_t num, const int expval) noexcept
 constexpr auto copysignd32f(const decimal_fast32_t mag, const decimal_fast32_t sgn) noexcept -> decimal_fast32_t
 {
     return direct_init(mag.significand_, mag.exponent_, sgn.sign_);
-}
-
-// Effects: determines if the quantum exponents of x and y are the same.
-// If both x and y are NaN, or infinity, they have the same quantum exponents;
-// if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
-// The samequantum functions raise no exception.
-constexpr auto samequantumd32f(const decimal_fast32_t lhs, const decimal_fast32_t rhs) noexcept -> bool
-{
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    const auto lhs_fp {fpclassify(lhs)};
-    const auto rhs_fp {fpclassify(rhs)};
-
-    if ((lhs_fp == FP_NAN && rhs_fp == FP_NAN) || (lhs_fp == FP_INFINITE && rhs_fp == FP_INFINITE))
-    {
-        return true;
-    }
-    if ((lhs_fp == FP_NAN || rhs_fp == FP_INFINITE) || (rhs_fp == FP_NAN || lhs_fp == FP_INFINITE))
-    {
-        return false;
-    }
-    #endif
-
-    return lhs.unbiased_exponent() == rhs.unbiased_exponent();
-}
-
-// Effects: if x is finite, returns its quantum exponent.
-// Otherwise, a domain error occurs and INT_MIN is returned.
-constexpr auto quantexpd32f(const decimal_fast32_t x) noexcept -> int
-{
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(x))
-    {
-        return INT_MIN;
-    }
-    #endif
-
-    return x.biased_exponent();
 }
 
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)

@@ -536,13 +536,6 @@ public:
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::scalbln_out_of_line(T num, long exp) noexcept -> T;
     friend constexpr auto fmad128f(decimal_fast128_t x, decimal_fast128_t y, decimal_fast128_t z) noexcept -> decimal_fast128_t;
 
-    // Decimal functions
-    // 3.6.4 Same Quantum
-    friend constexpr auto samequantumd128f(const decimal_fast128_t& lhs, const decimal_fast128_t& rhs) noexcept -> bool;
-
-    // 3.6.5 Quantum exponent
-    friend constexpr auto quantexpd128f(const decimal_fast128_t& x) noexcept -> int;
-
     // 3.6.6 Quantize
     template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE T>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto quantize(T lhs, T rhs) noexcept -> T;
@@ -1794,45 +1787,6 @@ constexpr auto scalblnd128f(const decimal_fast128_t num, const long exp) noexcep
 constexpr auto scalbnd128f(const decimal_fast128_t num, const int exp) noexcept -> decimal_fast128_t
 {
     return scalblnd128f(num, static_cast<long>(exp));
-}
-
-// 3.6.4
-// Effects: determines if the quantum exponents of x and y are the same.
-// If both x and y are NaN, or infinity, they have the same quantum exponents;
-// if exactly one operand is infinity or exactly one operand is NaN, they do not have the same quantum exponents.
-// The samequantum functions raise no exception.
-constexpr auto samequantumd128f(const decimal_fast128_t& lhs, const decimal_fast128_t& rhs) noexcept -> bool
-{
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    const auto lhs_fp {fpclassify(lhs)};
-    const auto rhs_fp {fpclassify(rhs)};
-
-    if ((lhs_fp == FP_NAN && rhs_fp == FP_NAN) || (lhs_fp == FP_INFINITE && rhs_fp == FP_INFINITE))
-    {
-        return true;
-    }
-    if ((lhs_fp == FP_NAN || rhs_fp == FP_INFINITE) || (rhs_fp == FP_NAN || lhs_fp == FP_INFINITE))
-    {
-        return false;
-    }
-    #endif
-
-    return lhs.unbiased_exponent() == rhs.unbiased_exponent();
-}
-
-// 3.6.5
-// Effects: if x is finite, returns its quantum exponent.
-// Otherwise, a domain error occurs and INT_MIN is returned.
-constexpr auto quantexpd128f(const decimal_fast128_t& x) noexcept -> int
-{
-    #ifndef BOOST_DECIMAL_FAST_MATH
-    if (!isfinite(x))
-    {
-        return INT_MIN;
-    }
-    #endif
-
-    return x.biased_exponent();
 }
 
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
