@@ -22,6 +22,9 @@ namespace decimal {
 namespace detail {
 
 // Values from IEEE 754-2019 table 3.6
+// Returns b. A constant condition in a template gives a warning with MSVC, but this call gives none.
+constexpr auto is_true(const bool b) noexcept -> bool { return b; }
+
 namespace impl {
 
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
