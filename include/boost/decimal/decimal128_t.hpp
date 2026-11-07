@@ -1717,7 +1717,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
             const auto rhs_exp {rhs.biased_exponent()};
             const auto exp_gap {lhs_exp - rhs_exp};
             const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
-            if (exp_diff > 75 || exp_diff <= 3)
+            // Also when the operand with the larger exponent keeps p digits after the shift
+            if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
             {
                 auto round {_boost_decimal_global_rounding_mode};
                 #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
@@ -1738,7 +1739,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
                         lhs.isneg(), rhs.isneg());
                 }
                 // The other modes use the same kernel out of line
-                if (exp_diff <= 3)
+                if (exp_diff < 34)
                 {
                     return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1809,7 +1810,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
             const auto rhs_exp {rhs.biased_exponent()};
             const auto exp_gap {lhs_exp - rhs_exp};
             const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
-            if (exp_diff > 75 || exp_diff <= 3)
+            // Also when the operand with the larger exponent keeps p digits after the shift
+            if (exp_diff > 75 || exp_diff <= 3 || (exp_diff < 34 && (lhs_exp > rhs_exp ? lhs_sig : rhs_sig) < detail::pow10(static_cast<int128::uint128_t>(34 - exp_diff))))
             {
                 auto round {_boost_decimal_global_rounding_mode};
                 #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
@@ -1830,7 +1832,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
                         lhs.isneg(), !rhs.isneg());
                 }
                 // The other modes use the same kernel out of line
-                if (exp_diff <= 3)
+                if (exp_diff < 34)
                 {
                     return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
