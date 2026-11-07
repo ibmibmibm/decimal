@@ -582,7 +582,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto fenv_round_impl(T& val, const bool is_neg, con
             break;
         case rounding_mode::fe_dec_to_nearest:
             // Round to even or nearest
-            round_up = trailing_num > 5U || (trailing_num == 5U && (sticky || (static_cast<std::uint64_t>(val) & 1U) == 1U));
+            // Bitwise, not short circuit: the digit is random, so branches would often mispredict
+            round_up = (trailing_num > 5U) | ((trailing_num == 5U) & (sticky | ((static_cast<std::uint64_t>(val) & 1U) == 1U)));
             break;
         case rounding_mode::fe_dec_toward_zero:
             // Do nothing
@@ -596,19 +597,13 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto fenv_round_impl(T& val, const bool is_neg, con
             // LCOV_EXCL_STOP
     }
 
-    if (round_up)
+    val += static_cast<T>(round_up);
+    if (BOOST_DECIMAL_UNLIKELY(round_up & (static_cast<significand_type>(val) == max_significand_v<TargetType>() + 1)))
     {
-        if (BOOST_DECIMAL_UNLIKELY(static_cast<significand_type>(val) == max_significand_v<TargetType>()))
-        {
-            // val + 1 == 10^precision
-            // the cohort-preserving encoding is 10^(precision-1) with the exponent bumped by one.
-            val = static_cast<T>(max_significand_v<TargetType>() / 10U + 1U);
-            ++exp;
-        }
-        else
-        {
-            ++val;
-        }
+        // val == 10^precision
+        // the cohort-preserving encoding is 10^(precision-1) with the exponent bumped by one.
+        val = static_cast<T>(max_significand_v<TargetType>() / 10U + 1U);
+        ++exp;
     }
 
     return exp;
@@ -758,7 +753,12 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto coefficient_rounding(T1& coeff, T2& exp, T3& b
     // and falls through to the ordinary divmod elsewhere.
     demoted_integer_type shifted_coeff {};
     bool sticky {};
-    BOOST_DECIMAL_IF_CONSTEXPR (sizeof(T1) < sizeof(int128::uint128_t))
+    // A single extra digit, as from a shortest binary conversion, needs no division
+    if (shift == 0)
+    {
+        shifted_coeff = static_cast<demoted_integer_type>(coeff);
+    }
+    else BOOST_DECIMAL_IF_CONSTEXPR (sizeof(T1) < sizeof(int128::uint128_t))
     {
         const auto div_res {impl::divmod_pow10_dispatch(coeff, shift, shift_pow_ten)};
         shifted_coeff = static_cast<demoted_integer_type>(div_res.quotient);
