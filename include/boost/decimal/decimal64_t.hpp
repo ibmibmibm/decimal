@@ -11,7 +11,6 @@
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/int128.hpp>
-#include <boost/decimal/detail/fast_float/compute_float32.hpp>
 #include <boost/decimal/detail/fast_float/compute_float64.hpp>
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
@@ -162,7 +161,7 @@ private:
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_integral_v, TargetType, TargetType);
 
     template <typename Decimal, typename TargetType>
-    friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
+    friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(const Decimal& val) noexcept
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType);
 
     template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetType, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal>
@@ -1095,7 +1094,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal64_t::operator long double() const noexcept
 #ifdef BOOST_DECIMAL_HAS_FLOAT16
 constexpr decimal64_t::operator std::float16_t() const noexcept
 {
-    return static_cast<std::float16_t>(to_float<decimal64_t, float>(*this));
+    return to_float<decimal64_t, std::float16_t>(*this);
 }
 #endif
 #ifdef BOOST_DECIMAL_HAS_FLOAT32
@@ -1113,7 +1112,7 @@ constexpr decimal64_t::operator std::float64_t() const noexcept
 #ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
 constexpr decimal64_t::operator std::bfloat16_t() const noexcept
 {
-    return static_cast<std::bfloat16_t>(to_float<decimal64_t, float>(*this));
+    return to_float<decimal64_t, std::bfloat16_t>(*this);
 }
 #endif
 

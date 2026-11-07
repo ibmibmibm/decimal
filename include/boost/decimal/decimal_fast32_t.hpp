@@ -146,7 +146,7 @@ private:
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_integral_v, TargetType, TargetType);
 
     template <typename Decimal, typename TargetType>
-    friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(Decimal val) noexcept
+    friend BOOST_DECIMAL_CXX20_CONSTEXPR auto to_float(const Decimal& val) noexcept
         BOOST_DECIMAL_REQUIRES_TWO_RETURN(detail::is_decimal_floating_point_v, Decimal, detail::is_floating_point_v, TargetType, TargetType);
 
     template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetType, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE Decimal>
@@ -1707,15 +1707,14 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast32_t::operator double() const noexcept
 #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast32_t::operator long double() const noexcept
 {
-    // The precision and range of double already exceeds what decimal_fast32_t can provide
-    return static_cast<long double>(to_float<decimal_fast32_t, double>(*this));
+    return to_float<decimal_fast32_t, long double>(*this);
 }
 #endif
 
 #ifdef BOOST_DECIMAL_HAS_FLOAT16
 constexpr decimal_fast32_t::operator std::float16_t() const noexcept
 {
-    return static_cast<std::float16_t>(to_float<decimal_fast32_t, float>(*this));
+    return to_float<decimal_fast32_t, std::float16_t>(*this);
 }
 #endif
 #ifdef BOOST_DECIMAL_HAS_FLOAT32
@@ -1733,7 +1732,7 @@ constexpr decimal_fast32_t::operator std::float64_t() const noexcept
 #ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
 constexpr decimal_fast32_t::operator std::bfloat16_t() const noexcept
 {
-    return static_cast<std::bfloat16_t>(to_float<decimal_fast32_t, float>(*this));
+    return to_float<decimal_fast32_t, std::bfloat16_t>(*this);
 }
 #endif
 

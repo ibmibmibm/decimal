@@ -337,6 +337,13 @@ typedef unsigned __int128 builtin_uint128_t;
 #  define BOOST_DECIMAL_FORCE_INLINE inline
 #endif
 
+// Forced inline for speed, but left to the compiler in a build for size, such as GCC -Os or Clang -Oz
+#ifdef __OPTIMIZE_SIZE__
+#  define BOOST_DECIMAL_SPEED_INLINE inline
+#else
+#  define BOOST_DECIMAL_SPEED_INLINE BOOST_DECIMAL_FORCE_INLINE
+#endif
+
 #if defined(_MSC_VER)
 #  define BOOST_DECIMAL_NO_INLINE __declspec(noinline)
 #elif defined(__GNUC__) || defined(__clang__)

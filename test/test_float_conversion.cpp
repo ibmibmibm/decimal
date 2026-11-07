@@ -30,59 +30,59 @@
 
 void test_compute_float32()
 {
-    using boost::decimal::detail::fast_float::compute_float32;
+    using namespace boost::decimal::detail::fast_float;
+    const auto compute_float32 = [](const std::int64_t q, const std::uint64_t w, const bool negative)
+    { return to_binary<float>(compute_float<float>(q, w), negative); };
 
     std::mt19937_64 gen(42);
     std::uniform_int_distribution<std::int64_t> dist (1, 1);
 
-    bool success {};
-
     // Trivial verifcation
-    BOOST_TEST_EQ(compute_float32(1 * dist(gen), 1, false, success), 1e1F);
-    BOOST_TEST_EQ(compute_float32(0 * dist(gen), 1, true, success), -1e0F);
-    BOOST_TEST_EQ(compute_float32(38 * dist(gen), 1, false, success), 1e38F);
+    BOOST_TEST_EQ(compute_float32(1 * dist(gen), 1, false), 1e1F);
+    BOOST_TEST_EQ(compute_float32(0 * dist(gen), 1, true), -1e0F);
+    BOOST_TEST_EQ(compute_float32(38 * dist(gen), 1, false), 1e38F);
 
     // out of range
-    BOOST_TEST_EQ(compute_float32(310 * dist(gen), 5, false, success), HUGE_VALF);
-    BOOST_TEST_EQ(compute_float32(310 * dist(gen), 5, true, success), -HUGE_VALF);
-    BOOST_TEST_EQ(compute_float32(1000 * dist(gen), 5, false, success), HUGE_VALF);
-    BOOST_TEST_EQ(compute_float32(1000 * dist(gen), 5, true, success), -HUGE_VALF);
-    BOOST_TEST_EQ(compute_float32(-325 * dist(gen), 5, false, success), 0.0F);
+    BOOST_TEST_EQ(compute_float32(310 * dist(gen), 5, false), HUGE_VALF);
+    BOOST_TEST_EQ(compute_float32(310 * dist(gen), 5, true), -HUGE_VALF);
+    BOOST_TEST_EQ(compute_float32(1000 * dist(gen), 5, false), HUGE_VALF);
+    BOOST_TEST_EQ(compute_float32(1000 * dist(gen), 5, true), -HUGE_VALF);
+    BOOST_TEST_EQ(compute_float32(-325 * dist(gen), 5, false), 0.0F);
 
     // Composite
-    BOOST_TEST_EQ(compute_float32(10 * dist(gen), 123456789, false, success), 123456789e10F);
-    BOOST_TEST_EQ(compute_float32(20 * dist(gen), UINT64_C(444444444), false, success), 444444444e20F);
+    BOOST_TEST_EQ(compute_float32(10 * dist(gen), 123456789, false), 123456789e10F);
+    BOOST_TEST_EQ(compute_float32(20 * dist(gen), UINT64_C(444444444), false), 444444444e20F);
 }
 
 void test_compute_float64()
 {
-    using boost::decimal::detail::fast_float::compute_float64;
+    using namespace boost::decimal::detail::fast_float;
+    const auto compute_float64 = [](const std::int64_t q, const std::uint64_t w, const bool negative)
+    { return to_binary<double>(compute_float<double>(q, w), negative); };
 
     std::mt19937_64 gen(42);
     std::uniform_int_distribution<std::uint64_t> dist (1, 1);
 
-    bool success {};
-
     // Trivial verification
-    BOOST_TEST_EQ(compute_float64(1, dist(gen), false, success), 1e1);
-    BOOST_TEST_EQ(compute_float64(0, dist(gen), true, success), -1e0);
-    BOOST_TEST_EQ(compute_float64(308, dist(gen), false, success), 1e308);
+    BOOST_TEST_EQ(compute_float64(1, dist(gen), false), 1e1);
+    BOOST_TEST_EQ(compute_float64(0, dist(gen), true), -1e0);
+    BOOST_TEST_EQ(compute_float64(308, dist(gen), false), 1e308);
 
     // out of range
-    BOOST_TEST_EQ(compute_float64(310, 5U * dist(gen), false, success), HUGE_VAL);
-    BOOST_TEST_EQ(compute_float64(310, 5U * dist(gen), true, success), -HUGE_VAL);
-    BOOST_TEST_EQ(compute_float64(1000, 5U * dist(gen), false, success), HUGE_VAL);
-    BOOST_TEST_EQ(compute_float64(1000, 5U * dist(gen), true, success), -HUGE_VAL);
-    BOOST_TEST_EQ(compute_float64(-325, 5U * dist(gen), false, success), 0.0);
-    BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, false, success), 0.0);
-    BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, true, success), 0.0);
-    BOOST_TEST_EQ(compute_float64(300, UINT64_MAX, false, success), 0.0 * static_cast<double>(dist(gen)));
+    BOOST_TEST_EQ(compute_float64(310, 5U * dist(gen), false), HUGE_VAL);
+    BOOST_TEST_EQ(compute_float64(310, 5U * dist(gen), true), -HUGE_VAL);
+    BOOST_TEST_EQ(compute_float64(1000, 5U * dist(gen), false), HUGE_VAL);
+    BOOST_TEST_EQ(compute_float64(1000, 5U * dist(gen), true), -HUGE_VAL);
+    BOOST_TEST_EQ(compute_float64(-325, 5U * dist(gen), false), 0.0);
+    BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, false), 0.0);
+    BOOST_TEST_EQ(compute_float64(static_cast<std::int64_t>(dist(gen)) * 50U, 0, true), 0.0);
+    BOOST_TEST_EQ(compute_float64(300, UINT64_MAX, false), HUGE_VAL * static_cast<double>(dist(gen)));
 
     // Composite
-    BOOST_TEST_EQ(compute_float64(10 * static_cast<std::int64_t>(dist(gen)), 123456789, false, success), 123456789e10);
-    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), UINT64_C(4444444444444444444), false, success), 4444444444444444444e100);
-    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), std::numeric_limits<std::uint64_t>::max(), false, success), 18446744073709551615e100);
-    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), UINT64_C(10000000000000000000), false, success), 10000000000000000000e100);
+    BOOST_TEST_EQ(compute_float64(10 * static_cast<std::int64_t>(dist(gen)), 123456789, false), 123456789e10);
+    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), UINT64_C(4444444444444444444), false), 4444444444444444444e100);
+    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), std::numeric_limits<std::uint64_t>::max(), false), 18446744073709551615e100);
+    BOOST_TEST_EQ(compute_float64(100 * static_cast<std::int64_t>(dist(gen)), UINT64_C(10000000000000000000), false), 10000000000000000000e100);
 }
 
 void test_compute_float80_128()
@@ -92,17 +92,48 @@ void test_compute_float80_128()
     std::mt19937_64 gen(42);
     std::uniform_int_distribution<std::uint64_t> dist (1, 1);
 
-    bool success {};
-    
-    BOOST_TEST_EQ(compute_float80_128(1, dist(gen), false, success), 1e1L);
-    BOOST_TEST_EQ(compute_float80_128(0, dist(gen), true, success), -1e0L);
-    BOOST_TEST_EQ(compute_float80_128(-1, dist(gen), false, success), 1e-1L);
+    BOOST_TEST_EQ(compute_float80_128(1, dist(gen), false), 1e1L);
+    BOOST_TEST_EQ(compute_float80_128(0, dist(gen), true), -1e0L);
+    BOOST_TEST_EQ(compute_float80_128(-1, dist(gen), false), 1e-1L);
+    BOOST_TEST_EQ(compute_float80_128(100, std::uint64_t {0}, false), 0.0L);
 }
 
 #ifdef __GNUC__
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #endif
+
+// A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
+void test_narrow_midpoint()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    #ifdef BOOST_DECIMAL_HAS_FLOAT16
+    BOOST_TEST(static_cast<std::float16_t>(2049.000000000001_DD) == static_cast<std::float16_t>(2050));
+    BOOST_TEST(static_cast<std::float16_t>(2050.999999999999_DD) == static_cast<std::float16_t>(2050));
+    BOOST_TEST(static_cast<std::float16_t>("2049.000000000000000000000000000001"_DL) == static_cast<std::float16_t>(2050));
+    BOOST_TEST(static_cast<std::float16_t>("2.980232238769531250000000000000001e-8"_DL) > static_cast<std::float16_t>(0));
+    BOOST_TEST(static_cast<std::float16_t>("2.98023223876953125e-8"_DL) == static_cast<std::float16_t>(0));
+    BOOST_TEST(static_cast<std::float16_t>("9.853363e-3"_DF) == static_cast<std::float16_t>(0x1.42cp-7));
+    BOOST_TEST(static_cast<std::float16_t>("9.853363e-3"_DFF) == static_cast<std::float16_t>(0x1.42cp-7));
+    BOOST_TEST(static_cast<std::float16_t>("1.00048828126"_DDF) == static_cast<std::float16_t>(0x1.004p+0));
+    BOOST_TEST(static_cast<std::float16_t>("1.00048828126"_DLF) == static_cast<std::float16_t>(0x1.004p+0));
+    BOOST_TEST(static_cast<std::float16_t>("-1.762509346008301e-4"_DD) == static_cast<std::float16_t>(-0xb.8ep-16));
+    BOOST_TEST(static_cast<std::float16_t>("-2.974271774291992e-4"_DD) == static_cast<std::float16_t>(-0x9.bep-15));
+    BOOST_TEST(static_cast<std::float16_t>("-1.8921529734809417935e-2"_DL) == static_cast<std::float16_t>(-0x9.bp-9));
+    #endif
+
+    #ifdef BOOST_DECIMAL_HAS_BRAINFLOAT16
+    BOOST_TEST(static_cast<std::bfloat16_t>(257.0000000001_DD) == static_cast<std::bfloat16_t>(258));
+    BOOST_TEST(static_cast<std::bfloat16_t>(258.9999999999_DD) == static_cast<std::bfloat16_t>(258));
+    BOOST_TEST(static_cast<std::bfloat16_t>("8.240022e-10"_DF) == static_cast<std::bfloat16_t>(0x1.c6p-31));
+    BOOST_TEST(static_cast<std::bfloat16_t>("8.240022e-10"_DFF) == static_cast<std::bfloat16_t>(0x1.c6p-31));
+    BOOST_TEST(static_cast<std::bfloat16_t>("1.00390625001"_DDF) == static_cast<std::bfloat16_t>(0x1.02p+0));
+    BOOST_TEST(static_cast<std::bfloat16_t>("1.00390625001"_DL) == static_cast<std::bfloat16_t>(0x1.02p+0));
+    BOOST_TEST(static_cast<std::bfloat16_t>("1.00390625001"_DLF) == static_cast<std::bfloat16_t>(0x1.02p+0));
+    #endif
+}
 
 template <typename T>
 void test_generic_binary_to_decimal()
@@ -479,6 +510,8 @@ int main()
     #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     test_generic_binary_to_decimal<long double>();
     #endif
+
+    test_narrow_midpoint();
 
     test_parser();
     test_push_eight<std::uint64_t>(0U);
