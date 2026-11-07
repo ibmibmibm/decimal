@@ -442,6 +442,22 @@ public:
     constexpr auto operator/=(Integer rhs) noexcept
         BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t&);
 
+    template <typename Decimal>
+    constexpr auto operator+=(Decimal rhs) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&);
+
+    template <typename Decimal>
+    constexpr auto operator-=(Decimal rhs) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&);
+
+    template <typename Decimal>
+    constexpr auto operator*=(Decimal rhs) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&);
+
+    template <typename Decimal>
+    constexpr auto operator/=(Decimal rhs) noexcept
+        BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&);
+
     // Increment and decrement
     constexpr auto operator++() noexcept -> decimal_fast32_t&;
     constexpr auto operator++(int) noexcept -> decimal_fast32_t;
@@ -1483,6 +1499,38 @@ constexpr auto decimal_fast32_t::operator/=(const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast32_t&)
 {
     *this = *this / rhs;
+    return *this;
+}
+
+template <typename Decimal>
+constexpr auto decimal_fast32_t::operator+=(const Decimal rhs) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&)
+{
+    *this = static_cast<decimal_fast32_t>(*this + rhs);
+    return *this;
+}
+
+template <typename Decimal>
+constexpr auto decimal_fast32_t::operator-=(const Decimal rhs) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&)
+{
+    *this = static_cast<decimal_fast32_t>(*this - rhs);
+    return *this;
+}
+
+template <typename Decimal>
+constexpr auto decimal_fast32_t::operator*=(const Decimal rhs) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&)
+{
+    *this = static_cast<decimal_fast32_t>(*this * rhs);
+    return *this;
+}
+
+template <typename Decimal>
+constexpr auto decimal_fast32_t::operator/=(const Decimal rhs) noexcept
+    BOOST_DECIMAL_REQUIRES_RETURN(detail::is_decimal_floating_point_v, Decimal, decimal_fast32_t&)
+{
+    *this = static_cast<decimal_fast32_t>(*this / rhs);
     return *this;
 }
 

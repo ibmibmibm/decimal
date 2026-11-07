@@ -161,6 +161,8 @@ In the event of binary arithmetic between a non-decimal type and a decimal type 
 
 In the event of binary arithmetic between two decimal types the result will be the higher precision type of the two (e.g. decimal64_t + decimal32_t -> decimal64_t)
 
+A compound assignment with another decimal type computes the binary operation in that higher precision type, and then converts the result to the type of the left operand (e.g. `d32 += d64` assigns `static_cast<decimal32_t>(d32 + d64)`).
+
 == 3.2.10 Note
 
 xref:design.adoc#non-finite-deviation[Non-finite values are supported]
