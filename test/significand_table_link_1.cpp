@@ -13,6 +13,7 @@ auto second_coarse_power_low() -> const std::uint64_t*;
 auto second_coarse_power_exponent() -> const std::int32_t*;
 auto second_clinger_powers() -> const double*;
 auto second_long_double_clinger_powers() -> const long double*;
+auto second_ryu_inv_pow5() -> const boost::int128::uint128_t*;
 
 // Each source file must see the same table, also in C++14
 int main()
@@ -29,6 +30,7 @@ int main()
     BOOST_TEST(coarse_power_table::exponent == second_coarse_power_exponent());
     BOOST_TEST(clinger_table::powers_of_ten == second_clinger_powers());
     BOOST_TEST(long_double_clinger_table::powers_of_ten == second_long_double_clinger_powers());
+    BOOST_TEST(boost::decimal::detail::ryu::inv_pow5_table::values == second_ryu_inv_pow5());
     BOOST_TEST_EQ(static_cast<boost::decimal::decimal32_t>(0.5), boost::decimal::decimal32_t(5, -1));
 
     return boost::report_errors();

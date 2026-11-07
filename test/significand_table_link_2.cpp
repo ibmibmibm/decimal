@@ -39,3 +39,8 @@ auto second_long_double_clinger_powers() -> const long double*
 {
     return boost::decimal::detail::fast_float::long_double_clinger_table::powers_of_ten;
 }
+
+auto second_ryu_inv_pow5() -> const boost::int128::uint128_t*
+{
+    return boost::decimal::detail::ryu::inv_pow5_table::values;
+}
