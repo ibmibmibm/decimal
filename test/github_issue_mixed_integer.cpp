@@ -23,6 +23,8 @@ void test_operand(const T x, const Integer n)
     BOOST_TEST_EQ(n - x, dn - x);
     BOOST_TEST_EQ(x * n, x * dn);
     BOOST_TEST_EQ(n * x, dn * x);
+    BOOST_TEST_EQ(x / n, x / dn);
+    BOOST_TEST_EQ(n / x, dn / x);
 }
 
 // big is 10^(p + 1), so each operand has more digits than T and the conversion rounds it
@@ -68,6 +70,14 @@ void test_infinity_times_zero()
     #endif
 }
 
+// A zero dividend keeps exponent 0, as a decimal zero does
+template <typename T, typename Integer>
+void test_zero_dividend()
+{
+    BOOST_TEST_EQ(quantexp(Integer{0} / T{2}), 0);
+    BOOST_TEST_EQ(quantexp(Integer{0} / T{25, -1}), quantexp(T{0} / T{25, -1}));
+}
+
 // The product has the preferred exponent, the sum of the two exponents (IEEE 754 5.4.1)
 template <typename T>
 void test_preferred_exponent()
@@ -87,6 +97,9 @@ int main()
     test_infinity_times_zero<decimal_fast64_t>();
     test_infinity_times_zero<decimal_fast128_t>();
 
+    test_zero_dividend<decimal128_t, int>();
+    test_zero_dividend<decimal128_t, boost::int128::int128_t>();
+
     test_preferred_exponent<decimal32_t>();
     test_preferred_exponent<decimal64_t>();
     test_preferred_exponent<decimal128_t>();
@@ -99,7 +112,6 @@ int main()
     const auto big128 {boost::int128::int128_t{INT64_C(10000000000000000)} * INT64_C(1000000000000000000) * 10};
     test_all_modes<decimal128_t>(big128);
     test_all_modes<decimal_fast128_t>(big128);
-
 
     return boost::report_errors();
 }
