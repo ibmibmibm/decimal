@@ -133,6 +133,38 @@ void test_gaps()
     }
 }
 
+// A significand of all digits with a larger exponent has a product above two words
+template <typename T>
+void test_wide_gaps()
+{
+    using sig_type = typename T::significand_type;
+
+    sig_type nines {0U};
+    for (int i {0}; i < std::numeric_limits<T>::digits10; ++i)
+    {
+        nines = static_cast<sig_type>(nines * 10U + 9U);
+    }
+
+    for (int gap {1}; gap <= 40; ++gap)
+    {
+        test_pair(T{nines, 0}, T{nines, gap});
+        test_pair(T{sig_type{1U}, 0}, T{nines, gap});
+    }
+}
+
+// Products just above 2^128, whose low two words are less than the other significand
+void test_product_overflow()
+{
+    using namespace boost::decimal::literals;
+
+    test_pair(100000_DL, 3402823669209384634633746074317683e5_DL);
+    test_pair(100000_DLF, 3402823669209384634633746074317683e5_DLF);
+    test_pair(10000000000000000000000000_DL, 34028236692094e25_DL);
+    test_pair(10000000000000000000000000_DLF, 34028236692094e25_DLF);
+    BOOST_TEST(1_DLF < 340283);
+    BOOST_TEST(1_DL < 340283);
+}
+
 template <typename A, typename B>
 void test_mixed_pair(const A& low, const B& high)
 {
@@ -196,6 +228,15 @@ int main()
     test_gaps<decimal_fast32_t>();
     test_gaps<decimal_fast64_t>();
     test_gaps<decimal_fast128_t>();
+
+    test_wide_gaps<decimal32_t>();
+    test_wide_gaps<decimal64_t>();
+    test_wide_gaps<decimal128_t>();
+    test_wide_gaps<decimal_fast32_t>();
+    test_wide_gaps<decimal_fast64_t>();
+    test_wide_gaps<decimal_fast128_t>();
+
+    test_product_overflow();
 
     test_mixed_types<decimal32_t, decimal64_t>();
     test_mixed_types<decimal32_t, decimal128_t>();

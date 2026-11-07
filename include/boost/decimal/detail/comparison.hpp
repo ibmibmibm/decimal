@@ -427,39 +427,9 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto less_finite_parts(c
 
     const auto delta_exp {lhs_exp - rhs_exp};
 
-    BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
-    {
-        if (lhs_sign != rhs_sign)
-        {
-            return lhs_sign;
-        }
-
-        // The exponents of the leading digits decide first. When they are equal, the significand
-        // with the larger exponent has fewer digits, and scaled to the digits of the other it fits.
-        if (delta_exp != 0)
-        {
-            const auto lead_delta {delta_exp + detail::num_digits(lhs_sig) - detail::num_digits(rhs_sig)};
-            if (lead_delta != 0)
-            {
-                return lhs_sign ? lead_delta > 0 : lead_delta < 0;
-            }
-
-            if (delta_exp > 0)
-            {
-                const auto scaled {lhs_sig * detail::pow10(static_cast<SigType>(delta_exp))};
-                return lhs_sign ? scaled > rhs_sig : scaled < rhs_sig;
-            }
-
-            const auto scaled {rhs_sig * detail::pow10(static_cast<SigType>(-delta_exp))};
-            return lhs_sign ? lhs_sig > scaled : lhs_sig < scaled;
-        }
-
-        return lhs_sign ? lhs_sig > rhs_sig : lhs_sig < rhs_sig;
-    }
-
-    // A gap of p or more decides by the exponents alone. Smaller gaps scale from the table,
-    // so a random gap costs no mispredicted branch.
-    constexpr auto max_delta_diff {detail::decimal_val_v<DecimalType> < 64 ? 11 : 19};
+    // A gap of p or more decides by the exponents alone. The narrow types scale the largest gaps whose
+    // value (32 bits) or power (64 bits) fits a word, so a random gap costs no mispredicted branch.
+    constexpr auto max_delta_diff {detail::decimal_val_v<DecimalType> < 64 ? 11 : (detail::decimal_val_v<DecimalType> < 128 ? 19 : 33)};
 
     if (BOOST_DECIMAL_UNLIKELY(delta_exp > max_delta_diff || delta_exp < -max_delta_diff))
     {
@@ -483,11 +453,33 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto less_finite_parts(c
         // One product of the significand with the larger exponent. Only the bits decide the order,
         // because random signs and exponents make a branch mispredict.
         const auto swapped {static_cast<unsigned>(delta_exp < 0)};
-        const auto larger {static_cast<std::uint64_t>(swapped != 0U ? rhs_sig : lhs_sig)};
-        const auto smaller {static_cast<std::uint64_t>(swapped != 0U ? lhs_sig : rhs_sig)};
-        const auto product {detail::umul128(larger, detail::pow10(static_cast<std::uint64_t>(swapped != 0U ? -delta_exp : delta_exp)))};
-        const auto above {static_cast<unsigned>(product.high != 0U) | static_cast<unsigned>(product.low > smaller)};
-        const auto below {static_cast<unsigned>(product.high == 0U) & static_cast<unsigned>(product.low < smaller)};
+        const auto scale {swapped != 0U ? -delta_exp : delta_exp};
+        unsigned above {};
+        unsigned below {};
+        BOOST_DECIMAL_IF_CONSTEXPR (detail::decimal_val_v<DecimalType> >= 128)
+        {
+            const int128::uint128_t smaller {detail::select_bits(swapped != 0U, lhs_sig, rhs_sig)};
+            const int128::uint128_t larger {detail::select_bits(swapped != 0U, rhs_sig, lhs_sig)};
+            const int128::uint128_t power {detail::pow10(static_cast<int128::uint128_t>(scale))};
+
+            // The product of the two high words only says that the product does not fit
+            const auto low {detail::umul128(larger.low, power.low)};
+            const int128::uint128_t middle {detail::umul128(larger.low, power.high) + low.high};
+            const int128::uint128_t upper {detail::umul128(larger.high, power.low) + middle.low};
+            const int128::uint128_t low_product {upper.low, low.low};
+            const auto overflow {static_cast<unsigned>((middle.high | upper.high) != 0U) |
+                                 (static_cast<unsigned>(larger.high != 0U) & static_cast<unsigned>(power.high != 0U))};
+            above = overflow | static_cast<unsigned>(low_product > smaller);
+            below = static_cast<unsigned>(low_product < smaller) & (overflow ^ 1U);
+        }
+        else
+        {
+            const auto larger {static_cast<std::uint64_t>(swapped != 0U ? rhs_sig : lhs_sig)};
+            const auto smaller {static_cast<std::uint64_t>(swapped != 0U ? lhs_sig : rhs_sig)};
+            const auto product {detail::umul128(larger, detail::pow10(static_cast<std::uint64_t>(scale)))};
+            above = static_cast<unsigned>(product.high != 0U) | static_cast<unsigned>(product.low > smaller);
+            below = static_cast<unsigned>(product.high == 0U) & static_cast<unsigned>(product.low < smaller);
+        }
         const auto flip {swapped ^ static_cast<unsigned>(lhs_sign)};
         const auto same_sign {(flip & above) | (~flip & below & 1U)};
         const auto signs_differ {static_cast<unsigned>(lhs_sign != rhs_sign)};
