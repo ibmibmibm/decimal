@@ -264,6 +264,14 @@ private:
     template <typename T, typename SigType>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::far_operand(T larger, SigType sig) noexcept -> T;
 
+    // The form of detail::select_operand for GCC
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto select_parts(const bool use_lhs, const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
+    {
+        decimal128_t r {};
+        r.bits_ = detail::select_bits(use_lhs, lhs.bits_, rhs.bits_);
+        return r;
+    }
+
 public:
     // 3.2.4.1 construct/copy/destroy
     constexpr decimal128_t() noexcept = default;
@@ -1707,7 +1715,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
         {
             const auto lhs_exp {lhs.biased_exponent()};
             const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+            const auto exp_gap {lhs_exp - rhs_exp};
+            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
             if (exp_diff > 75 || exp_diff <= 3)
             {
                 auto round {_boost_decimal_global_rounding_mode};
@@ -1721,7 +1730,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
                 {
                     if (exp_diff > 75)
                     {
-                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                        const bool use_lhs {lhs_exp > rhs_exp};
+                        return detail::far_operand(detail::select_operand(use_lhs, lhs, rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
                     }
                     return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
@@ -1791,7 +1801,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
         {
             const auto lhs_exp {lhs.biased_exponent()};
             const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+            const auto exp_gap {lhs_exp - rhs_exp};
+            const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
             if (exp_diff > 75 || exp_diff <= 3)
             {
                 auto round {_boost_decimal_global_rounding_mode};
@@ -1805,7 +1816,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
                 {
                     if (exp_diff > 75)
                     {
-                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : -rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                        const bool use_lhs {lhs_exp > rhs_exp};
+                        return detail::far_operand(detail::select_operand(use_lhs, lhs, -rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
                     }
                     return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
                         lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
