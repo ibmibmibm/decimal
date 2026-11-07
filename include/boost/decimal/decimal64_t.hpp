@@ -1587,14 +1587,17 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_core(const 
 {
     if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
     {
-        const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+        const auto exp_gap {lhs_exp - rhs_exp};
+        const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
         if (exp_diff > 36 || exp_diff <= 3)
         {
             if (BOOST_DECIMAL_LIKELY(detail::current_rounding_mode() == rounding_mode::fe_dec_to_nearest))
             {
                 if (exp_diff > 36)
                 {
-                    return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                    // A select with no branch, because the larger exponent is random
+                    const bool use_lhs {lhs_exp > rhs_exp};
+                    return detail::far_operand(from_bits(detail::select_bits(use_lhs, lhs.bits_, rhs.bits_)), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
                 }
                 return detail::aligned_add_kernel<decimal64_t, std::uint64_t>(
                     lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);

@@ -1055,14 +1055,16 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d32_add_core(const 
 {
     if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
     {
-        const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+        const auto exp_gap {lhs_exp - rhs_exp};
+        const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
         if (exp_diff > 17 || exp_diff <= 3)
         {
             if (BOOST_DECIMAL_LIKELY(detail::current_rounding_mode() == rounding_mode::fe_dec_to_nearest))
             {
                 if (exp_diff > 17)
                 {
-                    return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                    const bool use_lhs {lhs_exp > rhs_exp};
+                    return detail::far_operand(from_bits(detail::select_bits(use_lhs, lhs.bits_, rhs.bits_)), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
                 }
                 return detail::aligned_add_kernel<decimal32_t, std::uint64_t>(
                     static_cast<std::uint64_t>(lhs_sig), static_cast<std::uint64_t>(rhs_sig),

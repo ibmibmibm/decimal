@@ -269,6 +269,14 @@ private:
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs, int128::uint128_t lhs_sig, std::int32_t lhs_exp, bool lhs_sign,
                                                            int128::uint128_t rhs_sig, std::int32_t rhs_exp, bool rhs_sign) noexcept -> decimal128_t;
 
+    // The form of detail::select_operand for GCC
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto select_parts(const bool use_lhs, const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
+    {
+        decimal128_t r {};
+        r.bits_ = detail::select_bits(use_lhs, lhs.bits_, rhs.bits_);
+        return r;
+    }
+
 public:
     // 3.2.4.1 construct/copy/destroy
     constexpr decimal128_t() noexcept = default;
@@ -1630,14 +1638,16 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const
 {
     if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
     {
-        const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+        const auto exp_gap {lhs_exp - rhs_exp};
+        const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
         if (exp_diff > 75 || exp_diff <= 3)
         {
             if (BOOST_DECIMAL_LIKELY(detail::current_rounding_mode() == rounding_mode::fe_dec_to_nearest))
             {
                 if (exp_diff > 75)
                 {
-                    return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                    const bool use_lhs {lhs_exp > rhs_exp};
+                    return detail::far_operand(detail::select_operand(use_lhs, lhs, rhs), detail::select_bits(use_lhs, lhs_sig, rhs_sig));
                 }
                 return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
                     lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
