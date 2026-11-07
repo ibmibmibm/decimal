@@ -611,7 +611,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto fenv_round_impl(T& val, const bool is_neg, con
             break;
         case rounding_mode::fe_dec_to_nearest:
             // Round to even or nearest
-            round_up = trailing_num > 5U || (trailing_num == 5U && (sticky || (static_cast<std::uint64_t>(val) & 1U) == 1U));
+            round_up = static_cast<bool>(static_cast<unsigned>(trailing_num > 5U) | (static_cast<unsigned>(trailing_num == 5U) &
+                       (static_cast<unsigned>(sticky) | static_cast<unsigned>(static_cast<std::uint64_t>(val) & 1U))));
             break;
         case rounding_mode::fe_dec_toward_zero:
             // Do nothing
@@ -625,19 +626,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto fenv_round_impl(T& val, const bool is_neg, con
             // LCOV_EXCL_STOP
     }
 
-    if (round_up)
+    // The increment has no branch, because the dropped digit is random
+    const bool carry {static_cast<bool>(static_cast<unsigned>(round_up) & static_cast<unsigned>(static_cast<significand_type>(val) == max_significand_v<TargetType>()))};
+    val += static_cast<T>(round_up);
+    if (BOOST_DECIMAL_UNLIKELY(carry))
     {
-        if (BOOST_DECIMAL_UNLIKELY(static_cast<significand_type>(val) == max_significand_v<TargetType>()))
-        {
-            // val + 1 == 10^precision
-            // the cohort-preserving encoding is 10^(precision-1) with the exponent bumped by one.
-            val = static_cast<T>(max_significand_v<TargetType>() / 10U + 1U);
-            ++exp;
-        }
-        else
-        {
-            ++val;
-        }
+        // val == 10^precision: the cohort-preserving encoding is 10^(precision-1) with the exponent bumped by one
+        val = static_cast<T>(max_significand_v<TargetType>() / 10U + 1U);
+        ++exp;
     }
 
     return exp;
