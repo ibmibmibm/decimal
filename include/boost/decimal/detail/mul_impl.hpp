@@ -47,26 +47,29 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_finalize_u64(
     std::uint_fast64_t product, ExpType result_exp, bool result_sign,
     const rounding_mode round = rounding_mode::fe_dec_to_nearest) noexcept -> ReturnType
 {
-    // Divide by both constants and select, as a division by a variable is slow
-    constexpr auto pow6 {detail::pow10<std::uint64_t>(UINT64_C(6))};
-    constexpr auto pow7 {detail::pow10<std::uint64_t>(UINT64_C(7))};
+    // q is product * ceil(2^83 / pow_extra) >> 83, exact because product < 2^47. One selected
+    // reciprocal replaces two divisions by constants and a random branch between them.
+    constexpr std::uint32_t pow6 {UINT32_C(1000000)};
+    constexpr std::uint32_t pow7 {UINT32_C(10000000)};
     const bool long_product {product >= detail::pow10<std::uint64_t>(UINT64_C(13))};
-    int extra {long_product ? 7 : 6};
-    const auto pow_extra {long_product ? pow7 : pow6};
-    auto q {long_product ? product / pow7 : product / pow6};
-    const auto r {product - q * pow_extra};
+    int extra {6 + static_cast<int>(long_product)};
+    const std::uint32_t pow_extra {select_bits(long_product, pow7, pow6)};
+    auto q {static_cast<std::uint32_t>(detail::umul128(product, select_bits(long_product, UINT64_C(0xD6BF94D5E57A42C), UINT64_C(0x8637BD05AF6C69B6))).high >> 19)};
+
+    // The quotient and the remainder fit in 32 bits, which a 32-bit target computes in one word
+    const auto r {static_cast<std::uint32_t>(product) - q * pow_extra};
     const auto half {pow_extra >> 1};
 
-    const bool round_up {round == rounding_mode::fe_dec_to_nearest ? r + (q & UINT64_C(1)) > half :
+    const bool round_up {round == rounding_mode::fe_dec_to_nearest ? r + (q & UINT32_C(1)) > half :
                                                                      detail::steps_up_in_mode(round, result_sign, r != 0U, r >= half)};
-    q += static_cast<unsigned>(round_up);
+    q += static_cast<std::uint32_t>(round_up);
     if (BOOST_DECIMAL_UNLIKELY(q == pow7))
     {
         q = pow6;
         ++extra;
     }
 
-    return detail::pack_in_range<ReturnType>(static_cast<std::uint32_t>(q),
+    return detail::pack_in_range<ReturnType>(q,
                                              result_exp + static_cast<ExpType>(extra),
                                              result_sign);
 }
@@ -77,13 +80,16 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_finalize_u128(
     int128::uint128_t product, ExpType result_exp, bool result_sign,
     const rounding_mode round = rounding_mode::fe_dec_to_nearest) noexcept -> ReturnType
 {
-    constexpr auto threshold {detail::pow10<int128::uint128_t>(int128::uint128_t{UINT64_C(31)})};
-
-    int extra {15};
-    if (product >= threshold)
+    // product >> 43 keeps all that the quotient needs. It decides the digits, except
+    // when it is 10^31 >> 43, which random products almost never meet.
+    constexpr std::uint64_t ten_31_top {UINT64_C(0xFC6F7C404581229)};
+    const std::uint64_t top {(product.high << 21) | (product.low >> 43)};
+    bool has_32_digits {top > ten_31_top};
+    if (BOOST_DECIMAL_UNLIKELY(top == ten_31_top))
     {
-        extra = 16;
+        has_32_digits = product >= detail::pow10<int128::uint128_t>(int128::uint128_t{UINT64_C(31)});
     }
+    int extra {15 + static_cast<int>(has_32_digits)};
 
     // Below the subnormal exponent the constructor rounds the exact product once.
     // Rounding to the precision here first would round the result twice.
@@ -92,11 +98,20 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_finalize_u128(
         return ReturnType{product, result_exp, result_sign};
     }
 
-    const auto pow_extra {detail::pow10<int128::uint128_t>(int128::uint128_t{static_cast<std::uint64_t>(extra)})};
-    const auto dr {detail::impl::divmod_pow10_dispatch(product, extra, pow_extra)};
-    auto q {dr.quotient.low};
-    const auto r {dr.remainder};
-    const auto half {pow_extra >> 1};
+    // pow_extra: 10^16 or 10^15. The quotient is (product >> 43) * floor(2^113 / pow_extra) >> 70
+    // or one more, because all the dropped parts are below 2^-5 of a unit.
+    const std::uint64_t pow_extra {select_bits(has_32_digits, UINT64_C(10000000000000000), UINT64_C(1000000000000000))};
+    auto q {detail::umul128(top, select_bits(has_32_digits, UINT64_C(0xE69594BEC44DE15), UINT64_C(0x901D7CF73AB0ACD9))).high >> 6};
+
+    // The remainder is below 2 * 10^16, so the low 64 bits of it are enough
+    std::uint64_t r {product.low - q * pow_extra};
+    if (BOOST_DECIMAL_UNLIKELY(r >= pow_extra))
+    {
+        r -= pow_extra;
+        ++q;
+    }
+
+    const std::uint64_t half {pow_extra >> 1};
 
     const bool round_up {round == rounding_mode::fe_dec_to_nearest ? r + (q & UINT64_C(1)) > half :
                                                                      detail::steps_up_in_mode(round, result_sign, r != 0U, r >= half)};
@@ -118,49 +133,43 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_finalize_u256(
     const u256& product, ExpType result_exp, bool result_sign,
     const rounding_mode round = rounding_mode::fe_dec_to_nearest) noexcept -> ReturnType
 {
-    int extra {33};
-    if (product >= detail::pow10(u256{UINT64_C(67)}))
+    // product >> 98 keeps all that the quotient needs. Its top word decides the digits,
+    // except when it is the top word of 10^67, which random products almost never meet.
+    constexpr std::uint64_t ten_67_top {UINT64_C(0x17BD29D1C87A191D)};
+    const std::uint64_t top {(product.bytes[3] << 30) | (product.bytes[2] >> 34)};
+    bool has_68_digits {top > ten_67_top};
+    if (BOOST_DECIMAL_UNLIKELY(top == ten_67_top))
     {
-        extra = 34;
+        has_68_digits = product >= detail::pow10(u256{UINT64_C(67)});
     }
+    int extra {33 + static_cast<int>(has_68_digits)};
 
-    // 10^extra = 5^extra * 2^extra: product >> extra < 2^192 goes through pow5 = 5^extra with
-    // pow5_recip = floor(2^192 / pow5), which gives the quotient or one less.
-    const bool has_68_digits {extra == 34};
-    // pow5: 5^34 = 582076609134674072265625, or 5^33 = 116415321826934814453125
-    const int128::uint128_t pow5 {has_68_digits ? int128::uint128_t{UINT64_C(0x7B42), UINT64_C(0x6FAB61F00DE36399)}
-                                                : int128::uint128_t{UINT64_C(0x18A6), UINT64_C(0xE32246C99C60AD85)}};
-    // pow5_recip: floor(2^192 / 5^34) = 10783978666860255917866806034807852,
-    //          or floor(2^192 / 5^33) = 53919893334301279589334030174039261
-    const int128::uint128_t pow5_recip {has_68_digits ? int128::uint128_t{UINT64_C(0x213B0F25F6989), UINT64_C(0x2AD2F56BC4EFBC2C)}
-                                                      : int128::uint128_t{UINT64_C(0xA6274BBDD0FAD), UINT64_C(0xD61ECB1AD8AEACDD)}};
+    // pow_extra: 10^34 or 10^33, pow_recip: floor(2^237 / pow_extra)
+    const int128::uint128_t pow_extra {select_bits(has_68_digits, UINT64_C(0x1ED09BEAD87C0), UINT64_C(0x314DC6448D93)),
+                                       select_bits(has_68_digits, UINT64_C(0x378D8E6400000000), UINT64_C(0x38C15B0A00000000))};
+    const std::uint64_t recip_high {select_bits(has_68_digits, UINT64_C(0x109D8792FB4C4956), UINT64_C(0xA6274BBDD0FADD61))};
+    const std::uint64_t recip_low {select_bits(has_68_digits, UINT64_C(0x97AB5E277DE16227), UINT64_C(0xECB1AD8AEACDD58E))};
 
-    const int carry_shift {64 - extra};
-    const std::uint64_t shifted_high {(product.bytes[2] >> extra) | (product.bytes[3] << carry_shift)};
-    const int128::uint128_t shifted_low {(product.bytes[1] >> extra) | (product.bytes[2] << carry_shift),
-                                         (product.bytes[0] >> extra) | (product.bytes[1] << carry_shift)};
+    // The quotient is (product >> 98) * pow_recip >> 139 or one more, because all the dropped
+    // parts are below 2^-10 of a unit. The low words of the product give the remainder.
+    const std::uint64_t middle_word {(product.bytes[2] << 30) | (product.bytes[1] >> 34)};
+    const int128::uint128_t low_by_high {detail::umul128(middle_word, recip_high)};
+    const int128::uint128_t high_by_low {detail::umul128(top, recip_low)};
+    const int128::uint128_t middle_sum {int128::uint128_t{low_by_high.low} + int128::uint128_t{high_by_low.low}};
+    const int128::uint128_t recip_product {detail::umul128(top, recip_high) + int128::uint128_t{low_by_high.high} +
+                                           int128::uint128_t{high_by_low.high} + int128::uint128_t{middle_sum.high}};
+    int128::uint128_t quotient {recip_product.high >> 11, (recip_product.high << 53) | (recip_product.low >> 11)};
 
-    // quotient = (shifted * pow5_recip) >> 192, where
-    // shifted * pow5_recip = shifted_low * pow5_recip + (shifted_high * pow5_recip) << 128
-    const u256 low_times_recip {detail::umul256(shifted_low, pow5_recip)};
-    const int128::uint128_t high_times_recip_lo {int128::uint128_t{shifted_high} * pow5_recip.low};
-    const int128::uint128_t high_times_recip_hi {int128::uint128_t{shifted_high} * pow5_recip.high};
-    const int128::uint128_t middle_sum {int128::uint128_t{low_times_recip.bytes[3], low_times_recip.bytes[2]} + high_times_recip_lo};
-    const std::uint64_t quotient_low {middle_sum.high + high_times_recip_hi.low};
-    const std::uint64_t quotient_carry {static_cast<std::uint64_t>((middle_sum < high_times_recip_lo ? 1U : 0U) +
-                                                                   (quotient_low < high_times_recip_hi.low ? 1U : 0U))};
-    int128::uint128_t quotient {high_times_recip_hi.high + quotient_carry, quotient_low};
-
-    // shifted - quotient * pow5 < 2 * pow5 < 2^80, so the low 128 bits of it are enough
-    int128::uint128_t pow5_remainder {shifted_low - quotient * pow5};
-    if (pow5_remainder >= pow5)
+    const int128::uint128_t low_product {detail::umul128(quotient.low, pow_extra.low)};
+    int128::uint128_t remainder {int128::uint128_t{product.bytes[1], product.bytes[0]} -
+                                 int128::uint128_t{low_product.high + quotient.low * pow_extra.high + quotient.high * pow_extra.low, low_product.low}};
+    if (BOOST_DECIMAL_UNLIKELY(remainder >= pow_extra))
     {
-        pow5_remainder -= pow5;
+        remainder -= pow_extra;
         ++quotient;
     }
 
-    const int128::uint128_t remainder {(pow5_remainder << extra) | int128::uint128_t{product.bytes[0] & ((UINT64_C(1) << extra) - 1U)}};
-    const int128::uint128_t half {pow5 << (extra - 1)};
+    const int128::uint128_t half {pow_extra >> 1};
 
     const bool round_up {round == rounding_mode::fe_dec_to_nearest ? remainder + (quotient.low & UINT64_C(1)) > half :
                                                                      detail::steps_up_in_mode(round, result_sign, remainder != 0U, remainder >= half)};
@@ -285,7 +294,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto mul_impl_dispatch(
         // sig comparisons so the canonical path pays only two compares.
         using sig_t = typename ReturnType::significand_type;
         constexpr auto min_normal_sig {detail::pow10<sig_t>(static_cast<sig_t>(detail::precision_v<ReturnType> - 1))};
-        if (BOOST_DECIMAL_UNLIKELY(lhs_c.sig < min_normal_sig || rhs_c.sig < min_normal_sig))
+        if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY((lhs_c.sig < min_normal_sig || rhs_c.sig < min_normal_sig)))
         {
             const auto small_prod {static_cast<mul_type>(lhs_c.sig) * static_cast<mul_type>(rhs_c.sig)};
             constexpr mul_type small_threshold {static_cast<mul_type>(detail::max_significand_v<ReturnType>) + mul_type{1U}};
@@ -425,7 +434,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_mul_impl(const T1& lhs_sig_in, const U1 l
     // product itself is the result. Gated on both sigs being below the
     // sqrt(max_sig) threshold so the uint128 multiply cannot overflow.
     constexpr auto small_sig_threshold {detail::pow10<sig_type>(static_cast<sig_type>(detail::precision_v<ReturnType> / 2))};
-    if (BOOST_DECIMAL_UNLIKELY(lhs_sig_in <= small_sig_threshold && rhs_sig_in <= small_sig_threshold))
+    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY(lhs_sig_in <= small_sig_threshold && rhs_sig_in <= small_sig_threshold))
     {
         const auto small_prod {lhs_sig_in * rhs_sig_in};
         constexpr auto small_threshold {static_cast<sig_type>(detail::max_significand_v<ReturnType>) + sig_type{1U}};
