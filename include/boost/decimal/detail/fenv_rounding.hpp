@@ -326,7 +326,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto divmod_pow10_uint128(const int128::uint128_t c
     const int128::uint128_t q {t >> (l - 1)};
 
     const auto pow10_val {detail::pow10(int128::uint128_t{static_cast<std::uint64_t>(shift)})};
-    const int128::uint128_t r {coeff - q * pow10_val};
+    const int128::uint128_t r {coeff - umul128_low(q, pow10_val)};
 
     return {q, r};
 }
