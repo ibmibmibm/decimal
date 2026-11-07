@@ -1762,7 +1762,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t lhs, const Intege
 
     auto positive_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(positive_rhs, exp_rhs);
+    detail::normalize<decimal128_t>(positive_rhs, exp_rhs, rhs < 0);
     const detail::decimal128_t_components rhs_components {positive_rhs, exp_rhs, rhs < 0};
 
     return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
@@ -1863,7 +1863,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t lhs, const Intege
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal128_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal128_t>(sig_rhs, exp_rhs, rhs < 0);
     const detail::decimal128_t_components rhs_components {sig_rhs, exp_rhs, !(rhs < 0)};
 
     return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);

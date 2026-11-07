@@ -1171,7 +1171,7 @@ constexpr auto operator+(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs, rhs < 0);
     const detail::decimal_fast128_t_components rhs_components {sig_rhs, exp_rhs, rhs < 0};
 
     return detail::d128_add_impl_new<decimal_fast128_t>(lhs.to_components(), rhs_components);
@@ -1253,7 +1253,7 @@ constexpr auto operator-(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs, rhs < 0);
     const detail::decimal_fast128_t_components rhs_components {sig_rhs, exp_rhs, !(rhs < 0)};
 
     return detail::d128_add_impl_new<decimal_fast128_t>(lhs.to_components(), rhs_components);
@@ -1340,7 +1340,7 @@ constexpr auto operator*(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
     exp_type rhs_exp {0};
-    detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp);
+    detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp, rhs < 0);
 
     return detail::d128_mul_impl<decimal_fast128_t>(
             lhs.significand_, lhs.biased_exponent(), lhs.sign_,

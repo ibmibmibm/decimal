@@ -1263,7 +1263,7 @@ constexpr auto operator+(const decimal_fast64_t lhs, const Integer rhs) noexcept
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
 
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal_fast64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal_fast64_t>(
@@ -1349,7 +1349,7 @@ constexpr auto operator-(const decimal_fast64_t lhs, const Integer rhs) noexcept
     auto sig_rhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(rhs))};
 
     exp_type exp_rhs {0};
-    detail::normalize<decimal64_t>(sig_rhs, exp_rhs);
+    detail::normalize<decimal64_t>(sig_rhs, exp_rhs, rhs < 0);
     const auto final_sig_rhs {static_cast<decimal_fast64_t::significand_type>(sig_rhs)};
 
     return detail::add_impl<decimal_fast64_t>(
@@ -1380,7 +1380,7 @@ constexpr auto operator-(const Integer lhs, const decimal_fast64_t rhs) noexcept
     auto sig_lhs {static_cast<promoted_significand_type>(detail::make_positive_unsigned(lhs))};
 
     exp_type exp_lhs {0};
-    detail::normalize<decimal64_t>(sig_lhs, exp_lhs);
+    detail::normalize<decimal64_t>(sig_lhs, exp_lhs, lhs < 0);
     const auto final_sig_lhs {static_cast<decimal_fast64_t::significand_type>(sig_lhs)};
 
     return detail::add_impl<decimal_fast64_t>(
