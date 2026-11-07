@@ -241,6 +241,10 @@ constexpr auto to_decimal_type(UInt significand, int exponent, const bool inexac
     return pack_in_range<DecimalType>(coefficient, exponent, sign);
 }
 
+// A function call, because MSVC warns about a constant condition in an if
+template <bool value>
+constexpr auto constant_test() noexcept -> bool { return value; }
+
 template <typename DecimalType>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> DecimalType
 {
@@ -290,9 +294,12 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
         }
     }
 
-    // Rounding needs a digit past the precision whenever the value is inexact
+    // Rounding needs a digit past the precision whenever the value is inexact. Fewer digits come only from a subnormal
+    // double. It is below half of 10^-307, so these digits round it for a type with no value below 10^-307.
     const auto scaled {dragonbox_scaled(significand * 2U, binary_exponent)};
-    if (!scaled.inexact || scaled.significand >= enough_digits)
+    constexpr bool below_type {std::numeric_limits<DecimalType>::min_exponent10 - (precision_v<DecimalType> - 1) >=
+                               std::numeric_limits<double>::min_exponent10};
+    if (constant_test<below_type>() || !scaled.inexact || scaled.significand >= enough_digits)
     {
         return to_decimal_type<DecimalType>(scaled.significand, scaled.exponent, scaled.inexact != 0U, sign);
     }
@@ -301,10 +308,6 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
     return to_decimal_type<DecimalType>(exact.significand, exact.exponent, exact.inexact != 0U, sign);
 }
 
-// A function call, because MSVC warns about a constant condition in an if
-template <bool value>
-constexpr auto constant_test() noexcept -> bool { return value; }
-
 // Shortest digits one past the precision that end in 5 are a tie, which the exact value of the binary number breaks:
 // the 5 alone rounds as above it, and a 4 with the sticky digit as below it
 template <typename DecimalType, typename Float, typename UInt>
@@ -312,6 +315,18 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_shortest(const Float val,
                                                  const dragonbox::floating_decimal<UInt>& components) noexcept
     -> DecimalType
 {
+    // Digits past the smallest exponent of a subnormal result round from the exact value, as they can look like a tie.
+    // The digits of Float reach that exponent only for a decimal32_t from a double, so the others have no test.
+    constexpr int smallest_exponent {std::numeric_limits<DecimalType>::min_exponent10 - (precision_v<DecimalType> - 1)};
+    constexpr bool reaches_subnormal {!is_fast_type_v<DecimalType> &&
+                                      smallest_exponent > std::numeric_limits<Float>::min_exponent10 -
+                                                          std::numeric_limits<Float>::max_digits10 -
+                                                          std::numeric_limits<Float>::digits10};
+    if (constant_test<reaches_subnormal>() && components.exponent < smallest_exponent)
+    {
+        return from_binary64<DecimalType>(static_cast<double>(val));
+    }
+
     // The test for one digit past the precision wraps to false if the precision holds all the digits of UInt
     constexpr auto pow10_precision {precision_v<DecimalType> < std::numeric_limits<UInt>::digits10 ?
                                     pow10(static_cast<UInt>(precision_v<DecimalType>)) : UInt {}};
@@ -420,8 +435,11 @@ constexpr auto from_shortest(const ryu::floating_decimal_128& components) noexce
         return pack_in_range<DecimalType>(digits, exponent, components.sign);
     }
 
-    if (components.direction != 0 && last_digit(components.mantissa) == 5U &&
-        num_digits(components.mantissa) == precision_v<DecimalType> + 1)
+    // One digit past the precision, or past the smallest exponent of a subnormal result, can look like a tie
+    if (components.direction != 0 &&
+        ((!is_fast_type_v<DecimalType> && components.exponent < std::numeric_limits<DecimalType>::min_exponent10 -
+                                                                (precision_v<DecimalType> - 1)) ||
+         (last_digit(components.mantissa) == 5U && num_digits(components.mantissa) == precision_v<DecimalType> + 1)))
     {
         const auto digits {components.direction > 0 ? components.mantissa : components.mantissa - 1U};
         return to_decimal_type<DecimalType>(digits, components.exponent, true, components.sign);

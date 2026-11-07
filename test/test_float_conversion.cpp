@@ -368,6 +368,31 @@ struct static_value
     static constexpr long double long_number {1.5L};
 };
 
+// A subnormal result rounds from the exact value, which is above or below the tie that its shortest digits show
+void test_subnormal_result()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {2.5e-101}, "3e-101"_DF);
+    BOOST_TEST_EQ(decimal32_t {3.5e-101}, "3e-101"_DF);
+    BOOST_TEST_EQ(decimal32_t {1.25e-100}, "1.3e-100"_DF);
+
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST_EQ(decimal64_t {3.5e-398L}, "3e-398"_DD);
+    BOOST_TEST_EQ(decimal32_t {2.5e-101L}, "2e-101"_DF);
+    BOOST_TEST_EQ(decimal32_t {6.73e-99L}, "6.73e-99"_DF);
+    BOOST_TEST_EQ(decimal32_t {2.5477905e-93L}, "2.547791e-93"_DF);
+    #endif
+
+    // A result that drops no digit keeps its shortest digits. fesetround needs the detection of constant evaluation.
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    fesetround(rounding_mode::fe_dec_toward_zero);
+    BOOST_TEST_EQ(decimal32_t {2.1782e-97}, "2.1782e-97"_DF);
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+}
+
 void test_big_integer()
 {
     using namespace boost::decimal::detail::fast_float;
@@ -475,6 +500,10 @@ void test_wide_shortest()
     const boost::int128::uint128_t lower_end_zeros {UINT64_C(0x4076EF04619EC6BB), UINT64_C(0xAEE6A66D214E1EF4)};
     BOOST_TEST_EQ(decimal128_t {boost::decimal::detail::bit_cast<T>(lower_end_zeros)},
                   "1.28513790444190166969355619731292e36"_DL);
+
+    // A subnormal result rounds from the exact value, which is below the tie that its shortest digits show
+    const boost::int128::uint128_t subnormal_tie {UINT64_C(0x3AD69A23E09D49F0), UINT64_C(0xB6443463F3FD21DC)};
+    BOOST_TEST_EQ(decimal64_t {boost::decimal::detail::bit_cast<T>(subnormal_tie)}, "3e-398"_DD);
 
     // 36 shortest digits, which x is below, at and above
     const auto e31 {static_cast<T>(1e16) * static_cast<T>(1e15)};
@@ -966,6 +995,7 @@ int main()
     test_x87_shortest();
     test_static_member();
     test_big_integer();
+    test_subnormal_result();
 
     #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
     test_wide_shortest<__float128>();
