@@ -133,6 +133,54 @@ void test_gaps()
     }
 }
 
+template <typename A, typename B>
+void test_mixed_pair(const A& low, const B& high)
+{
+    BOOST_TEST(low < high);
+    BOOST_TEST(low <= high);
+    BOOST_TEST(high > low);
+    BOOST_TEST(high >= low);
+    BOOST_TEST(low != high);
+    BOOST_TEST(!(high < low));
+    BOOST_TEST(!(low > high));
+    BOOST_TEST(!(low == high));
+    BOOST_TEST(-high < -low);
+    BOOST_TEST(!(-low < -high));
+}
+
+// Two types, with gaps on the two sides of equality and with signs and zeros
+template <typename A, typename B>
+void test_mixed_types()
+{
+    for (int gap {0}; gap <= 40; ++gap)
+    {
+        test_mixed_pair(A(9, gap - 1), B(1, gap));
+        test_mixed_pair(B(9, gap - 1), A(1, gap));
+        test_mixed_pair(A(1, 0), B(2, gap));
+        test_mixed_pair(B(1, 0), A(2, gap));
+        test_mixed_pair(-A(1, gap), B(1, gap));
+    }
+
+    BOOST_TEST(A(1, 3) == B(1000, 0));
+    BOOST_TEST(B(1, 3) == A(1000, 0));
+    BOOST_TEST(A(1, 3) != -B(1000, 0));
+    BOOST_TEST(A(0, 5) == -B(0, -5));
+    BOOST_TEST(!(-A(0, 5) < B(0, -5)));
+    BOOST_TEST(!(A(0, 5) < -B(0, -5)));
+    BOOST_TEST(-A(1, 0) < B(0, 0));
+    BOOST_TEST(A(0, 0) < B(1, -40));
+
+    test_mixed_pair(A(1, 0), std::numeric_limits<B>::infinity());
+    test_mixed_pair(-std::numeric_limits<A>::infinity(), B(1, 0));
+    test_mixed_pair(-std::numeric_limits<A>::infinity(), std::numeric_limits<B>::infinity());
+    BOOST_TEST(std::numeric_limits<A>::infinity() == std::numeric_limits<B>::infinity());
+    BOOST_TEST(!(std::numeric_limits<A>::infinity() < std::numeric_limits<B>::infinity()));
+    BOOST_TEST(!(-std::numeric_limits<A>::infinity() > -std::numeric_limits<B>::infinity()));
+    BOOST_TEST(!(std::numeric_limits<A>::quiet_NaN() < B(1, 0)));
+    BOOST_TEST(!(A(1, 0) < std::numeric_limits<B>::quiet_NaN()));
+    BOOST_TEST(std::numeric_limits<A>::quiet_NaN() != B(1, 0));
+}
+
 int main()
 {
     test_limits<decimal32_t>();
@@ -148,6 +196,22 @@ int main()
     test_gaps<decimal_fast32_t>();
     test_gaps<decimal_fast64_t>();
     test_gaps<decimal_fast128_t>();
+
+    test_mixed_types<decimal32_t, decimal64_t>();
+    test_mixed_types<decimal32_t, decimal128_t>();
+    test_mixed_types<decimal64_t, decimal128_t>();
+    test_mixed_types<decimal32_t, decimal_fast32_t>();
+    test_mixed_types<decimal64_t, decimal_fast64_t>();
+    test_mixed_types<decimal128_t, decimal_fast128_t>();
+    test_mixed_types<decimal_fast32_t, decimal_fast64_t>();
+    test_mixed_types<decimal_fast32_t, decimal64_t>();
+    test_mixed_types<decimal_fast64_t, decimal128_t>();
+    test_mixed_types<decimal64_t, decimal_fast128_t>();
+    test_mixed_types<decimal_fast64_t, decimal_fast128_t>();
+    test_mixed_types<decimal32_t, decimal_fast64_t>();
+    test_mixed_types<decimal32_t, decimal_fast128_t>();
+    test_mixed_types<decimal_fast32_t, decimal128_t>();
+    test_mixed_types<decimal_fast32_t, decimal_fast128_t>();
 
     return boost::report_errors();
 }
