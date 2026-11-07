@@ -1648,8 +1648,18 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const decimal64_t lhs, const deci
 
     if (lhs_components.sig != 0U && rhs_components.sig != 0U)
     {
+        // The operand with the larger exponent keeps p digits after the shift. Full operands
+        // stop at the first test, and a table entry of one stops any gap of 16 or more.
         const auto exp_gap {lhs_components.exp - rhs_components.exp};
         const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
+        const auto larger {exp_gap > 0 ? lhs_components.sig : rhs_components.sig};
+        if (larger < UINT64_C(1000000000000000) && larger < detail::pow10(static_cast<std::uint64_t>(exp_diff < 16 ? 16 - exp_diff : 0)))
+        {
+            return detail::aligned_add_in_mode<decimal64_t, std::uint64_t>(
+                lhs_components.sig, rhs_components.sig, lhs_components.exp, rhs_components.exp, static_cast<unsigned>(exp_diff),
+                lhs_components.sign, rhs_components.sign);
+        }
+
         // The operators finish a gap of 3 or less, so full operands here fit the band kernel
         const bool lhs_larger {exp_gap > 0};
         const auto larger_exp {detail::select_bits(lhs_larger, lhs_components.exp, rhs_components.exp)};

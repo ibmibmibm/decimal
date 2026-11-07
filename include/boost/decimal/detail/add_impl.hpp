@@ -238,7 +238,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_sum(const S
 //
 // Caller must guarantee:
 //   - default rounding mode is fe_dec_to_nearest, or AnyMode is true
-//   - shift in [0, 3] where 0 means same-exponent (no multiply)
+//   - shift in [0, 3], or the shifted operand keeps p digits; 0 means same-exponent
 //   - both operands non-zero (zero short-circuit happens upstream)
 template <typename ReturnType, typename SigType, typename ExpType, bool AnyMode = false>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_add_kernel(
@@ -372,15 +372,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_kernel(const SigType a, const ExpType
 }
 
 // One call with selected arguments, because the larger exponent is random
-// Operands that already have all the digits can skip expand_significand and add_impl and go
-// to band_add_kernel, when they are 4 or more exponents apart and the result is normal
-template <typename ReturnType, typename SigType, typename ExpType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto takes_band_kernel(const SigType lhs_sig, const SigType rhs_sig, const ExpType big_exp) noexcept -> bool
-{
-    constexpr SigType min_full {static_cast<SigType>((static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1U}) / SigType{10U})};
-    return lhs_sig >= min_full && rhs_sig >= min_full && big_exp + precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10;
-}
-
 template <typename ReturnType, typename SigType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_selected(const SigType lhs_sig, const ExpType lhs_exp, const bool lhs_sign,
                                                                                const SigType rhs_sig, const ExpType rhs_exp, const bool rhs_sign,
@@ -391,6 +382,15 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto band_add_selected(c
     const auto rhs_neg {static_cast<unsigned>(rhs_sign)};
     return band_add_kernel<ReturnType, SigType>(select_bits(lhs_larger, lhs_sig, rhs_sig), select_bits(lhs_larger, lhs_exp, rhs_exp), select_bits(lhs_larger, lhs_neg, rhs_neg) != 0U,
                                                       select_bits(lhs_larger, rhs_sig, lhs_sig), select_bits(lhs_larger, rhs_neg, lhs_neg) != 0U, shift);
+}
+
+// Operands that already have all the digits can skip expand_significand and add_impl and go
+// to band_add_kernel, when they are 4 or more exponents apart and the result is normal
+template <typename ReturnType, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto takes_band_kernel(const SigType lhs_sig, const SigType rhs_sig, const ExpType big_exp) noexcept -> bool
+{
+    constexpr SigType min_full {static_cast<SigType>((static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1U}) / SigType{10U})};
+    return lhs_sig >= min_full && rhs_sig >= min_full && big_exp + precision_v<ReturnType> - 2 >= std::numeric_limits<ReturnType>::min_exponent10;
 }
 
 // Directed modes: a call that the compiler can keep out of line.
