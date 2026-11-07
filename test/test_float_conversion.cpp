@@ -138,6 +138,97 @@ void test_ryu()
     BOOST_TEST_EQ(fd.exponent, 3);
 }
 
+// Shortest digits one past the precision that end in 5 round toward the exact value of the binary number
+void test_shortest_tie()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {1.0000025F}, 1.000003_DF);
+    BOOST_TEST_EQ(decimal32_t {1.0000035F}, 1.000003_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {1.0000025F}, 1.000003_DFF);
+    BOOST_TEST_EQ(decimal64_t {2.9576661961133885e-8}, 2.957666196113389e-8_DD);
+    BOOST_TEST_EQ(decimal64_t {1.1430767782883795e-192}, 1.143076778288379e-192_DD);
+    BOOST_TEST_EQ(decimal_fast64_t {2.9576661961133885e-8}, 2.957666196113389e-8_DDF);
+    BOOST_TEST_EQ(decimal32_t {5.9139005e-26}, 5.913901e-26_DF);
+    BOOST_TEST_EQ(decimal32_t {0.87616956F}, 0.8761696_DF);
+    BOOST_TEST_EQ(decimal64_t {-2.9362768111642555e224}, "-2.936276811164256e224"_DD);
+    BOOST_TEST_EQ(decimal64_t {2750498739004538.5}, 2750498739004538_DD);
+    BOOST_TEST_EQ(decimal_fast32_t {2.4941545e31}, 2.494155e31_DFF);
+
+    // A float on the tie goes to the even digit, and one with two digits past the precision rounds both
+    BOOST_TEST_EQ(decimal32_t {574335.25F}, 574335.2_DF);
+    BOOST_TEST_EQ(decimal32_t {108435896.0F}, 1.084359e8_DF);
+
+    // A subnormal double has its exact value below the tie, and a normal decimal result
+    BOOST_TEST_EQ(decimal64_t {1.9103049429316615e-308}, 1.910304942931661e-308_DD);
+    BOOST_TEST_EQ(decimal_fast64_t {1.4615434887007215e-308}, 1.461543488700721e-308_DDF);
+
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST_EQ(decimal64_t {268.41196881091365L}, 268.4119688109137_DD);
+    BOOST_TEST_EQ(decimal64_t {6.1440403750342675L}, 6.144040375034267_DD);
+    #elif BOOST_DECIMAL_LDBL_BITS == 128
+    BOOST_TEST_EQ(decimal128_t {0.039266412274453850025464945980491025L}, "0.03926641227445385002546494598049103"_DL);
+    BOOST_TEST_EQ(decimal128_t {0.19676412089341422684781472488646195L}, "0.1967641208934142268478147248864619"_DL);
+    #endif
+
+    // A wide number on a midpoint is a tie to even, and one next to 10^-42 carries to it without trailing zeros
+    #if BOOST_DECIMAL_LDBL_BITS == 80 || BOOST_DECIMAL_LDBL_BITS == 128
+    BOOST_TEST_EQ(decimal32_t {12345675.0L}, 1.234568e7_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {12345665.0L}, 1.234566e7_DFF);
+    BOOST_TEST_EQ(decimal64_t {12345678901234565.0L}, 1.234567890123456e16_DD);
+    BOOST_TEST_EQ(quantexp(decimal32_t {1e-42L}), -42);
+    BOOST_TEST_EQ(quantexp(decimal64_t {1e-42L}), -42);
+    #endif
+}
+
+// A float that is a power of two, or has a decimal of 7 digits at an end of its interval, keeps its shortest digits
+void test_float_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {268435456.0F}, 2.684355e8_DF);
+    BOOST_TEST_EQ(decimal32_t {1.2621775e-29F}, 1.262177e-29_DF);
+    BOOST_TEST_EQ(decimal32_t {100000104.0F}, 1.000001e8_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {100000104.0F}, 1.000001e8_DFF);
+    BOOST_TEST_EQ(decimal32_t {8999999488.0F}, 9e9_DF);
+    BOOST_TEST_EQ(decimal32_t {9.9999995e-33F}, 1e-32_DF);
+    BOOST_TEST_EQ(decimal32_t {2.8564349981927813e-96}, "2.85643e-96"_DF);
+    BOOST_TEST_EQ(decimal32_t {-1.9858402e21F}, -1.98584e21_DF);
+    BOOST_TEST_EQ(decimal32_t {-6.9e-39F}, "-6.9e-39"_DF);
+    BOOST_TEST_EQ(decimal32_t {-8.92e9F}, -8.92e9_DF);
+    BOOST_TEST_EQ(decimal32_t {-9.311e15F}, -9.311e15_DF);
+    BOOST_TEST(isinf(decimal32_t {9.9999996e96}));
+
+    // The digits past the precision round in the current mode. fesetround needs the detection of constant evaluation.
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(decimal32_t {-1e23}, -1e23_DF);
+    BOOST_TEST_EQ(decimal32_t {-5.268e9F}, -5.268e9_DF);
+    BOOST_TEST_EQ(decimal32_t {-2.9999999e10F}, -2.999999e10_DF);
+    BOOST_TEST_EQ(decimal32_t {2.5060001e9F}, 2.506001e9_DF);
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    fesetround(rounding_mode::fe_dec_downward);
+    BOOST_TEST_EQ(decimal32_t {-4.80000000000000000021e28L}, -4.8e28_DF);
+    BOOST_TEST_EQ(decimal32_t {2.1554419999999999999e25L}, 2.155442e25_DF);
+    #endif
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+
+    // A fast type keeps the digits of a short value, and the digits below a power of ten carry to it
+    BOOST_TEST_EQ(decimal_fast32_t {19.99F}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {19.99}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e-2F}, 1e-2_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e23}, 1e23_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99F}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast64_t {1e23}, 1e23_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {19.99F}, 19.99_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {19.99}, 19.99_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {1e23}, 1e23_DLF);
+}
+
 // A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
 void test_narrow_midpoint()
 {
@@ -191,6 +282,185 @@ void test_narrow_shortest()
     BOOST_TEST_EQ(decimal32_t {static_cast<std::bfloat16_t>(0.1F)}, 0.1_DF);
     BOOST_TEST_EQ(decimal32_t {static_cast<std::bfloat16_t>(0.03125F)}, 0.0312_DF);
     BOOST_TEST_EQ(decimal32_t {std::numeric_limits<std::bfloat16_t>::max()}, 3.39e38_DF);
+    #endif
+}
+
+// A constructor that binds a reference needs a definition of this member before C++17, which it does not have
+struct static_value
+{
+    static constexpr double number {1.5};
+    static constexpr long double long_number {1.5L};
+};
+
+void test_big_integer()
+{
+    using namespace boost::decimal::detail::fast_float;
+
+    // Different numbers of words, and a shift past all the words
+    BOOST_TEST_EQ(compare_exact(0, 1U, boost::int128::uint128_t {1U, 0U}, 0), -1);
+    BOOST_TEST_EQ(compare_exact(0, boost::int128::uint128_t {1U, 0U}, 1U, 0), 1);
+    big_uint<> value {boost::int128::uint128_t {1U}};
+    BOOST_TEST(value.shr(128));
+}
+
+void test_static_member()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {static_value::number}, 1.5_DF);
+    BOOST_TEST_EQ(decimal64_t {static_value::number}, 1.5_DD);
+    BOOST_TEST_EQ(decimal128_t {static_value::number}, 1.5_DL);
+    BOOST_TEST_EQ(decimal_fast32_t {static_value::number}, 1.5_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {static_value::number}, 1.5_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {static_value::number}, 1.5_DLF);
+
+    #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
+    BOOST_TEST_EQ(decimal32_t {static_value::long_number}, 1.5_DF);
+    BOOST_TEST_EQ(decimal64_t {static_value::long_number}, 1.5_DD);
+    BOOST_TEST_EQ(decimal128_t {static_value::long_number}, 1.5_DL);
+    BOOST_TEST_EQ(decimal_fast32_t {static_value::long_number}, 1.5_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {static_value::long_number}, 1.5_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {static_value::long_number}, 1.5_DLF);
+    #endif
+}
+
+// A binary128 number to decimal128_t: the integer in its interval, one digit more, a tie, and a fallback to Ryu
+template <typename T>
+void test_wide_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    const T one {1};
+    BOOST_TEST_EQ(decimal128_t {one / 10}, 0.1_DL);
+    BOOST_TEST_EQ(decimal128_t {one / 3}, "0.3333333333333333333333333333333333"_DL);
+    BOOST_TEST_EQ(decimal128_t {one / 11}, "0.09090909090909090909090909090909091"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one / 3}, "0.3333333333333333333333333333333333"_DLF);
+    BOOST_TEST_EQ(decimal128_t {one / 7}, "0.1428571428571428571428571428571429"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one / 7}, "0.1428571428571428571428571428571429"_DLF);
+    const auto e34 {static_cast<T>(1e17) * static_cast<T>(1e17)};
+    BOOST_TEST_EQ(decimal128_t {e34 + 5}, "1e34"_DL);
+    BOOST_TEST_EQ(decimal128_t {e34 + 15}, "1.000000000000000000000000000000002e34"_DL);
+    BOOST_TEST_EQ(decimal128_t {e34 + 7}, "1.000000000000000000000000000000001e34"_DL);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(2119202603282.8149807453155517578125L)},
+                  "2119202603282.814980745315551757812"_DL);
+    // A double variable drops the extra precision of an x87 constant
+    const double double_e300 {1e300};
+    const auto e300 {static_cast<T>(double_e300)};
+    BOOST_TEST_EQ(decimal128_t {e300 * e300}, "1.000000000000000105009520510408843e600"_DL);
+    BOOST_TEST_EQ(decimal128_t {one * 1024}, 1024_DL);
+
+    // Powers of two, whose interval is half as wide below them
+    BOOST_TEST_EQ(decimal128_t {one / 2}, 0.5_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one}, 1_DLF);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -199))}, "1.244603055572228341428812810756025e-60"_DL);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -183))}, "8.156630584998155658387867636570685e-56"_DL);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -137))}, "5.739718509874450722503596373155497e-42"_DL);
+
+    // The lower end of the interval has trailing zeros, which the removal of digits follows
+    const boost::int128::uint128_t lower_end_zeros {UINT64_C(0x4076EF04619EC6BB), UINT64_C(0xAEE6A66D214E1EF4)};
+    BOOST_TEST_EQ(decimal128_t {boost::decimal::detail::bit_cast<T>(lower_end_zeros)},
+                  "1.28513790444190166969355619731292e36"_DL);
+
+    // 36 shortest digits, which x is below, at and above
+    const auto e31 {static_cast<T>(1e16) * static_cast<T>(1e15)};
+    BOOST_TEST_EQ(decimal128_t {e31 + one * 107 / 1024}, "10000000000000000000000000000000.10"_DL);
+    BOOST_TEST_EQ(decimal128_t {e31 + one * 5 / 16}, "10000000000000000000000000000000.31"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {e31 + one / 48}, "10000000000000000000000000000000.02"_DLF);
+
+    // Short digits and 34 digits inside the interval, 35 digits that end in 5, and one digit past decimal32_t
+    const auto from_words {[](const std::uint64_t high, const std::uint64_t low)
+                           { return boost::decimal::detail::bit_cast<T>(boost::int128::uint128_t {high, low}); }};
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x449D3F982015378D), UINT64_C(0xDDAA26AD90FA0058))}, "8.2e355"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x3E4F168A417D87F9), UINT64_C(0x748A09EE92545DE0))}, "9.8104646104e-131"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x416C214E81F13FA6), UINT64_C(0x30E6EC601E34C410))},
+                  "8.493112932424174000000000000000001e109"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x5B1817B89C67D9ED), UINT64_C(0xA71724B38976C5C7))},
+                  "1.921167538761822365609817058982414e2088"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x5691BAF94C168387), UINT64_C(0x27D9CC708E2E2CE4))}, "3.8855548e1739"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x4157889AEAD4D19B), UINT64_C(0x2E66B6C70E14B74A))},
+                  "5.49584569329226239e103"_DL);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x40894B63BCD546FC), UINT64_C(0x2985E908EE9FD700))}, "4.510642e41"_DF);
+
+    // More such numbers, with a negative sign, 36 digits, and results from 0 to the infinity of decimal32_t
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x3D7064E004D4FCA3), UINT64_C(0x104B1EBABF01B914))},
+                  "9.324575937149923561564318654477999e-198"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x406C27CA95F0C1FA), UINT64_C(0x221C1B80A8804BC2))},
+                  "7.499201657787268917833227346927282e32"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x415B51510DEE8716), UINT64_C(0xA5ABC3673B38A8BE))},
+                  "7.555031234773064421e104"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x7CEE0F2F04F780F3), UINT64_C(0xFC5DBB54DEE53577))},
+                  "6.193354372301216850365903573917055e4695"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0xC114C00074CB5DB5), UINT64_C(0x5DE80044741CCF66))},
+                  "-4.249605106578067737514456073011247e83"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {from_words(UINT64_C(0x40763885D614C624), UINT64_C(0xCCB595F377914D1A))},
+                  "8.11355570798085617480274569933e35"_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {from_words(UINT64_C(0xBDC6F8B2DAC97B1E), UINT64_C(0x6904F443F2559CC7))},
+                  "-1.020292386053676321312554828666958e-171"_DLF);
+    BOOST_TEST_EQ(decimal64_t {from_words(UINT64_C(0x3DC94174BACC9E2C), UINT64_C(0xE2E50644FE4C0B2C))}, "5.19881055327357e-171"_DD);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x3FEE7107F8C77A71), UINT64_C(0x1607F638ECDEA2A7))}, "1.099799e-5"_DF);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0xC052018EB707D4D2), UINT64_C(0x8561400000000000))}, "-9.730246e24"_DF);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x8013D8EB0F22639A), UINT64_C(0x1119D062F616A287))}, "0"_DF);
+    BOOST_TEST(isinf(decimal32_t {from_words(UINT64_C(0x41412BA095DC7701), UINT64_C(0xD9CB7743E3A2B0E6))}));
+
+    // One digit past decimal32_t rounds up in the upward mode. fesetround needs the detection of constant evaluation.
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x3F3B011C2EAABE7D), UINT64_C(0x7E23C577B1177DC9))}, "1.000001e-59"_DF);
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+}
+
+// An x87 number gives its shortest digits to decimal128_t, and a number past the cache of 10^k gives the right decimal
+void test_x87_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST_EQ(decimal128_t {0.1L}, 0.1_DL);
+
+    // The lower end of the interval has trailing zeros, which the removal of digits follows
+    BOOST_TEST_EQ(decimal128_t {static_cast<long double>(UINT64_C(0x802488BC3909E488)) * 4}, "3.693462191203415299e19"_DL);
+    BOOST_TEST_EQ(decimal128_t {1.0L / 3}, 0.33333333333333333334_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {1.0L / 7}, 0.14285714285714285714_DLF);
+    BOOST_TEST_EQ(decimal_fast32_t {19.99L}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99L}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e-2L}, 1e-2_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {1e-2L}, 1e-2_DDF);
+    BOOST_TEST_EQ(decimal128_t {1e4094L}, 1e4094_DL);
+    BOOST_TEST_EQ(decimal32_t {4.523111e59L}, 4.523111e59_DF);
+    BOOST_TEST_EQ(decimal128_t {3731834064558506577.25L}, 3731834064558506577.2_DL);
+    BOOST_TEST_EQ(decimal128_t {-1.22880506150931258406e21L}, -1.2288050615093125841e21_DL);
+    BOOST_TEST_EQ(decimal128_t {-106361266909726144176.0L}, -1.0636126690972614418e20_DL);
+    BOOST_TEST_EQ(decimal32_t {-9.80000000000000000154e-66L}, "-9.8e-66"_DF);
+    BOOST_TEST_EQ(decimal32_t {6.88519250000000000078e-91L}, "6.885193e-91"_DF);
+
+    // The interval of a power of two is half as wide below it, so the nearest decimal below can be outside
+    BOOST_TEST_EQ(decimal32_t {0.5L}, 0.5_DF);
+    BOOST_TEST_EQ(decimal64_t {2.0L}, 2_DD);
+    BOOST_TEST_EQ(decimal128_t {1.0L}, 1_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {0.5L}, 0.5_DLF);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, 101)}, 2535301200456458803000000000000_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, 110)}, 1.2980742146337069071e33_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, -102)}, 1.9721522630525295135e-31_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, -109)}, 1.5407439555097886825e-33_DL);
+    BOOST_TEST_EQ(decimal64_t {std::ldexp(1.0L, 70)}, 1180591620717411000000_DD);
+    BOOST_TEST(isinf(decimal64_t {1e4094L}));
+    BOOST_TEST_EQ(decimal64_t {1e-4094L}, 0_DD);
+
+    // A constant expression reads the bits with bit_cast, which Clang does not do for a long double
+    #if defined(BOOST_DECIMAL_HAS_CONSTEXPR_BITCAST) && !defined(BOOST_DECIMAL_NO_CONSTEVAL_DETECTION)
+    static_assert(decimal32_t {0.1L} == decimal32_t {1U, -1}, "0.1L rounds to 0.1");
+    static_assert(decimal128_t {0.1L} == decimal128_t {1U, -1}, "the shortest digits of 0.1L are 0.1");
+    static_assert(decimal_fast64_t {1e-4950L} == decimal_fast64_t {}, "a subnormal x87 number underflows");
+    #endif
+
+    #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
+    BOOST_TEST(isinf(decimal64_t {static_cast<__float128>(1e4094L)}));
+    BOOST_TEST_EQ(decimal128_t {static_cast<__float128>(1e4094L)}, "9.999999999999999999841829784820949e4093"_DL);
+    #endif
     #endif
 }
 
@@ -568,8 +838,20 @@ int main()
     test_ryu<long double>();
     #endif
 
+    test_shortest_tie();
+    test_float_shortest();
     test_narrow_midpoint();
     test_narrow_shortest();
+    test_x87_shortest();
+    test_static_member();
+    test_big_integer();
+
+    #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
+    test_wide_shortest<__float128>();
+    #endif
+    #if BOOST_DECIMAL_LDBL_BITS == 128
+    test_wide_shortest<long double>();
+    #endif
 
     test_parser();
     test_push_eight<std::uint64_t>(0U);

@@ -8,6 +8,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/apply_sign.hpp>
+#include <boost/decimal/detail/binary_to_decimal.hpp>
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include "detail/int128.hpp"
@@ -303,6 +304,12 @@ public:
     #endif
     BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(Float val) noexcept;
 
+private:
+    // By value above for a static constant member, which has no definition before C++17. GCC inlines this form only.
+    template <typename Float>
+    BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept;
+
+public:
     #ifdef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     explicit BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(long double val) noexcept = delete;
     #endif
@@ -634,30 +641,35 @@ template <BOOST_DECIMAL_REAL Float>
 template <typename Float, std::enable_if_t<detail::is_floating_point_v<Float>, bool>>
 #endif
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t::decimal_fast128_t(const Float val) noexcept
+    : decimal_fast128_t {detail::binary_to_decimal::by_reference {}, val}
+{
+}
+
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t::decimal_fast128_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    // Neither test raises an exception of the binary environment, nor draws -Wfloat-equal
-    // The infinity comes through double because numeric_limits<__float128> is empty on old libstdc++
-    constexpr Float inf {detail::infinity_value<Float>()};
-
-    if (detail::is_nan_value(val))
+    // A finite value takes one test, which reads the exponent bits of a type without hardware compares
+    if (!detail::binary_to_decimal::is_finite_value(val))
     {
-        significand_ = detail::d128_fast_qnan;
-    }
-    else if (!(val < inf))
-    {
-        significand_ = detail::d128_fast_inf;
-    }
-    else if (!(val > -inf))
-    {
-        significand_ = detail::d128_fast_inf;
-        sign_ = true;
+        if (detail::is_nan_value(val))
+        {
+            significand_ = detail::d128_fast_qnan;
+        }
+        else if (val > 0)
+        {
+            significand_ = detail::d128_fast_inf;
+        }
+        else
+        {
+            significand_ = detail::d128_fast_inf;
+            sign_ = true;
+        }
     }
     else
     #endif
     {
-        const auto components {detail::floating_point_to_fd(val)};
-        *this = decimal_fast128_t {components.mantissa, components.exponent, components.sign};
+        *this = detail::binary_to_decimal::from_float<decimal_fast128_t>(val);
     }
 }
 

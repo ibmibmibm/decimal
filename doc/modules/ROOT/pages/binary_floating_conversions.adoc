@@ -38,6 +38,7 @@ If you have existing floating point values that need to be converted into decima
 == Exact Conversion
 
 The constructors keep the shortest decimal that reads back as the same binary value, which is usually the number that was typed: `decimal64_t {0.07}` is `0.07`.
+If the shortest decimal has more digits than the type holds, the constructors round the exact value of the binary number: `decimal32_t {1.0000025F}` is `1.000003`.
 `from_binary` instead converts the exact value of the binary number, as IEEE 754 formatOf-convertFormat (5.4.2) specifies and as Intel's `binary64_to_bid64` computes it.
 
 [source, c++]

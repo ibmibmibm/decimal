@@ -94,6 +94,9 @@ void test_wide()
 void test_range()
 {
     BOOST_TEST_EQ(static_cast<long double>("1.18973149535723176502e4932"_DL), (std::numeric_limits<long double>::max)());
+    // Just below and just above the midpoint of the largest value and the next power of 2
+    BOOST_TEST_EQ(static_cast<long double>("1.189731495357231765053511589829488e4932"_DL), (std::numeric_limits<long double>::max)());
+    BOOST_TEST_EQ(static_cast<long double>("1.189731495357231765053511589829489e4932"_DL), std::numeric_limits<long double>::infinity());
     // Next to a rounding boundary above 2^16384, so that an exact compare gives the infinity
     BOOST_TEST_EQ(static_cast<long double>("1.189731495357255948308539271593628e4932"_DL), std::numeric_limits<long double>::infinity());
     BOOST_TEST_EQ(static_cast<long double>("-1.2e4932"_DL), -std::numeric_limits<long double>::infinity());

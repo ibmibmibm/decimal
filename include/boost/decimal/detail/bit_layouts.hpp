@@ -37,6 +37,15 @@ struct ieee754_binary64
     static constexpr int decimal_digits = 17;
 };
 
+// The 10 bytes of an x87 number for bit_cast in a constant expression, which can copy padding only to unsigned char
+template <typename Float>
+struct x87_bits
+{
+    std::uint64_t low;
+    std::uint16_t high;
+    unsigned char padding[sizeof(Float) - 10U];
+};
+
 // 80 bit long double (e.g. x86-64)
 #if LDBL_MANT_DIG == 64 && LDBL_MAX_EXP == 16384
 

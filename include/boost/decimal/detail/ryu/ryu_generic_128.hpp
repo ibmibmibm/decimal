@@ -47,6 +47,9 @@ struct floating_decimal_128
     unsigned_128_type mantissa;
     int32_t exponent;
     bool sign;
+    // Whether the exact value is above (1) or below (-1) the digits, or 0 when they are exact, so that the digits
+    // can round correctly to a narrower precision
+    int32_t direction;
 };
 
 #ifdef __GNUC__
@@ -128,7 +131,7 @@ inline constexpr auto generic_binary_to_decimal(
 
     if (ieeeExponent == 0 && ieeeMantissa == 0U)
     {
-        struct floating_decimal_128 fd {0, 0, ieeeSign};
+        struct floating_decimal_128 fd {0, 0, ieeeSign, 0};
         return fd;
     }
     if (ieeeExponent == ((1u << exponentBits) - 1u))
@@ -377,7 +380,10 @@ inline constexpr auto generic_binary_to_decimal(
     printf("EXP=%d\n", exp);
     #endif
 
-    return {output, exp, ieeeSign};
+    // The digits are above the exact value when they rounded up, and below it when a removed digit is not zero
+    const std::int32_t direction {output != vr ? -1 :
+                                  static_cast<std::int32_t>(!vrIsTrailingZeros || lastRemovedDigit != 0)};
+    return {output, exp, ieeeSign, direction};
 }
 
 template <typename T>
@@ -388,7 +394,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd128(T val) noexcept -> fl
 template <>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd128<long double>(long double val) noexcept -> floating_decimal_128
 {
-    auto bits = bit_cast<unsigned_128_type>(val);
+    const auto parts = bit_cast<x87_bits<long double>>(val);
+    auto bits = unsigned_128_type {parts.high, parts.low};
 
     #ifdef BOOST_DECIMAL_DEBUG_RYU
     // For some odd reason, this ends up with noise in the top 48 bits. We can

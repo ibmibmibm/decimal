@@ -8,6 +8,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/apply_sign.hpp>
+#include <boost/decimal/detail/binary_to_decimal.hpp>
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/int128.hpp>
@@ -280,6 +281,12 @@ public:
     #endif
     BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t(Float val) noexcept;
 
+private:
+    // By value above for a static constant member, which has no definition before C++17. GCC inlines this form only.
+    template <typename Float>
+    BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept;
+
+public:
     #ifdef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     explicit constexpr decimal32_t(long double val) noexcept = delete;
     #endif
@@ -1722,36 +1729,34 @@ template <BOOST_DECIMAL_REAL Float>
 template <typename Float, std::enable_if_t<detail::is_floating_point_v<Float>, bool>>
 #endif
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t::decimal32_t(const Float val) noexcept
+    : decimal32_t {detail::binary_to_decimal::by_reference {}, val}
+{
+}
+
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t::decimal32_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    // Neither test raises an exception of the binary environment, nor draws -Wfloat-equal
-    // The infinity comes through double because numeric_limits<__float128> is empty on old libstdc++
-    constexpr Float inf {detail::infinity_value<Float>()};
-
-    if (detail::is_nan_value(val))
+    // A finite value takes one test, which reads the exponent bits of a type without hardware compares
+    if (!detail::binary_to_decimal::is_finite_value(val))
     {
-        *this = boost::decimal::from_bits(boost::decimal::detail::d32_nan_mask);
-    }
-    else if (!(val < inf))
-    {
-        *this = boost::decimal::from_bits(boost::decimal::detail::d32_inf_mask);
-    }
-    else if (!(val > -inf))
-    {
-        *this = -boost::decimal::from_bits(boost::decimal::detail::d32_inf_mask);
+        if (detail::is_nan_value(val))
+        {
+            *this = boost::decimal::from_bits(boost::decimal::detail::d32_nan_mask);
+        }
+        else if (val > 0)
+        {
+            *this = boost::decimal::from_bits(boost::decimal::detail::d32_inf_mask);
+        }
+        else
+        {
+            *this = -boost::decimal::from_bits(boost::decimal::detail::d32_inf_mask);
+        }
     }
     else
     #endif
     {
-        const auto components {detail::floating_point_to_fd(val)};
-
-        #ifdef BOOST_DECIMAL_DEBUG
-        std::cerr << "Mant: " << components.mantissa
-                  << "\nExp: " << components.exponent
-                  << "\nSign: " << components.sign << std::endl;
-        #endif
-
-        *this = decimal32_t {components.mantissa, components.exponent, components.sign};
+        *this = detail::binary_to_decimal::from_float<decimal32_t>(val);
     }
 }
 

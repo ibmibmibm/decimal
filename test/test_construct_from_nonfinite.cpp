@@ -6,6 +6,8 @@
 #include <boost/core/lightweight_test.hpp>
 #include <cfenv>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 
 using namespace boost::decimal;
@@ -40,6 +42,13 @@ void test_all_floats()
     test_nonfinite<Decimal, double>();
     #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     test_nonfinite<Decimal, long double>();
+    #endif
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    // An unnormal x87 number, with the integer bit clear, is a NaN as for the hardware
+    const std::uint64_t unnormal_words[2] {UINT64_C(0x4000000000000000), UINT64_C(0x4000)};
+    long double unnormal {};
+    std::memcpy(&unnormal, unnormal_words, 10);
+    BOOST_TEST(isnan(Decimal(unnormal)));
     #endif
     #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
     test_nonfinite<Decimal, __float128>();

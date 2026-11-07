@@ -37,6 +37,10 @@ void test_overflow()
     BOOST_TEST_EQ(static_cast<float>("1e39"_DF), std::numeric_limits<float>::infinity());
     BOOST_TEST_EQ(static_cast<double>("1e309"_DDF), std::numeric_limits<double>::infinity());
     BOOST_TEST_EQ(static_cast<double>("2e308"_DD), std::numeric_limits<double>::infinity());
+
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    BOOST_TEST(std::isnan(static_cast<double>(std::numeric_limits<decimal64_t>::signaling_NaN())));
+    #endif
 }
 
 // A value in the subnormal range of the binary type is subnormal, not 0

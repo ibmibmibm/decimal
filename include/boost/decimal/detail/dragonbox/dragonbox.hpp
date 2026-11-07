@@ -332,7 +332,7 @@ constexpr auto shorter_interval_case(const int binary_exponent, const bool sign)
     return {significand, minus_k, sign};
 }
 
-template <typename Format>
+template <typename Format, bool RemoveZeros = true>
 constexpr auto to_decimal(const typename Format::carrier_uint binary_significand, int binary_exponent,
                           const bool sign) noexcept -> floating_decimal<typename Format::carrier_uint>
 {
@@ -379,7 +379,14 @@ constexpr auto to_decimal(const typename Format::carrier_uint binary_significand
     }
     if (found)
     {
-        return without_trailing_zeros(significand, minus_k + Format::kappa + 1, sign);
+        BOOST_DECIMAL_IF_CONSTEXPR (!RemoveZeros)
+        {
+            return {significand, minus_k + Format::kappa + 1, sign};
+        }
+        else
+        {
+            return without_trailing_zeros(significand, minus_k + Format::kappa + 1, sign);
+        }
     }
 
     significand *= 10U;
@@ -401,6 +408,7 @@ constexpr auto to_decimal(const typename Format::carrier_uint binary_significand
 }
 
 // The shortest decimal reading back as the finite float, trailing zeros removed; zero gives 0E0 with its sign.
+template <bool RemoveZeros = true>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd32(const float val) noexcept -> floating_decimal<std::uint32_t>
 {
     const auto bits {bit_cast<std::uint32_t>(val)};
@@ -411,10 +419,11 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd32(const float val) noexc
     {
         return {0U, 0, sign};
     }
-    return to_decimal<binary32_format>(significand, exponent, sign);
+    return to_decimal<binary32_format, RemoveZeros>(significand, exponent, sign);
 }
 
 // The same for double.
+template <bool RemoveZeros = true>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd64(const double val) noexcept -> floating_decimal<std::uint64_t>
 {
     const auto bits {bit_cast<std::uint64_t>(val)};
@@ -425,7 +434,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd64(const double val) noex
     {
         return {0U, 0, sign};
     }
-    return to_decimal<binary64_format>(significand, exponent, sign);
+    return to_decimal<binary64_format, RemoveZeros>(significand, exponent, sign);
 }
 
 // The same for a 16-bit type, with its own interval.
