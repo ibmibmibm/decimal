@@ -289,6 +289,11 @@ template <typename UInt>
 constexpr auto without_trailing_zeros(const UInt significand, const int exponent, const bool sign) noexcept
     -> floating_decimal<UInt>
 {
+    // Few shortest digit strings end in 0, so one test of the last digit usually skips the removal
+    if (significand % 10U != 0U)
+    {
+        return {significand, exponent, sign};
+    }
     const auto removed {remove_trailing_zeros(significand)};
     return {removed.trimmed_number, exponent + static_cast<int>(removed.number_of_removed_zeros), sign};
 }
