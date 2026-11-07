@@ -532,6 +532,18 @@ void test_sub()
     static_assert(c[3] == 0 && c[2] == 0 && c[1] == UINT64_MAX && c[0] == UINT64_MAX, "u256 borrow");
 }
 
+// A builtin 128-bit operand keeps its high word in a product
+void test_builtin_operand()
+{
+  #ifdef BOOST_DECIMAL_HAS_INT128
+  using boost::decimal::detail::u256;
+
+  const auto n {(static_cast<boost::decimal::detail::builtin_uint128_t>(1) << 64U) | 3U};
+  BOOST_TEST(((u256{2} * n) == u256{0, 0, 2, 6}));
+  BOOST_TEST(((n * u256{2}) == u256{0, 0, 2, 6}));
+  #endif
+}
+
 int main()
 {
   #ifndef __s390x__
@@ -557,6 +569,8 @@ int main()
   test_short_dividend();
 
   test_sub();
+
+  test_builtin_operand();
 
   return boost::report_errors();
 }
