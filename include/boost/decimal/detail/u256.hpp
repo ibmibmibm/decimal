@@ -699,6 +699,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR u256 operator-(const u256& lhs, const u256& rhs) no
 // Multiplication Operators
 //=====================================
 
+// a * b with int128::detail::umul: GCC keeps it in registers, but moves a class product through memory
+BOOST_DECIMAL_CUDA_CONSTEXPR int128::uint128_t umul128(const std::uint64_t a, const std::uint64_t b) noexcept
+{
+    std::uint64_t hi {};
+    const std::uint64_t lo {int128::detail::umul(a, b, hi)};
+    return {hi, lo};
+}
+
 namespace impl {
 
 template <std::size_t word_size>
@@ -725,129 +733,23 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR u256 from_words(const st
     return result;
 }
 
-template <std::size_t u_size, std::size_t v_size>
-BOOST_DECIMAL_CUDA_CONSTEXPR u256 knuth_mulitply(const std::uint32_t (&u)[u_size],
-                              const std::uint32_t (&v)[v_size]) noexcept
-{
-    std::uint32_t w[u_size + v_size] {};
-
-    // M.1
-    for (std::size_t j {}; j < v_size; ++j)
-    {
-        // M.2
-        if (v[j] == 0)
-        {
-            w[j + u_size] = 0u;
-            continue;
-        }
-
-        // M.3
-        std::uint64_t t {};
-        for (std::size_t i {}; i < u_size; ++i)
-        {
-            // M.4
-            t += static_cast<std::uint64_t>(u[i]) * v[j] + w[i + j];
-            w[i + j] = static_cast<std::uint32_t>(t);
-            t >>= 32u;
-        }
-
-        // M.5
-        w[j + u_size] = static_cast<std::uint32_t>(t);
-    }
-
-    return from_words(w);
-}
-
-BOOST_DECIMAL_CUDA_CONSTEXPR void to_words(const u256& x, std::uint32_t (&words)[8]) noexcept
-{
-    #if !defined(BOOST_DECIMAL_NO_CONSTEVAL_DETECTION) && !BOOST_DECIMAL_ENDIAN_BIG_BYTE
-    if (!BOOST_DECIMAL_DETAIL_INT128_IS_CONSTANT_EVALUATED(x))
-    {
-        std::memcpy(words, &x, sizeof(x));
-    }
-    else
-    #endif
-    {
-
-        words[0] = static_cast<std::uint32_t>(x[0] & UINT32_MAX);
-        words[1] = static_cast<std::uint32_t>(x[0] >> 32U);
-        words[2] = static_cast<std::uint32_t>(x[1] & UINT32_MAX);
-        words[3] = static_cast<std::uint32_t>(x[1] >> 32U);
-        words[4] = static_cast<std::uint32_t>(x[2] & UINT32_MAX);
-        words[5] = static_cast<std::uint32_t>(x[2] >> 32U);
-        words[6] = static_cast<std::uint32_t>(x[3] & UINT32_MAX);
-        words[7] = static_cast<std::uint32_t>(x[3] >> 32U);
-    }
-}
-
-// Word splitters for the narrower right hand side types accepted by default_mul
-BOOST_DECIMAL_CUDA_CONSTEXPR void to_words(const int128::uint128_t& x, std::uint32_t (&words)[4]) noexcept
-{
-    #if !defined(BOOST_DECIMAL_NO_CONSTEVAL_DETECTION) && !BOOST_DECIMAL_ENDIAN_BIG_BYTE
-    if (!BOOST_DECIMAL_DETAIL_INT128_IS_CONSTANT_EVALUATED(x))
-    {
-        std::memcpy(words, &x, sizeof(x));
-    }
-    else
-    #endif
-    {
-        words[0] = static_cast<std::uint32_t>(x.low & UINT32_MAX);
-        words[1] = static_cast<std::uint32_t>(x.low >> 32U);
-        words[2] = static_cast<std::uint32_t>(x.high & UINT32_MAX);
-        words[3] = static_cast<std::uint32_t>(x.high >> 32U);
-    }
-}
-
-BOOST_DECIMAL_CUDA_CONSTEXPR void to_words(const std::uint64_t x, std::uint32_t (&words)[2]) noexcept
-{
-    words[0] = static_cast<std::uint32_t>(x & UINT32_MAX);
-    words[1] = static_cast<std::uint32_t>(x >> 32U);
-}
-
-BOOST_DECIMAL_CUDA_CONSTEXPR void to_words(const std::uint32_t x, std::uint32_t (&words)[1]) noexcept
-{
-    words[0] = x;
-}
-
-template <typename UnsignedInteger>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR u256 default_mul(const u256& lhs, const UnsignedInteger& rhs) noexcept
-{
-    constexpr std::size_t rhs_words_needed {sizeof(UnsignedInteger) / sizeof(std::uint32_t)};
-
-    std::uint32_t lhs_words[8] {};
-    std::uint32_t rhs_words[rhs_words_needed] {};
-
-    to_words(lhs, lhs_words);
-    to_words(rhs, rhs_words);
-
-    return knuth_mulitply(lhs_words, rhs_words);
-}
-
 } // namespace impl
 
+// Low 256 bits of a schoolbook product of 64-bit limbs
 BOOST_DECIMAL_CUDA_CONSTEXPR u256 operator*(const u256& lhs, const u256& rhs) noexcept
 {
-    return impl::default_mul(lhs, rhs);
-}
-
-template <typename UnsignedInteger>
-BOOST_DECIMAL_CUDA_CONSTEXPR u256 operator*(const u256& lhs, const UnsignedInteger rhs) noexcept
-{
-    return impl::default_mul(lhs, rhs);
-}
-
-template <typename UnsignedInteger>
-BOOST_DECIMAL_CUDA_CONSTEXPR u256 operator*(const UnsignedInteger lhs, const u256& rhs) noexcept
-{
-    return impl::default_mul(rhs, lhs);
-}
-
-// a * b with int128::detail::umul: GCC keeps it in registers, but moves a class product through memory
-BOOST_DECIMAL_CUDA_CONSTEXPR int128::uint128_t umul128(const std::uint64_t a, const std::uint64_t b) noexcept
-{
-    std::uint64_t hi {};
-    const std::uint64_t lo {int128::detail::umul(a, b, hi)};
-    return {hi, lo};
+    std::uint64_t r[4] {};
+    for (int i {0}; i < 4; ++i)
+    {
+        std::uint64_t carry {0U};
+        for (int j {0}; j < 4 - i; ++j)
+        {
+            const int128::uint128_t t {umul128(lhs.bytes[i], rhs.bytes[j]) + int128::uint128_t{r[i + j]} + int128::uint128_t{carry}};
+            r[i + j] = t.low;
+            carry = t.high;
+        }
+    }
+    return u256{r[3], r[2], r[1], r[0]};
 }
 
 // Returns the high 128 bits of a uint128 * uint128 -> u256 product
@@ -884,7 +786,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR u256 umul512_hi(const u256& a, const u256& b) noexc
         std::uint64_t carry {0U};
         for (int j {0}; j < 4; ++j)
         {
-            const int128::uint128_t t {int128::uint128_t{a.bytes[i]} * b.bytes[j] + r[i + j] + carry};
+            const int128::uint128_t t {umul128(a.bytes[i], b.bytes[j]) + int128::uint128_t{r[i + j]} + int128::uint128_t{carry}};
             r[i + j] = t.low;
             carry = t.high;
         }
