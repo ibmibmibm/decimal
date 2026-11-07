@@ -1196,13 +1196,10 @@ BOOST_DECIMAL_FORCE_INLINE std::uint64_t mg32_div_3by2(const int128::uint128_t u
     remainder -= int128::uint128_t{t_high, t_low};
     remainder -= d;
 
-    std::uint64_t quotient {q_high + 1U};
-
-    if (remainder.high >= q_low)
-    {
-        --quotient;
-        remainder += d;
-    }
+    // This correction is random, thus it has no branch
+    const std::uint64_t too_big {UINT64_C(0) - static_cast<std::uint64_t>(remainder.high >= q_low)};
+    std::uint64_t quotient {q_high + 1U + too_big};
+    remainder += int128::uint128_t{d.high & too_big, d.low & too_big};
 
     // Second correction is rare
     if (BOOST_DECIMAL_UNLIKELY(remainder >= d))

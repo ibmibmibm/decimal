@@ -204,7 +204,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto generic_div_impl(co
     // Scale by 10^(p-1) when lhs >= rhs, thus the quotient has exactly p digits
     constexpr auto ten_to_p {pow10(static_cast<std::uint64_t>(precision_v<DecimalType>))};
     const bool shorter {lhs_c.sig >= rhs_c.sig};
-    const auto big_sig {static_cast<std::uint64_t>(lhs_c.sig) * (shorter ? ten_to_p / 10U : ten_to_p)};
+    const auto big_sig {static_cast<std::uint64_t>(lhs_c.sig) * select_bits(shorter, ten_to_p / 10U, ten_to_p)};
     const auto divisor {static_cast<std::uint64_t>(rhs_c.sig)};
     const auto q {big_sig / divisor};
     const auto r {big_sig - q * divisor};
@@ -246,14 +246,14 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_generic_div_imp
     // Scale by 10^(p-1) when lhs >= rhs, thus the quotient has exactly p digits
     constexpr auto ten_to_p {pow10(static_cast<std::uint64_t>(precision_v<DecimalType>))};
     const bool shorter {lhs_c.sig >= rhs_c.sig};
-    const auto big_sig {static_cast<unsigned_int128_type>(lhs_c.sig) * (shorter ? ten_to_p / 10U : ten_to_p)};
+    const auto big_sig {detail::umul128(static_cast<std::uint64_t>(lhs_c.sig), select_bits(shorter, ten_to_p / 10U, ten_to_p))};
     const auto divisor {static_cast<std::uint64_t>(rhs_c.sig)};
     const auto q_wide {big_sig / static_cast<unsigned_int128_type>(divisor)};
-    const auto r_wide {big_sig - q_wide * static_cast<unsigned_int128_type>(divisor)};
+    const std::uint64_t remainder {big_sig.low - q_wide.low * divisor};
     const auto res_exp {(lhs_c.exp - static_cast<int>(precision_v<DecimalType>)) - rhs_c.exp + static_cast<int>(shorter)};
 
     return impl::div_finalize_u128<DecimalType>(static_cast<std::uint64_t>(q_wide.low),
-                                                static_cast<std::uint64_t>(r_wide.low),
+                                                remainder,
                                                 divisor,
                                                 res_exp,
                                                 sign,
@@ -282,7 +282,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_generic_div_impl(const T& lhs, const T& r
     constexpr auto ten_to_p {pow10(int128::uint128_t{static_cast<std::uint64_t>(precision_v<DecimalType>)})};
     constexpr auto ten_to_p_minus_1 {pow10(int128::uint128_t{static_cast<std::uint64_t>(precision_v<DecimalType> - 1)})};
     const bool shorter {lhs_c.sig >= rhs_c.sig};
-    const auto big_sig {detail::umul256(lhs_c.sig, shorter ? ten_to_p_minus_1 : ten_to_p)};
+    const auto big_sig {detail::umul256(lhs_c.sig, select_bits(shorter, ten_to_p_minus_1, ten_to_p))};
     const auto divisor {rhs_c.sig};
     const auto dr {impl::div_mod(big_sig, divisor)};
 
