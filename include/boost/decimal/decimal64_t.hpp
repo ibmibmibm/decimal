@@ -427,6 +427,8 @@ public:
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(Integer lhs, decimal64_t rhs) noexcept
         BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t);
 
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(decimal64_t lhs, decimal64_t rhs, bool rhs_sign) noexcept -> decimal64_t;
+
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(decimal64_t lhs, decimal64_t rhs) noexcept -> decimal64_t;
 
     template <typename Integer>
@@ -656,7 +658,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto direct_pack_d64(T1 coeff, T2 exp, bool sign) n
 // add_impl.hpp. Lives here so the `decimal64_t{coeff, exp, sign}` fallback
 // is parsed only after decimal64_t is complete (see add_impl.hpp rationale).
 template <typename ReturnType, typename SigType, typename ExpType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool sign) noexcept
     -> std::enable_if_t<std::is_same<ReturnType, decimal64_t>::value, decimal64_t>
 {
     const auto biased_exp_check {static_cast<int>(exp) + bias_v<decimal64_t>};
@@ -1637,6 +1639,37 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_div_impl(const decimal64_t lhs, const deci
     q = detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs.to_components(), sign);
 }
 
+// The sums that the operators do not finish. A call keeps the operators small enough to inline.
+BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const decimal64_t lhs, const decimal64_t rhs, const bool rhs_sign) noexcept -> decimal64_t
+{
+    auto lhs_components {lhs.to_components()};
+    auto rhs_components {rhs.to_components()};
+    rhs_components.sign = rhs_sign;
+
+    if (lhs_components.sig != 0U && rhs_components.sig != 0U)
+    {
+        const auto exp_gap {lhs_components.exp - rhs_components.exp};
+        const auto exp_diff {exp_gap < 0 ? -exp_gap : exp_gap};
+        // The operators finish a gap of 3 or less, so full operands here fit the band kernel
+        const bool lhs_larger {exp_gap > 0};
+        const auto larger_exp {detail::select_bits(lhs_larger, lhs_components.exp, rhs_components.exp)};
+        if (exp_diff > 3 && detail::takes_band_kernel<decimal64_t>(lhs_components.sig, rhs_components.sig, larger_exp))
+        {
+            return detail::band_add_kernel<decimal64_t, std::uint64_t>(
+                detail::select_bits(lhs_larger, lhs_components.sig, rhs_components.sig), larger_exp,
+                detail::select_bits(lhs_larger, static_cast<unsigned>(lhs_components.sign), static_cast<unsigned>(rhs_components.sign)) != 0U,
+                detail::select_bits(lhs_larger, rhs_components.sig, lhs_components.sig),
+                detail::select_bits(lhs_larger, static_cast<unsigned>(rhs_components.sign), static_cast<unsigned>(lhs_components.sign)) != 0U,
+                static_cast<unsigned>(exp_diff));
+        }
+    }
+
+    detail::expand_significand<decimal64_t>(lhs_components.sig, lhs_components.exp);
+    detail::expand_significand<decimal64_t>(rhs_components.sig, rhs_components.exp);
+
+    return detail::add_impl<decimal64_t>(lhs_components, rhs_components);
+}
+
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal64_t lhs, const decimal64_t rhs) noexcept -> decimal64_t
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
@@ -1702,12 +1735,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal64_t lhs, const decimal
         }
     }
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal64_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal64_t>(rhs_components.sig, rhs_components.exp);
-
-    return detail::add_impl<decimal64_t>(lhs_components, rhs_components);
+    return d64_add_wide(lhs, rhs, rhs.isneg());
 }
 
 template <typename Integer>
@@ -1789,13 +1817,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal64_t lhs, const decimal
         }
     }
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal64_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal64_t>(rhs_components.sig, rhs_components.exp);
-    rhs_components.sign = !rhs_components.sign;
-
-    return detail::add_impl<decimal64_t>(lhs_components, rhs_components);
+    return d64_add_wide(lhs, rhs, !rhs.isneg());
 }
 
 template <typename Integer>
