@@ -46,7 +46,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto is_significand_char(const char c, const chars_
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto is_payload_char(const char c) noexcept -> bool
 {
-    return is_integer_char(c) || (((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')));
+    return is_integer_char(c) || (((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))) || c == '_';
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto is_delimiter(char c, chars_format fmt) noexcept -> bool
@@ -268,7 +268,6 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto parser_body(const c
         sign = false;
     }
 
-    constexpr std::size_t significand_buffer_size = std::numeric_limits<Unsigned_Integer>::digits10 ;
     constexpr std::size_t max_digits {std::numeric_limits<Unsigned_Integer>::digits10};
 
     // Handle non-finite values
@@ -319,100 +318,69 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto parser_body(const c
             if (next != last && (*next == 'n' || *next == 'N'))
             {
                 ++next;
-                if (next != last)
+                // C reads nan(n-char-sequence) only up to its closing parenthesis, and the
+                // decimal arithmetic syntax reads the digits of nan123
+                const bool has_opening_brace {next != last && *next == '('};
+                auto pos {has_opening_brace ? next + 1 : next};
+                bool payload_signaling {false};
+                bool payload_sign {false};
+
+                // Handle nan(SNAN)
+                if (has_opening_brace && (last - pos) >= 4 && (*pos == 's' || *pos == 'S') && (*(pos + 1) == 'n' || *(pos + 1) == 'N')
+                    && (*(pos + 2) == 'a' || *(pos + 2) == 'A') && (*(pos + 3) == 'n' || *(pos + 3) == 'N'))
                 {
-                    const auto current_pos {next};
-
-                    bool any_valid_char {false};
-                    bool has_opening_brace {false};
-                    if (*next == '(')
-                    {
-                        ++next;
-                        has_opening_brace = true;
-                    }
-
-                    // Handle nan(SNAN)
-                    if ((last - next) >= 4 && (*next == 's' || *next == 'S') && (*(next + 1) == 'n' || *(next + 1) == 'N')
-                        && (*(next + 2) == 'a' || *(next + 2) == 'A') && (*(next + 3) == 'n' || *(next + 3) == 'N'))
-                    {
-                        next += 4;
-                        signaling = true;
-                        any_valid_char = true;
-                    }
-                    // Handle Nan(IND)
-                    else if ((last - next) >= 3 && (*next == 'i' || *next == 'I') && (*(next + 1) == 'n' || *(next + 1) == 'N')
-                        && (*(next + 2) == 'd' || *(next + 2) == 'D'))
-                    {
-                        next += 3;
-                        sign = true;
-                        any_valid_char = true;
-                    }
-
-                    // Arbitrary numerical payload
-                    bool has_numerical_payload {false};
-                    char significand_buffer[significand_buffer_size] {};
-                    auto significand_buffer_first {significand_buffer};
-                    std::size_t significand_characters {};
-                    while (next != last && (*next != ')'))
-                    {
-                        if (significand_characters < significand_buffer_size && is_integer_char(*next))
-                        {
-                            ++significand_characters;
-                            *significand_buffer_first++ = *next++;
-                            any_valid_char = true;
-                            has_numerical_payload = true;
-                        }
-                        else
-                        {
-                            // End of valid payload even if there are more characters
-                            // e.g. SNAN42JUNK stops at J
-                            break;
-                        }
-                    }
-
-                    // Non-numerical payload still needs to be parsed
-                    // e.g. nan(PAYLOAD)
-                    if (!has_numerical_payload && has_opening_brace)
-                    {
-                        while (next != last && (*next != ')'))
-                        {
-                            if (is_payload_char(*next))
-                            {
-                                any_valid_char = true;
-                                ++next;
-                            }
-                            else
-                            {
-                                break;
-                            }
-                        }
-                    }
-
-                    if (next != last && any_valid_char)
-                    {
-                        // One past the end if we need to
-                        ++next;
-                    }
-
-                    if (significand_characters != 0)
-                    {
-                        from_chars_dispatch(significand_buffer, significand_buffer + significand_characters, significand, 10);
-                    }
-
-                    if (!any_valid_char)
-                    {
-                        // If we have nan(..BAD..) we should point to (
-                        next = current_pos;
-                    }
-
-                    exponent = static_cast<Integer>(signaling);
-                    return {next, std::errc::not_supported};
+                    pos += 4;
+                    payload_signaling = true;
                 }
-                else
+                // Handle Nan(IND)
+                else if (has_opening_brace && (last - pos) >= 3 && (*pos == 'i' || *pos == 'I') && (*(pos + 1) == 'n' || *(pos + 1) == 'N')
+                    && (*(pos + 2) == 'd' || *(pos + 2) == 'D'))
                 {
-                    exponent = static_cast<Integer>(signaling);
-                    return {next, std::errc::not_supported};
+                    pos += 3;
+                    payload_sign = true;
                 }
+
+                // Arbitrary numerical payload
+                const auto digits_first {pos};
+                while (pos != last && is_integer_char(*pos))
+                {
+                    ++pos;
+                }
+                auto digits_last {pos};
+
+                if (has_opening_brace)
+                {
+                    while (pos != last && is_payload_char(*pos))
+                    {
+                        ++pos;
+                    }
+
+                    // Without the closing parenthesis only "nan" is read, and other characters void the payload
+                    if (pos == last || *pos != ')')
+                    {
+                        exponent = static_cast<Integer>(signaling);
+                        return {next, std::errc::not_supported};
+                    }
+                    if (pos != digits_last)
+                    {
+                        digits_last = digits_first;
+                    }
+                    else
+                    {
+                        signaling = signaling || payload_signaling;
+                        sign = sign || payload_sign;
+                    }
+                    ++pos;
+                }
+                next = pos;
+
+                if (digits_last != digits_first && static_cast<std::size_t>(digits_last - digits_first) <= max_digits)
+                {
+                    from_chars_dispatch(digits_first, digits_last, significand, 10);
+                }
+
+                exponent = static_cast<Integer>(signaling);
+                return {next, std::errc::not_supported};
             }
         }
 

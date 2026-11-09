@@ -35,9 +35,10 @@ constexpr auto nan_impl(const char* arg) noexcept
                                                     std::numeric_limits<TargetDecimalType>::quiet_NaN()};
 
     sig_type payload_value {};
-    const auto r {from_chars_integer_impl<sig_type, sig_type>(arg, arg + detail::strlen(arg), payload_value, 10)};
+    const auto last {arg + detail::strlen(arg)};
+    const auto r {from_chars_integer_impl<sig_type, sig_type>(arg, last, payload_value, 10)};
 
-    if (!r)
+    if (!r || r.ptr != last)
     {
         return nan_type;
     }
@@ -57,9 +58,10 @@ constexpr auto nan_impl(const char* arg) noexcept
                                                     std::numeric_limits<TargetDecimalType>::quiet_NaN()};
 
     sig_type payload_value {};
-    const auto r {from_chars_integer_impl<sig_type, sig_type>(arg, arg + detail::strlen(arg), payload_value, 10)};
+    const auto last {arg + detail::strlen(arg)};
+    const auto r {from_chars_integer_impl<sig_type, sig_type>(arg, last, payload_value, 10)};
 
-    if (!r)
+    if (!r || r.ptr != last)
     {
         return nan_type;
     }
