@@ -1813,9 +1813,9 @@ constexpr decimal_fast128_t::decimal_fast128_t(const char* str, const std::size_
         return; // LCOV_EXCL_LINE
     }
 
-    // Normally plus signs aren't allowed
+    // Normally plus signs aren't allowed, and a minus sign after one is not legal either
     auto first {str};
-    if (*first == '+')
+    if (*first == '+' && len > 1 && first[1] != '-')
     {
         ++first;
     }
