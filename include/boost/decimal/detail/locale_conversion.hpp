@@ -24,16 +24,17 @@ inline auto thousands_separator(const std::numpunct<char>& np) noexcept -> char
     return static_cast<unsigned char>(separator) == 0xE2U ? ' ' : separator;
 }
 
-inline void convert_string_to_c_locale(char* buffer, const std::locale& loc) noexcept
+// Returns the separator it removes from the integer part, or '\0'
+inline auto convert_string_to_c_locale(char* buffer, const std::locale& loc) noexcept -> char
 {
     const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
 
     const auto locale_decimal_point {np.decimal_point()};
     const auto locale_thousands_sep {thousands_separator(np)};
-    const bool has_grouping {!np.grouping().empty() && np.grouping()[0] > 0};
+    const auto removed_sep {!np.grouping().empty() && np.grouping()[0] > 0 ? locale_thousands_sep : '\0'};
 
     // Remove thousands separator if it exists and grouping is enabled
-    if (has_grouping && locale_thousands_sep != '\0')
+    if (removed_sep != '\0')
     {
         // Find the decimal point first to know where the integer part ends
         const auto decimal_pos {std::strchr(buffer, static_cast<int>(locale_decimal_point))};
@@ -76,11 +77,13 @@ inline void convert_string_to_c_locale(char* buffer, const std::locale& loc) noe
             *p = '.';
         }
     }
+
+    return removed_sep;
 }
 
-inline void convert_string_to_c_locale(char* buffer) noexcept
+inline auto convert_string_to_c_locale(char* buffer) noexcept -> char
 {
-    convert_string_to_c_locale(buffer, std::locale());
+    return convert_string_to_c_locale(buffer, std::locale());
 }
 
 // The grouping of num_put: group i counts from the right, the last size repeats, and a size of

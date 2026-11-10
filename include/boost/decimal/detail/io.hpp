@@ -79,7 +79,7 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
     }
     buffer[t_buffer_len] = '\0';
 
-    detail::convert_string_to_c_locale(buffer, is.getloc());
+    const auto separator {detail::convert_string_to_c_locale(buffer, is.getloc())};
 
     auto fmt {chars_format::general};
     const auto flags {is.flags()};
@@ -115,8 +115,13 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
         errno = EINVAL;
     }
 
-    // Put back unconsumed characters
-    const auto consumed {static_cast<std::size_t>(r.ptr - buffer)};
+    // Put back unconsumed characters. The buffer lost the separators before the decimal point,
+    // and the parser stops before any other
+    std::size_t consumed {};
+    for (auto used {r.ptr - buffer}; used > 0; ++consumed)
+    {
+        used -= static_cast<char>(t_buffer[consumed]) != separator;
+    }
     BOOST_DECIMAL_ASSERT(t_buffer_len >= consumed);
     const auto return_chars {static_cast<std::size_t>(t_buffer_len - consumed)};
 
