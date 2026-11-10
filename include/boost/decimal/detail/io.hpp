@@ -79,7 +79,8 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
     }
     buffer[t_buffer_len] = '\0';
 
-    const auto separator {detail::convert_string_to_c_locale(buffer, is.getloc())};
+    bool grouping_ok {};
+    const auto separator {detail::convert_string_to_c_locale(buffer, is.getloc(), grouping_ok)};
 
     auto fmt {chars_format::general};
     const auto flags {is.flags()};
@@ -115,13 +116,8 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
         errno = EINVAL;
     }
 
-    // Put back unconsumed characters. The buffer lost the separators before the decimal point,
-    // and the parser stops before any other
-    std::size_t consumed {};
-    for (auto used {r.ptr - buffer}; used > 0; ++consumed)
-    {
-        used -= static_cast<char>(t_buffer[consumed]) != separator;
-    }
+    // Put back unconsumed characters
+    const auto consumed {detail::unconverted_length(t_buffer.c_str(), r.ptr - buffer, separator)};
     BOOST_DECIMAL_ASSERT(t_buffer_len >= consumed);
     const auto return_chars {static_cast<std::size_t>(t_buffer_len - consumed)};
 
@@ -131,7 +127,8 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
     }
 
     // The characters go back first, because putback has no effect on a failed stream
-    if (!r)
+    // A grouping that num_put does not give keeps the value and fails, as in num_get
+    if (!r || !grouping_ok)
     {
         is.setstate(std::ios_base::failbit);
     }

@@ -2,7 +2,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 //
-// strtod and operator>> remove the digit separators of the locale, and give the end in the input
+// strtod and operator>> remove the digit separators of the locale between the digits of the integer
+// part, give the end in the input, and operator>> fails on a grouping that num_put does not give
 
 #include <boost/decimal.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -17,7 +18,7 @@ using namespace boost::decimal;
 #ifndef BOOST_DECIMAL_DISABLE_EXCEPTIONS
 
 template <typename T>
-void check(const char* str, const T value, const int used)
+void check(const char* str, const T value, const int used, const bool grouping_ok = true)
 {
     char* end {};
     BOOST_TEST_EQ(strtod<T>(str, &end), value);
@@ -33,18 +34,48 @@ void check(const char* str, const T value, const int used)
     T read {};
     is >> read;
     BOOST_TEST_EQ(read, value);
+    BOOST_TEST_EQ(is.fail(), !grouping_ok);
     const std::string rest {std::istreambuf_iterator<char>(is.rdbuf()), std::istreambuf_iterator<char>()};
     BOOST_TEST_EQ(rest, s.substr(static_cast<std::size_t>(used)));
+}
+
+template <typename T>
+void check_none(const char* str)
+{
+    char* end {};
+    const auto value {strtod<T>(str, &end)};
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    BOOST_TEST(isnan(value));
+    #else
+    static_cast<void>(value);
+    #endif
+    BOOST_TEST_EQ(end, str);
+
+    const std::string s {str};
+    std::istringstream is {s};
+    T read {};
+    is >> read;
+    BOOST_TEST(is.fail());
+    const std::string rest {std::istreambuf_iterator<char>(is.rdbuf()), std::istreambuf_iterator<char>()};
+    BOOST_TEST_EQ(rest, s);
 }
 
 template <typename T>
 void test_en()
 {
     check("1,234,567xyz", T{1234567}, 9);
-    check("12,34.5,6", T{12345, -1}, 7);
+    check("12,345.5,6", T{123455, -1}, 8);
+    check("12,34.5,6", T{12345, -1}, 7, false);
     check("-1,000e3 rest", T{-1, 6}, 8);
     check("1,234", T{1234}, 5);
     check("1,234,", T{1234}, 5);
+    check("  1,234x", T{1234}, 7);
+    check("1e3,5", T{1000}, 3);
+    check("1,,2", T{1}, 1);
+    check("1,2,3", T{123}, 5, false);
+    check("1234,567", T{1234567}, 8, false);
+    check("1,234,56", T{123456}, 8, false);
+    check_none<T>(",5");
 }
 
 template <typename T>
@@ -52,6 +83,8 @@ void test_de()
 {
     check("1.234,5x", T{12345, -1}, 7);
     check("1.234.567,25.5", T{123456725, -2}, 12);
+    check("1.23,5", T{1235, -1}, 6, false);
+    check("1.,5", T{1}, 2);
 }
 
 template <typename T>

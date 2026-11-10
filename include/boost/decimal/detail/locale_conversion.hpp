@@ -24,68 +24,6 @@ inline auto thousands_separator(const std::numpunct<char>& np) noexcept -> char
     return static_cast<unsigned char>(separator) == 0xE2U ? ' ' : separator;
 }
 
-// Returns the separator it removes from the integer part, or '\0'
-inline auto convert_string_to_c_locale(char* buffer, const std::locale& loc) noexcept -> char
-{
-    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
-
-    const auto locale_decimal_point {np.decimal_point()};
-    const auto locale_thousands_sep {thousands_separator(np)};
-    const auto removed_sep {!np.grouping().empty() && np.grouping()[0] > 0 ? locale_thousands_sep : '\0'};
-
-    // Remove thousands separator if it exists and grouping is enabled
-    if (removed_sep != '\0')
-    {
-        // Find the decimal point first to know where the integer part ends
-        const auto decimal_pos {std::strchr(buffer, static_cast<int>(locale_decimal_point))};
-        const auto int_end {decimal_pos ? decimal_pos : (buffer + std::strlen(buffer))};
-
-        // Find the start of the number to include skipping sign
-        auto start {buffer};
-        if (*start == '-' || *start == '+')
-        {
-            ++start;
-        }
-
-        // Only remove thousands separators from the integer part
-        auto read {start};
-        auto write {start};
-
-        while (read < int_end)
-        {
-            const auto ch = *read;
-            if (ch != locale_thousands_sep)
-            {
-                *write++ = *read;
-            }
-            ++read;
-        }
-
-        // Copy the rest of the string (decimal point and fractional part)
-        while (*read != '\0')
-        {
-            *write++ = *read++;
-        }
-        *write = '\0';
-    }
-
-    if (locale_decimal_point != '.')
-    {
-        const auto p {std::strchr(buffer, static_cast<int>(locale_decimal_point))};
-        if (p != nullptr)
-        {
-            *p = '.';
-        }
-    }
-
-    return removed_sep;
-}
-
-inline auto convert_string_to_c_locale(char* buffer) noexcept -> char
-{
-    return convert_string_to_c_locale(buffer, std::locale());
-}
-
 // The grouping of num_put: group i counts from the right, the last size repeats, and a size of
 // 0 or CHAR_MAX stops the grouping, so that the other digits form one group
 inline auto group_size(const std::string& grouping, const std::size_t i, const std::size_t digits) noexcept -> std::size_t
@@ -106,6 +44,118 @@ inline auto count_separators(const std::string& grouping, const std::size_t digi
     }
 
     return separators;
+}
+
+inline auto is_decimal_digit(const char c) noexcept -> bool
+{
+    return c >= '0' && c <= '9';
+}
+
+// Removes the separators between the digits of the integer part, and sets grouping_ok to false
+// if they are not where num_put puts them. Returns the separator, or '\0' with no grouping
+inline auto convert_string_to_c_locale(char* buffer, const std::locale& loc, bool& grouping_ok) noexcept -> char
+{
+    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
+
+    const auto locale_decimal_point {np.decimal_point()};
+    const auto grouping {np.grouping()};
+    const auto removed_sep {!grouping.empty() && grouping[0] > 0 ? thousands_separator(np) : '\0'};
+    grouping_ok = true;
+
+    if (removed_sep != '\0')
+    {
+        auto start {buffer};
+        while (*start == ' ' || (*start >= '\t' && *start <= '\r'))
+        {
+            ++start;
+        }
+        if (*start == '-' || *start == '+')
+        {
+            ++start;
+        }
+
+        auto int_end {start};
+        std::size_t digits {};
+        while (is_decimal_digit(*int_end) || (*int_end == removed_sep && int_end != start && is_decimal_digit(int_end[1])))
+        {
+            digits += *int_end++ != removed_sep;
+        }
+
+        // Check the groups from the right, as num_get does
+        std::size_t first_group {};
+        const auto expected {count_separators(grouping, digits, first_group)};
+        std::size_t separators {};
+        std::size_t group {};
+        for (auto p {int_end}; p != start; --p)
+        {
+            if (p[-1] != removed_sep)
+            {
+                ++group;
+                continue;
+            }
+            grouping_ok = grouping_ok && separators < expected && group == group_size(grouping, separators, digits);
+            ++separators;
+            group = 0;
+        }
+        grouping_ok = grouping_ok && (separators == 0U || (separators == expected && group == first_group));
+
+        auto write {start};
+        for (auto read {start}; read != int_end; ++read)
+        {
+            if (*read != removed_sep)
+            {
+                *write++ = *read;
+            }
+        }
+        std::memmove(write, int_end, std::strlen(int_end) + 1U);
+    }
+
+    if (locale_decimal_point != '.')
+    {
+        const auto p {std::strchr(buffer, static_cast<int>(locale_decimal_point))};
+        if (p != nullptr)
+        {
+            *p = '.';
+        }
+    }
+
+    return removed_sep;
+}
+
+inline auto convert_string_to_c_locale(char* buffer) noexcept -> char
+{
+    bool grouping_ok {};
+    return convert_string_to_c_locale(buffer, std::locale(), grouping_ok);
+}
+
+// The number of characters of str that give the first used characters of the converted buffer,
+// where convert_string_to_c_locale removed each separator between digits of the integer part
+template <typename charT>
+auto unconverted_length(const charT* str, std::ptrdiff_t used, const char separator) noexcept -> std::size_t
+{
+    if (separator == '\0')
+    {
+        return static_cast<std::size_t>(used);
+    }
+
+    std::size_t start {};
+    while (str[start] == ' ' || (str[start] >= '\t' && str[start] <= '\r'))
+    {
+        ++start;
+    }
+    start += str[start] == '-' || str[start] == '+';
+
+    std::size_t length {};
+    for (auto integer_part {true}; used > 0; ++length)
+    {
+        const auto c {static_cast<char>(str[length])};
+        const auto removed {integer_part && separator != '\0' && c == separator && length > start &&
+                            is_decimal_digit(static_cast<char>(str[length + 1U]))};
+        integer_part = integer_part && (removed || length < start || is_decimal_digit(c));
+        used -= !removed;
+    }
+
+    return length;
 }
 
 inline int convert_pointer_pair_to_local_locale(char* first, const char* last, const std::locale& loc) noexcept

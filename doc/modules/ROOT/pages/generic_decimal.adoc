@@ -169,6 +169,8 @@ xref:design.adoc#non-finite-deviation[Non-finite values are supported]
 
 `operator<<` uses the stream flags as for a `double`: the float field (`fixed`, `scientific` or `hexfloat`), the precision, `showpos`, `showpoint`, `uppercase`, the width, fill and adjustment, and the grouping and decimal point of the `std::numpunct` of the stream character type. An exception during the output sets `badbit`, and goes to the caller only when `badbit` is in the exception mask.
 
+`operator>>` reads the decimal point of the stream locale, and a thousands separator between two digits of the integer part when the locale has a grouping. As for a `double`, a grouping that `operator<<` does not write keeps the value and sets `failbit`. `strtod` reads separators in the same places with the global locale, but does not check the grouping.
+
 [#operator_behavior]
 == Operator Behaviors
 

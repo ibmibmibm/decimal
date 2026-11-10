@@ -71,13 +71,7 @@ inline auto strtod_calculation(const char* str, char** endptr, char* buffer, con
     if (endptr != nullptr)
     {
         // Without a conversion, endptr is str (C 7.24.1.5)
-        // The buffer lost the separators before the decimal point, and the parser stops before any other
-        auto end {str};
-        for (auto used {r || overflow ? r.ptr - buffer : 0}; used > 0; ++end)
-        {
-            used -= *end != separator;
-        }
-        *endptr = const_cast<char*>(end);
+        *endptr = const_cast<char*>(str + unconverted_length(str, r || overflow ? r.ptr - buffer : 0, separator));
     }
 
     return d;
