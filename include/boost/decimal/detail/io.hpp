@@ -24,7 +24,6 @@
 #include <ios>
 #include <iostream>
 #include <locale>
-#include <new>
 #include <system_error>
 #include <type_traits>
 #include <string>
@@ -34,53 +33,71 @@
 namespace boost {
 namespace decimal {
 
+namespace detail {
+
+// Reads the characters of a number as num_get does, without a putback of what follows them, and sets
+// eof at the end of the input. Returns the thousands separator if the characters have one, else '\0'.
+// If the text has a separator or a point other than '.', converted gets the text in the C locale
+template <typename charT, typename traits>
+auto read_number(std::basic_istream<charT, traits>& is, std::string& text, std::string& converted, const chars_format fmt, bool& eof, bool& grouping_ok) -> char
+{
+    const auto& np = std::use_facet<std::numpunct<charT>>(is.getloc());
+    const auto grouping {np.grouping()};
+    const auto point {is.narrow(np.decimal_point(), '\0')};
+    const auto separator {!grouping.empty() && grouping[0] > 0 ? thousands_separator(is.narrow(np.thousands_sep(), '\0')) : '\0'};
+
+    number_chars number {point, separator, fmt == chars_format::hex, fmt != chars_format::fixed};
+    auto* sb {is.rdbuf()};
+    // A chunk of characters goes into text at once, which is faster than one character at a time
+    char chunk[32];
+    std::size_t size {};
+    auto grouped {false};
+    for (auto ch {sb->sgetc()};; ch = sb->snextc())
+    {
+        if (traits::eq_int_type(ch, traits::eof()))
+        {
+            eof = true;
+            break;
+        }
+        const auto c {traits::to_char_type(ch)};
+        // A space ends the number, also when the locale uses it as the separator
+        const auto narrow {std::is_same<charT, char>::value ? static_cast<char>(c) : is.narrow(c, '\0')};
+        if (narrow == '\0' || narrow == ' ' || (narrow >= '\t' && narrow <= '\r') || !number.take(narrow))
+        {
+            break;
+        }
+        if (size == sizeof(chunk))
+        {
+            text.append(chunk, size);
+            size = 0U;
+        }
+        chunk[size++] = narrow;
+        grouped = grouped || narrow == separator;
+    }
+    text.append(chunk, size);
+
+    if (grouped || point != '.')
+    {
+        converted = text;
+        convert_string_to_c_locale(&converted[0], grouping, grouped ? separator : '\0', point, grouping_ok);
+    }
+
+    return grouped ? separator : '\0';
+}
+
+} // namespace detail
+
 // 3.2.10 Formatted input:
 BOOST_DECIMAL_EXPORT template <typename charT, typename traits, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
 auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
     -> std::enable_if_t<detail::is_decimal_floating_point_v<DecimalType>, std::basic_istream<charT, traits>&>
 {
-    constexpr std::size_t static_buffer_size {1024U};
-
-    std::basic_string<charT, traits> t_buffer;
-    is >> std::ws >> t_buffer;
-
-    const auto t_buffer_len {t_buffer.length()};
-
-    char static_buffer[static_buffer_size] {};
-    std::unique_ptr<char[]> longer_char_buffer {nullptr};
-    char* buffer {static_buffer};
-
-    if (BOOST_DECIMAL_UNLIKELY(t_buffer_len >= static_buffer_size))
+    const typename std::basic_istream<charT, traits>::sentry guard {is};
+    if (!guard)
     {
-        longer_char_buffer = std::unique_ptr<char[]>(new(std::nothrow) char[t_buffer_len + 1U]);
-        if (longer_char_buffer.get() == nullptr)
-        {
-            errno = ENOMEM;
-            return is;
-        }
-
-        buffer = longer_char_buffer.get();
+        errno = EINVAL;
+        return is;
     }
-
-    BOOST_DECIMAL_IF_CONSTEXPR (!std::is_same<charT, char>::value)
-    {
-        auto first {buffer};
-        auto t_first {t_buffer.begin()};
-        auto t_buffer_end {t_buffer.end()};
-
-        while (t_first != t_buffer_end)
-        {
-            *first++ = static_cast<char>(*t_first++);
-        }
-    }
-    else
-    {
-        std::memcpy(buffer, t_buffer.c_str(), t_buffer.size());
-    }
-    buffer[t_buffer_len] = '\0';
-
-    bool grouping_ok {};
-    const auto separator {detail::convert_string_to_c_locale(buffer, is.getloc(), grouping_ok)};
 
     auto fmt {chars_format::general};
     const auto flags {is.flags()};
@@ -97,13 +114,41 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
         fmt = chars_format::fixed;
     }
 
-    auto first {buffer};
-    if (*first == '+' && *(first + 1) != '-')
+    // The facet and the copy for the conversion can throw too
+    std::string text;
+    std::string converted;
+    auto eof {false};
+    bool grouping_ok {true};
+    #ifndef BOOST_DECIMAL_DISABLE_EXCEPTIONS
+    char separator {};
+    try
     {
-        // Having a leading + sign is legal in iostream, but not allowed with charconv,
-        // and a minus sign after it is not legal in either
-        ++first;
+        separator = detail::read_number(is, text, converted, fmt, eof, grouping_ok);
     }
+    catch (...)
+    {
+        // An exception of the stream buffer sets badbit and keeps d, as in operator<<
+        try
+        {
+            is.setstate(std::ios_base::badbit);
+        }
+        catch (const std::ios_base::failure&)
+        {
+        }
+        if (is.exceptions() & std::ios_base::badbit)
+        {
+            throw;
+        }
+        return is;
+    }
+    #else
+    const auto separator {detail::read_number(is, text, converted, fmt, eof, grouping_ok)};
+    #endif
+    // Without a separator, a '.' point needs no conversion, so the text needs no copy
+    const auto buffer {converted.empty() ? &text[0] : &converted[0]};
+
+    // Having a leading + sign is legal in iostream, but not allowed with charconv
+    const auto first {buffer + (*buffer == '+')};
 
     auto r = from_chars(first, buffer + std::strlen(buffer), d, fmt);
 
@@ -116,22 +161,21 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
         errno = EINVAL;
     }
 
-    // Put back unconsumed characters
-    const auto consumed {detail::unconverted_length(t_buffer.c_str(), r.ptr - buffer, separator)};
-    BOOST_DECIMAL_ASSERT(t_buffer_len >= consumed);
-    const auto return_chars {static_cast<std::size_t>(t_buffer_len - consumed)};
-
-    for (std::size_t i {}; i < return_chars; ++i)
+    // Put back the characters after the number, at most a short tail such as "e+"
+    const auto consumed {detail::unconverted_length(text.c_str(), r.ptr - buffer, separator)};
+    for (auto i {text.size()}; i > consumed; --i)
     {
-        is.putback(t_buffer[t_buffer_len - i - 1]);
+        is.putback(is.widen(text[i - 1U]));
     }
 
-    // The characters go back first, because putback has no effect on a failed stream
+    // The state is set last, because putback has no effect on a failed stream and setstate can throw.
     // A grouping that num_put does not give keeps the value and fails, as in num_get
+    std::ios_base::iostate state {eof && consumed == text.size() ? std::ios_base::eofbit : std::ios_base::goodbit};
     if (!r || !grouping_ok)
     {
-        is.setstate(std::ios_base::failbit);
+        state |= std::ios_base::failbit;
     }
+    is.setstate(state);
 
     return is;
 }

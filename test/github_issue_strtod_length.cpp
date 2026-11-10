@@ -87,6 +87,48 @@ void test_text()
     BOOST_TEST_EQ(allocations, 0U);
 }
 
+// The scan of a number ends at the next sign or point, so adjacent values need no heap buffer
+template <typename T>
+void test_adjacent()
+{
+    std::string text;
+    for (int i {}; i < 1000; ++i)
+    {
+        text += "-1+2.5.5";
+    }
+    const std::wstring wtext (text.begin(), text.end());
+
+    allocations = 0U;
+    T sum {};
+    const char* p {text.c_str()};
+    for (char* end {};; p = end)
+    {
+        const auto value {strtod<T>(p, &end)};
+        if (end == p)
+        {
+            break;
+        }
+        sum += value;
+    }
+    BOOST_TEST_EQ(sum, T{2000});
+    BOOST_TEST_EQ(p - text.c_str(), static_cast<std::ptrdiff_t>(text.size()));
+
+    sum = T{};
+    const wchar_t* wp {wtext.c_str()};
+    for (wchar_t* end {};; wp = end)
+    {
+        const auto value {wcstod<T>(wp, &end)};
+        if (end == wp)
+        {
+            break;
+        }
+        sum += value;
+    }
+    BOOST_TEST_EQ(sum, T{2000});
+    BOOST_TEST_EQ(wp - wtext.c_str(), static_cast<std::ptrdiff_t>(wtext.size()));
+    BOOST_TEST_EQ(allocations, 0U);
+}
+
 // A number longer than the stack buffer still reads
 template <typename T>
 void test_long(const char* separator)
@@ -112,6 +154,7 @@ template <typename T>
 void test()
 {
     test_text<T>();
+    test_adjacent<T>();
     test_long<T>("000");
 
     #ifndef BOOST_DECIMAL_DISABLE_EXCEPTIONS

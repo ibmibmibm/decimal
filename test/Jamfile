@@ -171,6 +171,7 @@ run github_issue_1561_tanh.cpp ;
 run github_issue_1561_expm1.cpp ;
 run github_issue_1561_exp2.cpp ;
 run github_issue_locale_end.cpp ;
+run github_issue_istream_chars.cpp ;
 run github_issue_strtod_length.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;

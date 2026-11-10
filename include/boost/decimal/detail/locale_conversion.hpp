@@ -11,7 +11,6 @@
 #include <cstring>
 #include <string>
 #include <type_traits>
-#include <cstdint>
 #endif
 
 namespace boost {
@@ -20,9 +19,8 @@ namespace detail {
 
 // A char numpunct can give the first byte of the UTF-8 U+202F, which is not a character alone,
 // so it becomes a space
-inline auto thousands_separator(const std::numpunct<char>& np) noexcept -> char
+inline auto thousands_separator(const char separator) noexcept -> char
 {
-    const auto separator {np.thousands_sep()};
     return static_cast<unsigned char>(separator) == 0xE2U ? ' ' : separator;
 }
 
@@ -53,15 +51,105 @@ inline auto is_decimal_digit(const char c) noexcept -> bool
     return c >= '0' && c <= '9';
 }
 
-// Removes the separators between the digits of the integer part, and sets grouping_ok to false
-// if they are not where num_put puts them. Returns the separator, or '\0' with no grouping
-inline auto convert_string_to_c_locale(char* buffer, const std::locale& loc, bool& grouping_ok) noexcept -> char
+// Takes the characters of a number one at a time, so that the input ends with the number. A tail that the
+// value does not use can stay in the input, such as "e+", the "," of "1," or a NaN payload without ")"
+class number_chars
 {
-    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
+public:
+    number_chars(const char point, const char separator, const bool hex, const bool exponent) noexcept
+        : point_ {point}, separator_ {separator}, hex_ {hex}, exponent_allowed_ {exponent} {}
 
-    const auto locale_decimal_point {np.decimal_point()};
-    const auto grouping {np.grouping()};
-    const auto removed_sep {!grouping.empty() && grouping[0] > 0 ? thousands_separator(np) : '\0'};
+    auto take(const char c) noexcept -> bool
+    {
+        if (word_ == nullptr && is_decimal_digit(c))
+        {
+            digit_ = digit_ || !exponent_;
+            last_ = c;
+            return true;
+        }
+
+        const auto lower {static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c)};
+        if (word_ != nullptr ? take_word(c, lower) : take_numeric(c, lower))
+        {
+            last_ = lower;
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    // inf, infinity, nan and snan, and a payload of digits or in parentheses after nan
+    auto take_word(const char c, const char lower) noexcept -> bool
+    {
+        if (paren_)
+        {
+            return last_ != ')' && (is_decimal_digit(c) || (lower >= 'a' && lower <= 'z') || c == '_' || c == ')');
+        }
+        if (word_[word_size_] != '\0')
+        {
+            const auto ok {lower == word_[word_size_]};
+            word_size_ += ok;
+            return ok;
+        }
+        if (word_[0] == 'i')
+        {
+            return false;
+        }
+        paren_ = c == '(' && !digit_;
+        digit_ = digit_ || is_decimal_digit(c);
+        return paren_ || is_decimal_digit(c);
+    }
+
+    auto take_numeric(const char c, const char lower) noexcept -> bool
+    {
+        if (c == '+' || c == '-')
+        {
+            return last_ == '\0' || last_ == (hex_ ? 'p' : 'e');
+        }
+        if ((last_ == '\0' || last_ == '+' || last_ == '-') && !exponent_ && (lower == 'i' || lower == 'n' || lower == 's'))
+        {
+            word_ = lower == 'i' ? "infinity" : lower == 'n' ? "nan" : "snan";
+            word_size_ = 1U;
+            return true;
+        }
+        if (hex_ && !exponent_ && lower >= 'a' && lower <= 'f')
+        {
+            digit_ = true;
+            return true;
+        }
+        if (c == point_ || (separator_ != '\0' && c == separator_))
+        {
+            const auto ok {!point_seen_ && !exponent_ && (c == point_ || is_decimal_digit(last_))};
+            point_seen_ = point_seen_ || (ok && c == point_);
+            return ok;
+        }
+        if (lower == (hex_ ? 'p' : 'e') && !exponent_ && digit_ && exponent_allowed_)
+        {
+            exponent_ = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    const char* word_ {};
+    std::size_t word_size_ {};
+    char point_;
+    char separator_;
+    bool hex_;
+    bool exponent_allowed_;
+    char last_ {};
+    bool point_seen_ {};
+    bool exponent_ {};
+    bool digit_ {};
+    bool paren_ {};
+};
+
+// Removes the separators removed_sep between the digits of the integer part, and sets grouping_ok
+// to false if they are not where num_put puts them. A removed_sep of '\0' removes nothing
+inline void convert_string_to_c_locale(char* buffer, const std::string& grouping, const char removed_sep, const char locale_decimal_point, bool& grouping_ok) noexcept
+{
     grouping_ok = true;
 
     if (removed_sep != '\0')
@@ -114,20 +202,30 @@ inline auto convert_string_to_c_locale(char* buffer, const std::locale& loc, boo
 
     if (locale_decimal_point != '.')
     {
-        const auto p {std::strchr(buffer, static_cast<int>(locale_decimal_point))};
+        // A '.' that stays is not the point of this locale, so it ends the number
+        const auto dot {std::strchr(buffer, '.')};
+        if (dot != nullptr)
+        {
+            *dot = '\0';
+        }
+        // A wide point without a char form gives '\0', and then the text has no point
+        const auto p {locale_decimal_point != '\0' ? std::strchr(buffer, static_cast<int>(locale_decimal_point)) : nullptr};
         if (p != nullptr)
         {
             *p = '.';
         }
     }
-
-    return removed_sep;
 }
 
-inline auto convert_string_to_c_locale(char* buffer) noexcept -> char
+// Returns the separator, or '\0' with no grouping
+inline auto convert_string_to_c_locale(char* buffer) -> char
 {
+    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(std::locale());
+    const auto grouping {np.grouping()};
+    const auto removed_sep {!grouping.empty() && grouping[0] > 0 ? thousands_separator(np.thousands_sep()) : '\0'};
     bool grouping_ok {};
-    return convert_string_to_c_locale(buffer, std::locale(), grouping_ok);
+    convert_string_to_c_locale(buffer, grouping, removed_sep, np.decimal_point(), grouping_ok);
+    return removed_sep;
 }
 
 // The number of characters of str that give the first used characters of the converted buffer,
@@ -168,7 +266,7 @@ template <typename charT>
 auto number_length(const charT* str, const std::numpunct<char>& np, char& separator, std::size_t& integer_end) noexcept -> std::size_t
 {
     const auto grouping {np.grouping()};
-    const auto sep {!grouping.empty() && grouping[0] > 0 ? static_cast<unsigned char>(thousands_separator(np)) : 0U};
+    const auto sep {!grouping.empty() && grouping[0] > 0 ? static_cast<unsigned char>(thousands_separator(np.thousands_sep())) : 0U};
     const auto point {static_cast<unsigned char>(np.decimal_point())};
     separator = '\0';
 
@@ -177,6 +275,7 @@ auto number_length(const charT* str, const std::numpunct<char>& np, char& separa
     {
         ++i;
     }
+    const auto number_start {i};
     i += str[i] == '-' || str[i] == '+';
 
     const auto start {i};
@@ -195,13 +294,12 @@ auto number_length(const charT* str, const std::numpunct<char>& np, char& separa
     }
     integer_end = i;
 
-    // The letters, digits and "()+-._" can belong to a number
-    for (;; ++i)
+    // The scan of the stream input ends at the end of the number, so a loop over a long text stays linear
+    number_chars number {static_cast<char>(point), static_cast<char>(sep), false, true};
+    for (i = number_start;; ++i)
     {
         const auto c {static_cast<std::make_unsigned_t<charT>>(str[i])};
-        constexpr std::uint64_t low {0x03FF6B0000000000U};
-        constexpr std::uint64_t high {0x07FFFFFE87FFFFFEU};
-        if (!(c < 128U && (((c < 64U ? low : high) >> (c % 64U)) & 1U) != 0U) && (c != point || c == 0U))
+        if (!number.take(c < 128U || c == point ? static_cast<char>(c) : '\0'))
         {
             return i;
         }
@@ -213,7 +311,7 @@ inline int convert_pointer_pair_to_local_locale(char* first, const char* last, c
     const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
 
     const auto locale_decimal_point {np.decimal_point()};
-    const auto locale_thousands_sep {thousands_separator(np)};
+    const auto locale_thousands_sep {thousands_separator(np.thousands_sep())};
     const auto grouping {np.grouping()};
 
     // Find the start of the number (skip sign if present)
