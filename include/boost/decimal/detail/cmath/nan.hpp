@@ -27,29 +27,6 @@ namespace detail {
 
 template <typename TargetDecimalType, bool is_snan>
 constexpr auto nan_impl(const char* arg) noexcept
-    BOOST_DECIMAL_REQUIRES(detail::is_fast_type_v, TargetDecimalType)
-{
-    using sig_type = typename TargetDecimalType::significand_type;
-
-    constexpr TargetDecimalType nan_type {is_snan ? std::numeric_limits<TargetDecimalType>::signaling_NaN() :
-                                                    std::numeric_limits<TargetDecimalType>::quiet_NaN()};
-
-    sig_type payload_value {};
-    const auto r {from_chars_integer_impl<sig_type, sig_type>(arg, arg + detail::strlen(arg), payload_value, 10)};
-
-    if (!r)
-    {
-        return nan_type;
-    }
-    else
-    {
-        return write_payload<TargetDecimalType, is_snan>(payload_value);
-    }
-}
-
-template <typename TargetDecimalType, bool is_snan>
-constexpr auto nan_impl(const char* arg) noexcept
-    BOOST_DECIMAL_REQUIRES(detail::is_ieee_type_v, TargetDecimalType)
 {
     using sig_type = typename TargetDecimalType::significand_type;
 
