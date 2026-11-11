@@ -10,6 +10,8 @@
 #include <climits>
 #include <cstring>
 #include <string>
+#include <type_traits>
+#include <cstdint>
 #endif
 
 namespace boost {
@@ -148,14 +150,62 @@ auto unconverted_length(const charT* str, std::ptrdiff_t used, const char separa
     std::size_t length {};
     for (auto integer_part {true}; used > 0; ++length)
     {
-        const auto c {static_cast<char>(str[length])};
-        const auto removed {integer_part && separator != '\0' && c == separator && length > start &&
-                            is_decimal_digit(static_cast<char>(str[length + 1U]))};
-        integer_part = integer_part && (removed || length < start || is_decimal_digit(c));
+        // A wide character that is not a char must not look like a digit or the separator
+        const auto c {static_cast<std::make_unsigned_t<charT>>(str[length])};
+        const auto digit {c >= '0' && c <= '9'};
+        const auto removed {integer_part && c == static_cast<unsigned char>(separator) && length > start &&
+                            str[length + 1U] >= '0' && str[length + 1U] <= '9'};
+        integer_part = integer_part && (removed || length < start || digit);
         used -= !removed;
     }
 
     return length;
+}
+
+// The length of the characters of str that can belong to a number. Gives the separator if str has one
+// between digits of the integer part, else '\0', and the end of the integer part
+template <typename charT>
+auto number_length(const charT* str, const std::numpunct<char>& np, char& separator, std::size_t& integer_end) noexcept -> std::size_t
+{
+    const auto grouping {np.grouping()};
+    const auto sep {!grouping.empty() && grouping[0] > 0 ? static_cast<unsigned char>(thousands_separator(np)) : 0U};
+    const auto point {static_cast<unsigned char>(np.decimal_point())};
+    separator = '\0';
+
+    std::size_t i {};
+    while (str[i] == ' ' || (str[i] >= '\t' && str[i] <= '\r'))
+    {
+        ++i;
+    }
+    i += str[i] == '-' || str[i] == '+';
+
+    const auto start {i};
+    for (;; ++i)
+    {
+        const auto c {static_cast<std::make_unsigned_t<charT>>(str[i])};
+        if (c >= '0' && c <= '9')
+        {
+            continue;
+        }
+        if (c != sep || c == 0U || i == start || str[i + 1] < '0' || str[i + 1] > '9')
+        {
+            break;
+        }
+        separator = static_cast<char>(sep);
+    }
+    integer_end = i;
+
+    // The letters, digits and "()+-._" can belong to a number
+    for (;; ++i)
+    {
+        const auto c {static_cast<std::make_unsigned_t<charT>>(str[i])};
+        constexpr std::uint64_t low {0x03FF6B0000000000U};
+        constexpr std::uint64_t high {0x07FFFFFE87FFFFFEU};
+        if (!(c < 128U && (((c < 64U ? low : high) >> (c % 64U)) & 1U) != 0U) && (c != point || c == 0U))
+        {
+            return i;
+        }
+    }
 }
 
 inline int convert_pointer_pair_to_local_locale(char* first, const char* last, const std::locale& loc) noexcept

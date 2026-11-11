@@ -23,6 +23,7 @@
 #include <locale>
 #include <cstdint>
 #include <clocale>
+#include <cstring>
 #endif
 
 #if !defined(BOOST_DECIMAL_DISABLE_CLIB)
@@ -33,15 +34,11 @@ namespace decimal {
 namespace detail {
 
 // 3.8.2
-template <typename TargetDecimalType>
-inline auto strtod_calculation(const char* str, char** endptr, char* buffer, const std::size_t str_length) noexcept -> TargetDecimalType
+template <typename TargetDecimalType, typename charT>
+inline auto strtod_calculation(const charT* str, charT** endptr, const char* number, const std::size_t str_length, const char separator) noexcept -> TargetDecimalType
 {
-    std::memcpy(buffer, str, str_length);
-    buffer[str_length] = '\0';
-    const auto separator {convert_string_to_c_locale(buffer)};
-
     // Strtod allows leading whitespace characters, as isspace in the C locale
-    auto first {buffer};
+    auto first {number};
     std::size_t first_pos {0};
     while (first_pos < str_length && (*first == ' ' || (*first >= '\t' && *first <= '\r')))
     {
@@ -56,7 +53,7 @@ inline auto strtod_calculation(const char* str, char** endptr, char* buffer, con
     }
 
     TargetDecimalType d {};
-    const auto r {from_chars_general_impl<TargetDecimalType, true>(first, buffer + str_length, d, chars_format::general)};
+    const auto r {from_chars_general_impl<TargetDecimalType, true>(first, number + str_length, d, chars_format::general)};
     const bool overflow {r.ec == std::errc::result_out_of_range};
     if (overflow)
     {
@@ -71,10 +68,66 @@ inline auto strtod_calculation(const char* str, char** endptr, char* buffer, con
     if (endptr != nullptr)
     {
         // Without a conversion, endptr is str (C 7.24.1.5)
-        *endptr = const_cast<char*>(str + unconverted_length(str, r || overflow ? r.ptr - buffer : 0, separator));
+        *endptr = const_cast<charT*>(str + unconverted_length(str, r || overflow ? r.ptr - number : 0, separator));
     }
 
     return d;
+}
+
+// Copies the number as the C locale writes it: as char, without the separators between digits
+// of the integer part, and with a '.' point after that part
+template <typename TargetDecimalType, typename charT>
+inline auto strtod_converted(const charT* str, charT** endptr, const std::size_t str_length, const std::size_t integer_end, const char separator, const char point) noexcept -> TargetDecimalType
+{
+    // A number that does not fit into the stack buffer gets a buffer from new(std::nothrow)
+    char stack_buffer[1024U];
+    std::unique_ptr<char[]> heap_buffer;
+    if (str_length >= sizeof(stack_buffer))
+    {
+        heap_buffer.reset(new(std::nothrow) char[str_length + 1U]);
+        if (heap_buffer == nullptr)
+        {
+            errno = ENOMEM;
+            return std::numeric_limits<TargetDecimalType>::quiet_NaN();
+        }
+    }
+    char* buffer {heap_buffer == nullptr ? stack_buffer : heap_buffer.get()};
+
+    std::size_t length {str_length};
+    if (separator == '\0')
+    {
+        for (std::size_t i {}; i < str_length; ++i)
+        {
+            buffer[i] = static_cast<char>(str[i]);
+        }
+    }
+    else
+    {
+        length = 0U;
+        for (std::size_t i {}; i < str_length; ++i)
+        {
+            const auto c {static_cast<char>(str[i])};
+            buffer[length] = c;
+            length += i >= integer_end || c != separator || i == 0U || !is_decimal_digit(static_cast<char>(str[i - 1U]));
+        }
+    }
+    buffer[length] = '\0';
+
+    // The separators are all before the point
+    const auto point_pos {integer_end - (str_length - length)};
+    if (point != '.')
+    {
+        // A '.' that stays is not the point of this locale, so it ends the number
+        const auto dot {std::strchr(buffer, '.')};
+        length = dot != nullptr ? static_cast<std::size_t>(dot - buffer) : length;
+        buffer[length] = '\0';
+    }
+    if (point_pos < length && buffer[point_pos] == point)
+    {
+        buffer[point_pos] = '.';
+    }
+
+    return strtod_calculation<TargetDecimalType>(str, endptr, buffer, length, separator);
 }
 
 template <typename TargetDecimalType>
@@ -86,58 +139,25 @@ inline auto strtod_impl(const char* str, char** endptr) noexcept -> TargetDecima
         return std::numeric_limits<TargetDecimalType>::quiet_NaN();
     }
 
-    const auto str_length {std::strlen(str)};
+    // Only the characters that can belong to the number are read, as a loop over a long text
+    // with endptr would read the rest of the text again for each number
+    const std::locale loc {};
+    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
+    char separator {};
+    std::size_t integer_end {};
+    const auto str_length {number_length(str, np, separator, integer_end)};
+    const auto point {np.decimal_point()};
 
-    if (str_length < 1024U)
+    // Without a separator, a '.' point needs no conversion, so the number is read in place
+    if (separator == '\0' && point == '.')
     {
-        char buffer[1024U];
-        return strtod_calculation<TargetDecimalType>(str, endptr, buffer, str_length);
+        return strtod_calculation<TargetDecimalType>(str, endptr, str, str_length, separator);
     }
 
-    // If the string to be parsed does not fit into the 1024 byte static buffer than we have to allocate a buffer.
-    // malloc is used here because it does not throw on allocation failure.
-    std::unique_ptr<char[]> buffer(new(std::nothrow) char[str_length + 1]);
-    if (buffer == nullptr)
-    {
-        errno = ENOMEM;
-        return std::numeric_limits<TargetDecimalType>::quiet_NaN();
-    }
-
-    auto d = strtod_calculation<TargetDecimalType>(str, endptr, buffer.get(), str_length);
-
-    return d;
+    return strtod_converted<TargetDecimalType>(str, endptr, str_length, integer_end, separator, point);
 }
 
 // 3.9.2
-template <typename TargetDecimalType>
-inline auto wcstod_calculation(const wchar_t* str, wchar_t** endptr, char* buffer, const std::size_t str_length) noexcept -> TargetDecimalType
-{
-    // Convert the characters from wchar_t to char and use strtod_impl.
-    // A character that can not be converted ends the number.
-    std::size_t i {};
-    for (; i < str_length; ++i)
-    {
-        const auto val {static_cast<std::make_unsigned_t<wchar_t>>(str[i])};
-        if (BOOST_DECIMAL_UNLIKELY(val > 255U))
-        {
-            break;
-        }
-
-        buffer[i] = static_cast<char>(val);
-    }
-
-    buffer[i] = '\0';
-    char* short_endptr {};
-    const auto return_val {strtod_impl<TargetDecimalType>(buffer, &short_endptr)};
-
-    if (endptr != nullptr)
-    {
-        *endptr = const_cast<wchar_t*>(str + (short_endptr - buffer));
-    }
-
-    return return_val;
-}
-
 template <typename TargetDecimalType>
 inline auto wcstod_impl(const wchar_t* str, wchar_t** endptr) noexcept -> TargetDecimalType
 {
@@ -147,24 +167,13 @@ inline auto wcstod_impl(const wchar_t* str, wchar_t** endptr) noexcept -> Target
         return std::numeric_limits<TargetDecimalType>::quiet_NaN();
     }
 
-    const auto str_length {detail::strlen(str)};
+    const std::locale loc {};
+    const std::numpunct<char>& np = std::use_facet<std::numpunct<char>>(loc);
+    char separator {};
+    std::size_t integer_end {};
+    const auto str_length {number_length(str, np, separator, integer_end)};
 
-    if (str_length < 1024U)
-    {
-        char buffer[1024U];
-        return wcstod_calculation<TargetDecimalType>(str, endptr, buffer, str_length);
-    }
-
-    // If the string to be parsed does not fit into the 1024 byte static buffer than we have to allocate a buffer.
-    // malloc is used here because it does not throw on allocation failure.
-    std::unique_ptr<char[]> buffer(new(std::nothrow) char[str_length + 1]);
-    if (buffer == nullptr)
-    {
-        errno = ENOMEM;
-        return std::numeric_limits<TargetDecimalType>::quiet_NaN();
-    }
-
-    return wcstod_calculation<TargetDecimalType>(str, endptr, buffer.get(), str_length);
+    return strtod_converted<TargetDecimalType>(str, endptr, str_length, integer_end, separator, np.decimal_point());
 }
 
 } //namespace detail

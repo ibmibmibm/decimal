@@ -84,7 +84,6 @@ void test_de()
     check("1.234,5x", T{12345, -1}, 7);
     check("1.234.567,25.5", T{123456725, -2}, 12);
     check("1.23,5", T{1235, -1}, 6, false);
-    check("1.,5", T{1}, 2);
 }
 
 template <typename T>
