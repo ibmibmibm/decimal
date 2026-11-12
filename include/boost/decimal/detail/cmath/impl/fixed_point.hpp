@@ -935,6 +935,24 @@ constexpr auto fx_round_kept(const U q, int e, const bool neg) noexcept -> T
     return pack_in_range<T>(s, e + 1, neg);
 }
 
+// The same for s with precision digits, where half says that the rest is one half or more of a unit of s
+template <typename T>
+constexpr auto fx_round_rest(typename T::significand_type s, int e, const bool neg, const bool half) noexcept -> T
+{
+    auto mode {current_rounding_mode()};
+    if (mode == rounding_mode::fe_dec_upward ? !neg
+        : mode == rounding_mode::fe_dec_downward ? neg : mode != rounding_mode::fe_dec_toward_zero && half)
+    {
+        if (s == max_significand_v<T>)
+        {
+            s = max_significand_v<T> / 10U;
+            ++e;
+        }
+        ++s;
+    }
+    return pack_in_range<T>(s, e, neg);
+}
+
 // sig * 10^e rounded once, for a sig of 37 to 39 digits that truncates an inexact value: precision + 1 digits and
 // a sticky rest. Near the subnormals the constructor rounds, and sig + 1 rounds the same where sig ends in 0 or 5.
 template <typename T>
@@ -946,7 +964,14 @@ constexpr auto fx_round(boost::int128::uint128_t sig, int e, const bool neg) noe
     {
         const int len {sig >= p37 * 10U ? 39 : sig >= p37 ? 38 : 37};
         const int drop {len - p - 1};
-        return fx_round_kept<T>(impl::divmod_pow10_dispatch(sig, drop, pow10(static_cast<boost::int128::uint128_t>(drop))).quotient, e + drop, neg);
+        const auto d {impl::divmod_pow10_dispatch(sig, drop + (p > 19), pow10(static_cast<boost::int128::uint128_t>(drop + (p > 19))))};
+        if (p > 19)
+        {
+            // One division for a significand of two words: the rest gives the digit that the nearest modes round by
+            const bool half {d.remainder.low >= 5U * pow10(static_cast<std::uint64_t>(drop))};
+            return fx_round_rest<T>(static_cast<typename T::significand_type>(d.quotient), e + drop + 1, neg, half);
+        }
+        return fx_round_kept<T>(d.quotient, e + drop, neg);
     }
 
     if (sig < p37)
