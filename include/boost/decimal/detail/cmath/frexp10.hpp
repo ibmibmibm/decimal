@@ -29,7 +29,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto frexp10_normalize(T
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetType, BOOST_DECIMAL_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto frexp10_normalize(T1& sig, T2& exp) noexcept -> std::enable_if_t<!is_fast_type_v<TargetType>, void>
 {
-    detail::normalize<TargetType>(sig, exp);
+    detail::expand_significand<TargetType>(sig, exp);
 }
 
 } // namespace detail
