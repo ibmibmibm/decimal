@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/concepts.hpp>
+#include <boost/decimal/detail/add_impl.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cerrno>
@@ -18,6 +19,43 @@
 
 namespace boost {
 namespace decimal {
+
+namespace detail {
+
+// True if the target type holds each coefficient of the source and needs no search for its digits.
+// A fast type has no coefficient above its precision, so it also packs to the IEEE type of its size.
+template <typename TargetType, typename Decimal>
+using is_exact_repack = std::integral_constant<bool, (precision_v<TargetType> > precision_v<Decimal> &&
+                                                      (is_fast_type_v<Decimal> || !is_fast_type_v<TargetType>)) ||
+                                                     (precision_v<TargetType> == precision_v<Decimal> &&
+                                                      is_fast_type_v<Decimal> && !is_fast_type_v<TargetType>)>;
+
+// The value keeps its coefficient. Two fast types differ by a constant count of zeros,
+// and a zero keeps the exponent that the constructor gives it.
+template <typename TargetType, typename Decimal, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto finite_to_decimal(const SigType sig, const ExpType exp, const bool sign,
+                                                    std::true_type) noexcept -> TargetType
+{
+    using target_sig = typename TargetType::significand_type;
+    constexpr int zeros {is_fast_type_v<TargetType> ? precision_v<TargetType> - precision_v<Decimal> : 0};
+    if (is_true(zeros != 0) && sig == 0U)
+    {
+        return TargetType{sig, exp, sign};
+    }
+
+    const auto shift {pow10(static_cast<target_sig>(zeros))};
+    const auto wide_sig {static_cast<target_sig>(static_cast<target_sig>(sig) * shift)};
+    return pack_in_range<TargetType>(wide_sig, static_cast<int>(exp) - zeros, sign);
+}
+
+template <typename TargetType, typename Decimal, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto finite_to_decimal(const SigType sig, const ExpType exp, const bool sign,
+                                                    std::false_type) noexcept -> TargetType
+{
+    return TargetType{sig, exp, sign};
+}
+
+} // namespace detail
 
 #ifndef BOOST_DECIMAL_NO_CXX17_IF_CONSTEXPR
 
@@ -46,7 +84,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_decimal(Decimal val) noexcept -> TargetType
     }
     else
     {
-        return TargetType{val.full_significand(), val.biased_exponent(), val.isneg()};
+        return detail::finite_to_decimal<TargetType, Decimal>(
+            val.full_significand(), val.biased_exponent(), val.isneg(), detail::is_exact_repack<TargetType, Decimal>{});
     }
 }
 
@@ -71,7 +110,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_decimal(Decimal val) noexcept -> TargetType
                               std::numeric_limits<TargetType>::quiet_NaN();
     }
 
-    return TargetType{val.full_significand(), val.biased_exponent(), val.isneg()};
+    return detail::finite_to_decimal<TargetType, Decimal>(
+        val.full_significand(), val.biased_exponent(), val.isneg(), detail::is_exact_repack<TargetType, Decimal>{});
 }
 
 #endif
