@@ -441,7 +441,7 @@ constexpr auto fx_recip(const fx<N>& d) noexcept -> fx<N>
         return r;
     }
     r = fx_extend<N>(fx_recip(fx_top<(N > 1 ? N - 1 : 1)>(d)));
-    return fx_mul(r, fx_sub(fx_int<N>(2U), fx_mul(d, r)));
+    return fx_mul_body(r, fx_sub(fx_int<N>(2U), fx_mul_body(d, r)));
 }
 
 // a / b for a / b < 4, with one division in one word, else for 1/2 <= b < 2 as a * (1 / b)
@@ -462,7 +462,7 @@ constexpr auto fx_div(const fx<N>& a, const fx<N>& b) noexcept -> fx<N>
 template <int N>
 BOOST_DECIMAL_FORCE_INLINE constexpr auto fx_rsqrt_step(const fx<N>& d, const fx<N>& r) noexcept -> fx<N>
 {
-    return fx_shr(fx_mul(r, fx_sub(fx_int<N>(3U), fx_mul(d, fx_mul(r, r)))), 1U);
+    return fx_shr(fx_mul_body(r, fx_sub(fx_int<N>(3U), fx_mul_body(d, fx_mul_body(r, r)))), 1U);
 }
 
 // 1 / sqrt(d) for 1 <= d < 4. A table guess within 2^-9 and a first step in 64 bits, lowered by 2^-27, leave r below
