@@ -297,19 +297,34 @@ constexpr auto exact_scaled(const std::uint64_t significand, const int binary_ex
     return {value.to_uint128(), -k, inexact};
 }
 
-// Constant divisors, which compilers turn into multiplications
-constexpr auto divide_by_pow10(std::uint64_t& value, int count) noexcept -> void
+// The digits of Dragonbox's x * 10^k, which are 18 or 19 for a normal double
+constexpr auto scaled_digits(const std::uint64_t value) noexcept -> int
 {
-    for (; count >= 4; count -= 4)
+    constexpr auto pow10_17 {pow10(static_cast<std::uint64_t>(17))};
+    return value >= pow10_17 ? 18 + static_cast<int>(value >= pow10_17 * 10U) : num_digits(value);
+}
+
+constexpr auto scaled_digits(const int128::uint128_t value) noexcept -> int
+{
+    return num_digits(value);
+}
+
+// Constant divisors, which compilers turn into multiplications: a normal double has Usual digits or one more to
+// remove, and a subnormal one with enough digits has none
+template <int Usual>
+constexpr auto divide_by_pow10(std::uint64_t& value, const int count) noexcept -> void
+{
+    if (count == Usual)
     {
-        value /= 10000U;
+        value /= pow10(static_cast<std::uint64_t>(Usual));
     }
-    for (; count > 0; --count)
+    else if (count == Usual + 1)
     {
-        value /= 10U;
+        value /= pow10(static_cast<std::uint64_t>(Usual + 1));
     }
 }
 
+template <int>
 constexpr auto divide_by_pow10(int128::uint128_t& value, const int count) noexcept -> void
 {
     if (count > 0)
@@ -325,10 +340,10 @@ constexpr auto to_decimal_type(UInt significand, int exponent, const bool inexac
     if (inexact)
     {
         // There is at least one digit past the precision
-        const auto dropped {num_digits(significand) - precision_v<DecimalType>};
+        const auto dropped {scaled_digits(significand) - precision_v<DecimalType>};
         if (exponent + dropped + precision_v<DecimalType> - 1 >= std::numeric_limits<DecimalType>::min_exponent10)
         {
-            divide_by_pow10(significand, dropped - 1);
+            divide_by_pow10<17 - precision_v<DecimalType>>(significand, dropped - 1);
             exponent += dropped - 1 + fenv_round<DecimalType>(significand, sign, true);
             return pack_in_range<DecimalType>(significand, exponent, sign);
         }

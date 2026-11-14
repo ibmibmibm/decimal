@@ -73,6 +73,9 @@ static void test_known_values()
     BOOST_TEST(same_bits(from_binary<decimal64_t>(0.07), decimal64_t {UINT64_C(7000000000000001), -17}));
     const auto min_subnormal {double_from_bits(1U)};
     BOOST_TEST(same_bits(from_binary<decimal64_t>(min_subnormal), decimal64_t {UINT64_C(4940656458412465), -339}));
+    // Dragonbox gives 17 digits for this subnormal double, one past the precision
+    const auto subnormal {double_from_bits(UINT64_C(0x0000200000000000))};
+    BOOST_TEST(same_bits(from_binary<decimal64_t>(subnormal), decimal64_t {UINT64_C(1738338951958751), -325}));
     BOOST_TEST(same_bits(from_binary<decimal64_t>(DBL_MAX), decimal64_t {UINT64_C(1797693134862316), 293}));
 
     BOOST_TEST(same_bits(from_binary<decimal32_t>(0.1), decimal32_t {1000000U, -7}));
