@@ -414,6 +414,56 @@ void test_signed_integer()
     }
 }
 
+// Gives text in a buffer of exactly its length. A shorter range gives {last, value_too_large}, or invalid_argument from
+// to_chars for an empty range. No byte past the range changes, and the integer writer leaves the range untouched
+template <typename Write>
+void check_exact_text(const char* text, Write write, const bool untouched)
+{
+    const auto length {static_cast<std::ptrdiff_t>(std::strlen(text))};
+    for (std::ptrdiff_t size {}; size <= length; ++size)
+    {
+        char buffer[64];
+        std::memset(buffer, '#', sizeof(buffer));
+        const auto r {write(buffer, buffer + size)};
+        const auto guard_from {r ? size : (untouched ? 0 : size)};
+        BOOST_TEST(std::all_of(buffer + guard_from, buffer + sizeof(buffer), [](const char c) { return c == '#'; }));
+        BOOST_TEST_EQ(static_cast<bool>(r), size == length);
+        if (r)
+        {
+            BOOST_TEST_EQ(std::string(buffer, r.ptr), text);
+        }
+        else
+        {
+            BOOST_TEST(r.ec == (size == 0 && !untouched ? std::errc::invalid_argument : std::errc::value_too_large));
+            BOOST_TEST(r.ptr == buffer + size);
+        }
+    }
+}
+
+template <typename Int>
+void check_integer(const Int value, const char* text)
+{
+    check_exact_text(text, [value](char* first, char* last) { return detail::to_chars_integer_impl(first, last, value); }, true);
+}
+
+// The 64-bit integer writer around its groups of eight digits, with zeros in a group, and at the limits
+void test_integer_groups()
+{
+    check_integer(UINT64_C(99999999), "99999999");
+    check_integer(UINT64_C(100000000), "100000000");
+    check_integer(UINT64_C(100000001), "100000001");
+    check_integer(UINT64_C(9999999999999999), "9999999999999999");
+    check_integer(UINT64_C(10000000000000000), "10000000000000000");
+    check_integer(UINT64_C(10000000000000001), "10000000000000001");
+    check_integer((std::numeric_limits<std::uint64_t>::max)(), "18446744073709551615");
+    check_integer((std::numeric_limits<std::int64_t>::min)(), "-9223372036854775808");
+    check_integer(INT64_C(-100000000), "-100000000");
+    check_integer((std::numeric_limits<std::uint32_t>::max)(), "4294967295");
+    check_integer(UINT64_C(4294967295), "4294967295");
+    check_integer(UINT64_C(4294967296), "4294967296");
+    check_integer(std::uint32_t{7}, "7");
+}
+
 // std::format prints into a local buffer of 128 bytes first. Results around that length, also with a sign,
 // are the same as from to_chars
 void test_format_lengths()
@@ -460,6 +510,7 @@ int main()
     test_hex_rounding();
     test_trailing_zeros();
     test_signed_integer();
+    test_integer_groups();
     test_format_lengths();
 
     return boost::report_errors();

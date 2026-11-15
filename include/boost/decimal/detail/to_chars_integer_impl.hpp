@@ -122,9 +122,9 @@ BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE char radix_table[] = {
 };
 #endif
 
-// See: https://jk-jeon.github.io/posts/2022/02/jeaiii-algorithm/
-// https://arxiv.org/abs/2101.11408
-BOOST_DECIMAL_CUDA_CONSTEXPR char* decompose32(std::uint32_t value, char* buffer) noexcept
+// Writes the two digits of pair < 100. CUDA device code can not read the table at namespace scope,
+// so it has a local copy
+BOOST_DECIMAL_CUDA_CONSTEXPR void write_2_digits(char* dest, const std::uint32_t pair) noexcept
 {
     #if defined(__CUDACC__) && defined(BOOST_DECIMAL_ENABLE_CUDA)
     constexpr char radix_table[] = {
@@ -151,17 +151,57 @@ BOOST_DECIMAL_CUDA_CONSTEXPR char* decompose32(std::uint32_t value, char* buffer
     };
     #endif
 
+    boost::decimal::detail::memcpy(dest, radix_table + pair * 2U, 2);
+}
+
+// See: https://jk-jeon.github.io/posts/2022/02/jeaiii-algorithm/
+// https://arxiv.org/abs/2101.11408
+BOOST_DECIMAL_CUDA_CONSTEXPR char* decompose32(std::uint32_t value, char* buffer) noexcept
+{
     constexpr auto mask = (UINT64_C(1) << 57) - 1;
     auto y = value * UINT64_C(1441151881);
 
     for (std::size_t i {}; i < 10; i += 2)
     {
-        boost::decimal::detail::memcpy(buffer + i, radix_table + (y >> 57) * 2, 2);
+        write_2_digits(buffer + i, static_cast<std::uint32_t>(y >> 57));
         y &= mask;
         y *= 100U;
     }
 
     return buffer + 10;
+}
+
+constexpr std::uint32_t ten_8_u32 {100000000U};
+
+// Writes the eight digits of group < 10^8, with the leading zeros
+BOOST_DECIMAL_CUDA_CONSTEXPR void write_8_digits(char* dest, const std::uint32_t group) noexcept
+{
+    const auto high {group / 10000U};
+    const auto low {group % 10000U};
+    write_2_digits(dest, high / 100U);
+    write_2_digits(dest + 2, high % 100U);
+    write_2_digits(dest + 4, low / 100U);
+    write_2_digits(dest + 6, low % 100U);
+}
+
+template <typename Unsigned_Integer>
+using to_chars_work_t = std::conditional_t<(sizeof(Unsigned_Integer) > sizeof(std::uint32_t)), std::uint64_t, std::uint32_t>;
+
+// Writes groups of eight digits before cursor until the value fits in 32 bits
+BOOST_DECIMAL_CUDA_CONSTEXPR auto narrow_to_32_bits(std::uint64_t value, char*& cursor) noexcept -> std::uint32_t
+{
+    while (value > UINT32_MAX)
+    {
+        cursor -= 8;
+        write_8_digits(cursor, static_cast<std::uint32_t>(value % ten_8_u32));
+        value /= ten_8_u32;
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+BOOST_DECIMAL_CUDA_CONSTEXPR auto narrow_to_32_bits(const std::uint32_t value, char*&) noexcept -> std::uint32_t
+{
+    return value;
 }
 
 #ifdef _MSC_VER
@@ -172,36 +212,9 @@ BOOST_DECIMAL_CUDA_CONSTEXPR char* decompose32(std::uint32_t value, char* buffer
 template <typename Integer, std::enable_if_t<sizeof(Integer) != 16, bool> = true>
 BOOST_DECIMAL_CUDA_CONSTEXPR to_chars_result to_chars_integer_impl(char* first, char* last, Integer value) noexcept
 {
-    #if defined(__CUDACC__) && defined(BOOST_DECIMAL_ENABLE_CUDA)
-    constexpr char radix_table[] = {
-        '0', '0', '0', '1', '0', '2', '0', '3', '0', '4',
-        '0', '5', '0', '6', '0', '7', '0', '8', '0', '9',
-        '1', '0', '1', '1', '1', '2', '1', '3', '1', '4',
-        '1', '5', '1', '6', '1', '7', '1', '8', '1', '9',
-        '2', '0', '2', '1', '2', '2', '2', '3', '2', '4',
-        '2', '5', '2', '6', '2', '7', '2', '8', '2', '9',
-        '3', '0', '3', '1', '3', '2', '3', '3', '3', '4',
-        '3', '5', '3', '6', '3', '7', '3', '8', '3', '9',
-        '4', '0', '4', '1', '4', '2', '4', '3', '4', '4',
-        '4', '5', '4', '6', '4', '7', '4', '8', '4', '9',
-        '5', '0', '5', '1', '5', '2', '5', '3', '5', '4',
-        '5', '5', '5', '6', '5', '7', '5', '8', '5', '9',
-        '6', '0', '6', '1', '6', '2', '6', '3', '6', '4',
-        '6', '5', '6', '6', '6', '7', '6', '8', '6', '9',
-        '7', '0', '7', '1', '7', '2', '7', '3', '7', '4',
-        '7', '5', '7', '6', '7', '7', '7', '8', '7', '9',
-        '8', '0', '8', '1', '8', '2', '8', '3', '8', '4',
-        '8', '5', '8', '6', '8', '7', '8', '8', '8', '9',
-        '9', '0', '9', '1', '9', '2', '9', '3', '9', '4',
-        '9', '5', '9', '6', '9', '7', '9', '8', '9', '9'
-    };
-    #endif
-
     using Unsigned_Integer = make_unsigned_t<Integer>;
     Unsigned_Integer unsigned_value {};
 
-    char buffer[10] {};
-    int converted_value_digits {};
     bool is_negative = false;
 
     // Strip the sign from the value and apply at the end after parsing if the type is signed
@@ -224,94 +237,43 @@ BOOST_DECIMAL_CUDA_CONSTEXPR to_chars_result to_chars_integer_impl(char* first, 
 
     const std::ptrdiff_t user_buffer_size = last - first - static_cast<std::ptrdiff_t>(is_negative);
 
-    // If the type is less than 32 bits we can use this without change
-    // If the type is greater than 32 bits we use a binary search tree to figure out how many digits
-    // are present and then decompose the value into two (or more) std::uint32_t of known length so that we
-    // don't have the issue of removing leading zeros from the least significant digits
+    const auto converted_value_digits {num_digits(unsigned_value)};
 
-    // Yields: warning C4127: conditional expression is constant because first half of the expression is constant,
-    // but we need to short circuit to avoid UB on the second half
-    if (std::numeric_limits<Integer>::digits <= std::numeric_limits<std::uint32_t>::digits ||
-        unsigned_value <= static_cast<Unsigned_Integer>((std::numeric_limits<std::uint32_t>::max)()))
+    if (converted_value_digits > user_buffer_size)
     {
-        const auto converted_value = static_cast<std::uint32_t>(unsigned_value);
-        converted_value_digits = num_digits(converted_value);
-
-        if (converted_value_digits > user_buffer_size)
-        {
-            return {last, std::errc::value_too_large};
-        }
-
-        decompose32(converted_value, buffer);
-
-        if (is_negative)
-        {
-            *first++ = '-';
-        }
-
-        boost::decimal::detail::memcpy(first, buffer + (sizeof(buffer) - static_cast<unsigned>(converted_value_digits)),
-                                        static_cast<std::size_t>(converted_value_digits));
+        return {last, std::errc::value_too_large};
     }
-    else if (std::numeric_limits<Integer>::digits <= std::numeric_limits<std::uint64_t>::digits ||
-             static_cast<std::uint64_t>(unsigned_value) <= (std::numeric_limits<std::uint64_t>::max)())
+
+    if (is_negative)
     {
-        auto converted_value = static_cast<std::uint64_t>(unsigned_value);
-        converted_value_digits = num_digits(converted_value);
+        *first++ = '-';
+    }
 
-        if (converted_value_digits > user_buffer_size)
-        {
-            return {last, std::errc::value_too_large};
-        }
+    // From the end: groups of eight digits while the value is longer, then two digits at a time.
+    // A value that fits in 32 bits continues in 32 bits, so a 32-bit target does less 64-bit division.
+    auto cursor {first + converted_value_digits};
+    auto rest {narrow_to_32_bits(static_cast<to_chars_work_t<Unsigned_Integer>>(unsigned_value), cursor)};
+    if (rest >= ten_8_u32)
+    {
+        cursor -= 8;
+        write_8_digits(cursor, rest % ten_8_u32);
+        rest /= ten_8_u32;
+    }
 
-        if (is_negative)
-        {
-            *first++ = '-';
-        }
+    while (rest >= 100U)
+    {
+        cursor -= 2;
+        write_2_digits(cursor, rest % 100U);
+        rest /= 100U;
+    }
 
-        // Only store 9 digits in each to avoid overflow
-        if (num_digits(converted_value) <= 18)
-        {
-            const auto x = static_cast<std::uint32_t>(converted_value / UINT64_C(1000000000));
-            const auto y = static_cast<std::uint32_t>(converted_value % UINT64_C(1000000000));
-            const int first_value_chars = num_digits(x);
-
-            decompose32(x, buffer);
-            boost::decimal::detail::memcpy(first, buffer + (sizeof(buffer) - static_cast<unsigned>(first_value_chars)),
-                                            static_cast<std::size_t>(first_value_chars));
-
-            decompose32(y, buffer);
-            boost::decimal::detail::memcpy(first + first_value_chars, buffer + 1, sizeof(buffer) - 1);
-        }
-        else
-        {
-            const auto x = static_cast<std::uint32_t>(converted_value / UINT64_C(100000000000));
-            converted_value -= x * UINT64_C(100000000000);
-            const auto y = static_cast<std::uint32_t>(converted_value / UINT64_C(100));
-            const auto z = static_cast<std::uint32_t>(converted_value % UINT64_C(100));
-
-            if (converted_value_digits == 19)
-            {
-                decompose32(x, buffer);
-                boost::decimal::detail::memcpy(first, buffer + 2, sizeof(buffer) - 2);
-
-                decompose32(y, buffer);
-                boost::decimal::detail::memcpy(first + 8, buffer + 1, sizeof(buffer) - 1);
-
-                // Always prints 2 digits last
-                boost::decimal::detail::memcpy(first + 17, radix_table + z * 2, 2);
-            }
-            else // 20
-            {
-                decompose32(x, buffer);
-                boost::decimal::detail::memcpy(first, buffer + 1, sizeof(buffer) - 1);
-
-                decompose32(y, buffer);
-                boost::decimal::detail::memcpy(first + 9, buffer + 1, sizeof(buffer) - 1);
-
-                // Always prints 2 digits last
-                boost::decimal::detail::memcpy(first + 18, radix_table + z * 2, 2);
-            }
-        }
+    if (rest >= 10U)
+    {
+        write_2_digits(first, rest);
+    }
+    else
+    {
+        *first = static_cast<char>('0' + rest);
     }
 
     return {first + converted_value_digits, std::errc()};
