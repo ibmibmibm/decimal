@@ -1669,9 +1669,16 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t)
 {
-    // The integer converts to decimal64_t first, as in C
-    const decimal64_t value {rhs};
-    return lhs + value;
+    // The integer converts to decimal64_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag > detail::d64_max_significand_value || not_finite(lhs))
+    {
+        return lhs + decimal64_t{rhs};
+    }
+
+    const bool sign {rhs < 0};
+    return d64_add_core(lhs, detail::direct_pack_d64(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                        static_cast<std::uint64_t>(mag), 0, sign);
 }
 
 template <typename Integer>
@@ -1708,18 +1715,32 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t)
 {
-    // The integer converts to decimal64_t first, as in C
-    const decimal64_t value {rhs};
-    return lhs - value;
+    // The integer converts to decimal64_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag > detail::d64_max_significand_value || not_finite(lhs))
+    {
+        return lhs - decimal64_t{rhs};
+    }
+
+    const bool sign {!(rhs < 0)};
+    return d64_add_core(lhs, detail::direct_pack_d64(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                        static_cast<std::uint64_t>(mag), 0, sign);
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal64_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t)
 {
-    // The integer converts to decimal64_t first, as in C
-    const decimal64_t value {lhs};
-    return value - rhs;
+    // The integer converts to decimal64_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(lhs)};
+    if (mag > detail::d64_max_significand_value || not_finite(rhs))
+    {
+        return decimal64_t{lhs} - rhs;
+    }
+
+    const bool sign {lhs < 0};
+    return d64_add_core(detail::direct_pack_d64(mag, 0, sign), -rhs, static_cast<std::uint64_t>(mag), 0, sign,
+                        rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal64_t lhs, const decimal64_t rhs) noexcept -> decimal64_t
@@ -1762,7 +1783,13 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal64_t)
 {
-    // The integer converts to decimal64_t first, as in C
+    // The integer converts to decimal64_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag <= detail::d64_max_significand_value && isfinite(lhs))
+    {
+        const detail::decimal64_t_components rhs_c {static_cast<detail::decimal64_t_components::significand_type>(mag), 0, rhs < 0};
+        return detail::mul_impl<decimal64_t>(lhs.to_components(), rhs_c);
+    }
     return lhs * decimal64_t{rhs};
 }
 

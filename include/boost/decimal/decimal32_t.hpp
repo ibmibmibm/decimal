@@ -1114,9 +1114,16 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    // The integer converts to decimal32_t first, as in C
-    const decimal32_t value {rhs};
-    return lhs + value;
+    // The integer converts to decimal32_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag > detail::d32_max_significand_value || !isfinite(lhs))
+    {
+        return lhs + decimal32_t{rhs};
+    }
+
+    const bool sign {rhs < 0};
+    return d32_add_core(lhs, detail::direct_pack_d32(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                        static_cast<std::uint32_t>(mag), 0, sign);
 }
 
 template <typename Integer>
@@ -1190,18 +1197,32 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    // The integer converts to decimal32_t first, as in C
-    const decimal32_t value {rhs};
-    return lhs - value;
+    // The integer converts to decimal32_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag > detail::d32_max_significand_value || !isfinite(lhs))
+    {
+        return lhs - decimal32_t{rhs};
+    }
+
+    const bool sign {!(rhs < 0)};
+    return d32_add_core(lhs, detail::direct_pack_d32(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                        static_cast<std::uint32_t>(mag), 0, sign);
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal32_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    // The integer converts to decimal32_t first, as in C
-    const decimal32_t value {lhs};
-    return value - rhs;
+    // The integer converts to decimal32_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(lhs)};
+    if (mag > detail::d32_max_significand_value || !isfinite(rhs))
+    {
+        return decimal32_t{lhs} - rhs;
+    }
+
+    const bool sign {lhs < 0};
+    return d32_add_core(detail::direct_pack_d32(mag, 0, sign), -rhs, static_cast<std::uint32_t>(mag), 0, sign,
+                        rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator--() noexcept -> decimal32_t&
@@ -1709,7 +1730,13 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal32_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal32_t)
 {
-    // The integer converts to decimal32_t first, as in C
+    // The integer converts to decimal32_t first, as in C. One of at most p digits is exact.
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag <= detail::d32_max_significand_value && isfinite(lhs))
+    {
+        const detail::decimal32_t_components rhs_c {static_cast<detail::decimal32_t_components::significand_type>(mag), 0, rhs < 0};
+        return detail::mul_impl<decimal32_t>(lhs.to_components(), rhs_c);
+    }
     return lhs * decimal32_t{rhs};
 }
 

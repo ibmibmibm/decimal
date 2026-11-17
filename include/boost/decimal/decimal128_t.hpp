@@ -671,6 +671,15 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto pack_in_range(SigType coeff, ExpType exp, bool
     return decimal128_t{coeff, exp, sign};
 }
 
+// An integer of at most p digits is exact at exponent 0, so it needs no rounding
+template <typename Integer>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_from_integer(const Integer val) noexcept -> decimal128_t
+{
+    const auto mag {magnitude_of(val)};
+    // Every integer of 64 bits or less fits
+    return sizeof(Integer) <= sizeof(std::uint64_t) || mag <= d128_max_significand_value ? direct_pack_d128(mag, 0, val < 0) : decimal128_t{val};
+}
+
 } // namespace detail
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal128_t::unbiased_exponent() const noexcept -> exponent_type
@@ -1700,9 +1709,15 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {rhs};
-    return lhs + value;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(lhs))
+    {
+        return lhs + decimal128_t{rhs};
+    }
+
+    const bool sign {rhs < 0};
+    return d128_add_core(lhs, detail::direct_pack_d128(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(), mag, 0, sign);
 }
 
 template <typename Integer>
@@ -1739,18 +1754,30 @@ template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {rhs};
-    return lhs - value;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(lhs))
+    {
+        return lhs - decimal128_t{rhs};
+    }
+
+    const bool sign {!(rhs < 0)};
+    return d128_add_core(lhs, detail::direct_pack_d128(mag, 0, sign), lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(), mag, 0, sign);
 }
 
 template <typename Integer>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const Integer lhs, const decimal128_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
-    // The integer converts to decimal128_t first, as in C
-    const decimal128_t value {lhs};
-    return value - rhs;
+    // The integer converts to decimal128_t first, as in C. One of at most p digits is exact.
+    const auto mag {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
+    if (mag > detail::d128_max_significand_value || not_finite(rhs))
+    {
+        return decimal128_t{lhs} - rhs;
+    }
+
+    const bool sign {lhs < 0};
+    return d128_add_core(detail::direct_pack_d128(mag, 0, sign), -rhs, mag, 0, sign, rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
@@ -1796,7 +1823,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator*(const decimal128_t lhs, const Intege
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal128_t)
 {
     // The integer converts to decimal128_t first, as in C
-    return lhs * decimal128_t{rhs};
+    return lhs * detail::d128_from_integer(rhs);
 }
 
 template <typename Integer>
