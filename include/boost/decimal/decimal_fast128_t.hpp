@@ -1319,7 +1319,7 @@ constexpr auto operator*(const decimal_fast128_t& lhs, const Integer rhs) noexce
     }
     #endif
 
-    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     exp_type rhs_exp {0};
     detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp, rhs < 0);
 
@@ -1468,7 +1468,7 @@ constexpr auto operator/(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     const detail::decimal_fast128_t_components lhs_components {lhs.significand_, lhs.biased_exponent(), lhs.isneg()};
 
-    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     decimal_fast128_t::biased_exponent_type rhs_exp {0};
     detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp, rhs < 0);
     const detail::decimal_fast128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
@@ -1502,7 +1502,7 @@ constexpr auto operator/(const Integer lhs, const decimal_fast128_t& rhs) noexce
     }
     #endif
 
-    auto lhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(lhs))};
+    auto lhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
     decimal_fast128_t::biased_exponent_type lhs_exp {0};
     // Only an integer of more than p digits needs rounding, and a zero keeps exponent 0
     if (lhs_sig > detail::max_significand_v<decimal_fast128_t>)

@@ -830,7 +830,7 @@ template <BOOST_DECIMAL_SIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal64_t::decimal64_t(const T1 coeff, const T2 exp) noexcept : decimal64_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal64_t::decimal64_t(const T1 coeff, const T2 exp) noexcept : decimal64_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal64_t::decimal64_t(const bool value) noexcept : decimal64_t(static_cast<significand_type>(value), 0, false) {}
 

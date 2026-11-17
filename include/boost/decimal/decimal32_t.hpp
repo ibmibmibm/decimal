@@ -795,7 +795,7 @@ template <BOOST_DECIMAL_SIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::decimal32_t(const T1 coeff, const T2 exp) noexcept : decimal32_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal32_t::decimal32_t(const T1 coeff, const T2 exp) noexcept : decimal32_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 #if defined(__GNUC__) && __GNUC__ >= 6
 #  pragma GCC diagnostic pop

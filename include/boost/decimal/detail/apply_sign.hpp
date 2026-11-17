@@ -46,6 +46,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto make_positive_unsigned(Unsigned_Integer val) n
     return val;
 }
 
+// The same with a mask in place of a branch, for a random sign
+template <typename Integer, typename Unsigned_Integer = detail::make_unsigned_t<Integer>>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto magnitude_of(Integer val) noexcept -> Unsigned_Integer
+{
+    const auto mask {static_cast<Unsigned_Integer>(static_cast<Unsigned_Integer>(0U) - static_cast<Unsigned_Integer>(val < static_cast<Integer>(static_cast<std::int8_t>(0))))};
+    return static_cast<Unsigned_Integer>((static_cast<Unsigned_Integer>(val) ^ mask) - mask);
+}
+
 template <typename Integer, std::enable_if_t<detail::is_signed_v<Integer>, bool> = true>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto make_signed_value(Integer val, bool sign) noexcept -> Integer
 {

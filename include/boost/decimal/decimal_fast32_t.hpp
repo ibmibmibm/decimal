@@ -624,7 +624,7 @@ constexpr decimal_fast32_t::decimal_fast32_t(T1 coeff, T2 exp, const detail::con
 }
 
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
-constexpr decimal_fast32_t::decimal_fast32_t(const T1 coeff, const T2 exp) noexcept : decimal_fast32_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+constexpr decimal_fast32_t::decimal_fast32_t(const T1 coeff, const T2 exp) noexcept : decimal_fast32_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 constexpr decimal_fast32_t::decimal_fast32_t(const bool value) noexcept : decimal_fast32_t(static_cast<significand_type>(value), 0, false) {}
 
