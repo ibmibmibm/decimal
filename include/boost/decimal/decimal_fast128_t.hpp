@@ -713,6 +713,19 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto pack_in_range(SigType coeff, ExpType e
     return decimal_fast128_t{coeff, exp, sign};
 }
 
+// An integer of 64 bits or less has at most 20 digits, so it needs no rounding
+template <typename Integer, typename ExpType, std::enable_if_t<sizeof(Integer) <= sizeof(std::uint64_t), bool> = true>
+constexpr auto normalize_integer(int128::uint128_t& sig, ExpType& exp, Integer) noexcept -> void
+{
+    expand_significand<decimal_fast128_t>(sig, exp);
+}
+
+template <typename Integer, typename ExpType, std::enable_if_t<(sizeof(Integer) > sizeof(std::uint64_t)), bool> = true>
+constexpr auto normalize_integer(int128::uint128_t& sig, ExpType& exp, const Integer val) noexcept -> void
+{
+    normalize<decimal_fast128_t>(sig, exp, val < 0);
+}
+
 template <bool>
 class numeric_limits_impl128f
 {
@@ -1152,7 +1165,7 @@ constexpr auto operator+(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs, rhs < 0);
+    detail::normalize_integer(sig_rhs, exp_rhs, rhs);
     const detail::decimal_fast128_t_components rhs_components {sig_rhs, exp_rhs, rhs < 0};
 
     return detail::d128_add_impl_new<decimal_fast128_t>(lhs.to_components(), rhs_components);
@@ -1234,7 +1247,7 @@ constexpr auto operator-(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto sig_rhs {static_cast<sig_type>(detail::make_positive_unsigned(rhs))};
     exp_type exp_rhs {0};
-    detail::normalize<decimal_fast128_t>(sig_rhs, exp_rhs, rhs < 0);
+    detail::normalize_integer(sig_rhs, exp_rhs, rhs);
     const detail::decimal_fast128_t_components rhs_components {sig_rhs, exp_rhs, !(rhs < 0)};
 
     return detail::d128_add_impl_new<decimal_fast128_t>(lhs.to_components(), rhs_components);
@@ -1321,7 +1334,7 @@ constexpr auto operator*(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     exp_type rhs_exp {0};
-    detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp, rhs < 0);
+    detail::normalize_integer(rhs_sig, rhs_exp, rhs);
 
     return detail::d128_mul_impl<decimal_fast128_t>(
             lhs.significand_, lhs.biased_exponent(), lhs.sign_,
@@ -1470,7 +1483,7 @@ constexpr auto operator/(const decimal_fast128_t& lhs, const Integer rhs) noexce
 
     auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     decimal_fast128_t::biased_exponent_type rhs_exp {0};
-    detail::normalize<decimal_fast128_t>(rhs_sig, rhs_exp, rhs < 0);
+    detail::normalize_integer(rhs_sig, rhs_exp, rhs);
     const detail::decimal_fast128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
 
     return detail::d128_generic_div_impl<decimal_fast128_t>(lhs_components, rhs_components, sign);
