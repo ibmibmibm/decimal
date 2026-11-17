@@ -37,6 +37,11 @@ void test_wide(const Integer big)
     test_operand(x, -(big + 5));
     test_operand(x, big * 9 + 15);
     test_operand(x, -(big / 10 + 5));
+
+    // The limit of a short operand: p digits, and 10^p
+    test_operand(x, big / 10 - 1);
+    test_operand(x, -(big / 10 - 1));
+    test_operand(x, big / 10);
 }
 
 // A short operand converts exactly, and a zero operand takes the other path
@@ -135,6 +140,14 @@ void test_zero_dividend()
     BOOST_TEST_EQ(quantexp(Integer{0} / T{25, -1}), quantexp(T{0} / T{25, -1}));
 }
 
+// A fast type shows the exponent of a zero after a conversion to the IEEE type
+template <typename T, typename IEEE>
+void test_zero_dividend_fast()
+{
+    BOOST_TEST_EQ(quantexp(static_cast<IEEE>(0 / T{3, -5})), quantexp(static_cast<IEEE>(T{0} / T{3, -5})));
+    BOOST_TEST_EQ(quantexp(static_cast<IEEE>(0U / T{-3})), quantexp(static_cast<IEEE>(T{0} / T{-3})));
+}
+
 // The product has the preferred exponent, the sum of the two exponents, and a sum
 // or a difference the smaller of the two exponents (IEEE 754 5.4.1)
 template <typename T>
@@ -177,6 +190,8 @@ int main()
 
     test_zero_dividend<decimal128_t, int>();
     test_zero_dividend<decimal128_t, boost::int128::int128_t>();
+    test_zero_dividend_fast<decimal_fast32_t, decimal32_t>();
+    test_zero_dividend_fast<decimal_fast64_t, decimal64_t>();
 
     test_preferred_exponent<decimal32_t>();
     test_preferred_exponent<decimal64_t>();

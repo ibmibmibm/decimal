@@ -1418,7 +1418,24 @@ template <typename Integer>
 constexpr auto operator*(const decimal_fast64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
-    return lhs * decimal_fast64_t{rhs};
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    if (!isfinite(lhs))
+    {
+        return lhs * decimal_fast64_t{rhs};
+    }
+    #endif
+
+    // A nonzero integer of at most p digits is exact, so it is normalized here
+    using sig_type = decimal_fast64_t::significand_type;
+    const auto mag {detail::magnitude_of(rhs)};
+    if (mag - UINT64_C(1) < detail::max_significand_v<decimal_fast64_t>)
+    {
+        const auto shift {detail::precision_v<decimal_fast64_t> - detail::num_digits(static_cast<sig_type>(mag))};
+        const auto sig {static_cast<sig_type>(mag) * detail::pow10(static_cast<sig_type>(shift))};
+        const detail::decimal_fast64_t_components rhs_c {sig, -shift, rhs < 0};
+        return detail::d64_mul_impl<decimal_fast64_t>(lhs.to_components(), rhs_c);
+    }
+    return detail::d64_mul_impl<decimal_fast64_t>(lhs, decimal_fast64_t{rhs});
 }
 
 template <typename Integer>
@@ -1532,6 +1549,26 @@ template <typename Integer>
 constexpr auto operator/(const decimal_fast64_t lhs, const Integer rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    // The integer is finite, so only the decimal can be a special value
+    if (BOOST_DECIMAL_UNLIKELY(lhs.significand_ - 1U >= detail::max_significand_v<decimal_fast64_t>))
+    {
+        return lhs / decimal_fast64_t{rhs};
+    }
+    #endif
+
+    // A nonzero integer of at most p digits is exact, and the division scales it
+    const auto mag {detail::magnitude_of(rhs)};
+    const bool sign {lhs.isneg() != (rhs < 0)};
+    if (mag - UINT64_C(1) < detail::max_significand_v<decimal_fast64_t>)
+    {
+        const detail::decimal_fast64_t_components rhs_c {static_cast<decimal_fast64_t::significand_type>(mag), 0, rhs < 0};
+        return detail::d64_generic_div_impl<decimal_fast64_t>(lhs.to_components(), rhs_c, sign);
+    }
+    if (mag != 0U)
+    {
+        return detail::d64_generic_div_impl<decimal_fast64_t>(lhs.to_components(), decimal_fast64_t{rhs}.to_components(), sign);
+    }
     return lhs / decimal_fast64_t{rhs};
 }
 
@@ -1539,6 +1576,26 @@ template <typename Integer>
 constexpr auto operator/(const Integer lhs, const decimal_fast64_t rhs) noexcept
     BOOST_DECIMAL_REQUIRES_RETURN(detail::is_integral_v, Integer, decimal_fast64_t)
 {
+    #ifndef BOOST_DECIMAL_FAST_MATH
+    // The integer is finite, so only the decimal can be a special value
+    if (BOOST_DECIMAL_UNLIKELY(rhs.significand_ - 1U >= detail::max_significand_v<decimal_fast64_t>))
+    {
+        return decimal_fast64_t{lhs} / rhs;
+    }
+    #endif
+
+    // An integer of at most p digits is exact, and the division scales it
+    const auto mag {detail::magnitude_of(lhs)};
+    const bool sign {(lhs < 0) != rhs.isneg()};
+    if (mag - UINT64_C(1) < detail::max_significand_v<decimal_fast64_t>)
+    {
+        const detail::decimal_fast64_t_components lhs_c {static_cast<decimal_fast64_t::significand_type>(mag), 0, lhs < 0};
+        return detail::d64_generic_div_impl<decimal_fast64_t>(lhs_c, rhs.to_components(), sign);
+    }
+    if (mag != 0U)
+    {
+        return detail::d64_generic_div_impl<decimal_fast64_t>(decimal_fast64_t{lhs}.to_components(), rhs.to_components(), sign);
+    }
     return decimal_fast64_t{lhs} / rhs;
 }
 
