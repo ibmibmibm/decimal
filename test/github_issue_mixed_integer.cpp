@@ -39,10 +39,61 @@ void test_wide(const Integer big)
     test_operand(x, -(big / 10 + 5));
 }
 
+// A short operand converts exactly, and a zero operand takes the other path
+template <typename T, typename Integer>
+void test_short()
+{
+    const T x {3, -1};
+
+    test_operand(x, Integer{7});
+    test_operand(x, Integer{-7});
+    test_operand(x, Integer{0});
+}
+
+// The minimum of a signed type has no negation in the type, and a narrow type promotes to int
+template <typename T>
+void test_limits()
+{
+    const T x {3, -1};
+
+    test_operand(x, (std::numeric_limits<signed char>::min)());
+    test_operand(x, (std::numeric_limits<signed char>::max)());
+    test_operand(x, (std::numeric_limits<short>::min)());
+    test_operand(x, (std::numeric_limits<short>::max)());
+    test_operand(x, (std::numeric_limits<int>::min)());
+    test_operand(x, (std::numeric_limits<int>::max)());
+    test_operand(x, (std::numeric_limits<long long>::min)());
+    test_operand(x, (std::numeric_limits<long long>::max)());
+}
+
+// A zero result has the sign that the converted operand gives
+template <typename T>
+void test_zero_signs()
+{
+    for (const T x : {T{0}, -T{0}, T{5}, T{-5}})
+    {
+        for (const int n : {0, 5, -5})
+        {
+            const T dn {n};
+
+            BOOST_TEST_EQ(signbit(x + n), signbit(x + dn));
+            BOOST_TEST_EQ(signbit(n + x), signbit(dn + x));
+            BOOST_TEST_EQ(signbit(x - n), signbit(x - dn));
+            BOOST_TEST_EQ(signbit(n - x), signbit(dn - x));
+            BOOST_TEST_EQ(signbit(x * n), signbit(x * dn));
+            BOOST_TEST_EQ(signbit(n * x), signbit(dn * x));
+        }
+    }
+}
+
 template <typename T, typename Integer>
 void test_all_modes(const Integer big)
 {
     test_wide<T>(big);
+    test_short<T, Integer>();
+    test_short<T, int>();
+    test_limits<T>();
+    test_zero_signs<T>();
 
     #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
     // fesetround has an effect only with the detection of constant evaluation
@@ -51,6 +102,10 @@ void test_all_modes(const Integer big)
     {
         fesetround(mode);
         test_wide<T>(big);
+        test_short<T, Integer>();
+        test_short<T, int>();
+        test_limits<T>();
+        test_zero_signs<T>();
     }
     fesetround(rounding_mode::fe_dec_to_nearest);
     #endif
@@ -67,6 +122,8 @@ void test_infinity_times_zero()
     BOOST_TEST(isnan(0 * inf));
     BOOST_TEST(isnan(-inf * 0));
     BOOST_TEST(isnan(0U * -inf));
+    BOOST_TEST(!issignaling(inf * 0));
+    BOOST_TEST(!issignaling(0 * -inf));
     #endif
 }
 
