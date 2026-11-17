@@ -22,7 +22,6 @@
 #include <boost/decimal/detail/to_chars_integer_impl.hpp>
 #include <boost/decimal/detail/buffer_sizing.hpp>
 #include <boost/decimal/detail/cmath/frexp10.hpp>
-#include <boost/decimal/detail/cmath/ilogb.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/remove_trailing_zeros.hpp>
@@ -237,20 +236,10 @@ BOOST_DECIMAL_NO_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_trimmed_coeff
     return to_chars_integer_impl(first, last, zero_removal.trimmed_number);
 }
 
-template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetDecimalType>
-BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_impl(char* first, char* last, const TargetDecimalType& value, const chars_format fmt) noexcept -> to_chars_result
+// The scientific format of a finite value that is not zero, after its sign
+template <typename TargetDecimalType, typename Components>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_finite(char* first, char* last, Components components) noexcept -> to_chars_result
 {
-    if (signbit(value))
-    {
-        *first++ = '-';
-    }
-
-    const auto fp = fpclassify(value);
-    if (!(fp == FP_NORMAL || fp == FP_SUBNORMAL))
-    {
-        return to_chars_nonfinite(first, last, value, fp, fmt, -1);
-    }
-
     // The shortest result is one digit and an exponent of four characters, as in 1e+00
     if (BOOST_DECIMAL_UNLIKELY(last - first < 5))
     {
@@ -262,7 +251,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_impl(char* first, char* la
                                               int128::uint128_t, std::uint64_t>;
 
     // Need to offset the exp for the fact that it's not 123e+2, it's 1.23e+4
-    auto components {value.to_components()};
     BOOST_DECIMAL_IF_CONSTEXPR (std::is_same<TargetDecimalType, decimal_fast128_t>::value)
     {
         // decimal_fast128_t keeps all 34 digits, so removing its zeros here costs less than printing them
@@ -341,6 +329,23 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_impl(char* first, char* la
     }
 
     return {exp_r.ptr, std::errc{}};
+}
+
+template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetDecimalType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_impl(char* first, char* last, const TargetDecimalType& value, const chars_format fmt) noexcept -> to_chars_result
+{
+    if (signbit(value))
+    {
+        *first++ = '-';
+    }
+
+    const auto fp = fpclassify(value);
+    if (!(fp == FP_NORMAL || fp == FP_SUBNORMAL))
+    {
+        return to_chars_nonfinite(first, last, value, fp, fmt, -1);
+    }
+
+    return to_chars_scientific_finite<TargetDecimalType>(first, last, value.to_components());
 }
 
 // The coefficient for the general, scientific and hex formats with a precision, its number of
@@ -608,6 +613,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_scientific_impl(char* first, char* la
     return {r.ptr, std::errc()};
 }
 
+// Writes a value without a precision in the fixed format. It also owns the choice of the general format,
+// scientific outside 1e-4 <= |value| < 10^precision, as it decodes the value only once
 template <BOOST_DECIMAL_DECIMAL_FLOATING_TYPE TargetDecimalType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_fixed_impl(char* first, char* last, const TargetDecimalType& value, const chars_format fmt) noexcept -> to_chars_result
 {
@@ -619,13 +626,27 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_fixed_impl(char* first, char* last, c
         *current++ = '-';
     }
 
-    const auto fp = fpclassify(value);
-    if (!(fp == FP_NORMAL || fp == FP_SUBNORMAL))
+    // The coefficient tells zero, so a finite value needs no fpclassify
+    if (!isfinite(value))
     {
-        return to_chars_nonfinite(current, last, value, fp, fmt, -1);
+        return to_chars_nonfinite(current, last, value, fpclassify(value), fmt, -1);
     }
 
     auto components {value.to_components()};
+    if (components.sig == 0U)
+    {
+        return to_chars_nonfinite(current, last, value, FP_ZERO, fmt, -1);
+    }
+    if (fmt == chars_format::general)
+    {
+        // The general format is scientific outside 1e-4 <= |value| < 10^precision. A fast type stores all digits
+        const auto digits {is_fast_type_v<TargetDecimalType> ? precision_v<TargetDecimalType> : num_digits(components.sig)};
+        const auto lead_exp {components.exp + digits - 1};
+        if (lead_exp < -4 || lead_exp >= precision_v<TargetDecimalType>)
+        {
+            return to_chars_scientific_finite<TargetDecimalType>(current, last, components);
+        }
+    }
     if (components.sig % 10U == 0U)
     {
         const auto zeros_removal_result {remove_trailing_zeros(components.sig)};
@@ -1216,34 +1237,13 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto to_chars_impl(char* first, char* last, const T
         return {last, std::errc::invalid_argument};
     }
 
-    // Unspecified precision so we always go with the shortest representation
+    // Unspecified precision: the shortest digits. The general format uses the cutoff below, not the shorter text
     if (local_precision == -1)
     {
         switch (fmt)
         {
+            // to_chars_fixed_impl chooses the format of general from the parts that it decodes
             case chars_format::general:
-            {
-                // Fixed when 1e-4 <= |value| < 10^precision
-                bool fixed {};
-                BOOST_DECIMAL_IF_CONSTEXPR (is_fast_type_v<TargetDecimalType>)
-                {
-                    constexpr TargetDecimalType min_fixed {1, -4};
-                    constexpr TargetDecimalType max_fixed {1, precision_v<TargetDecimalType>};
-                    const auto abs_value {abs(value)};
-                    fixed = abs_value >= min_fixed && abs_value < max_fixed;
-                }
-                else
-                {
-                    // ilogb is cheaper than two comparisons, and puts zero, inf and nan out of the range
-                    const auto lead_exp {ilogb(value)};
-                    fixed = lead_exp >= -4 && lead_exp < precision_v<TargetDecimalType>;
-                }
-                if (fixed)
-                {
-                    return to_chars_fixed_impl(first, last, value, fmt);
-                }
-                return to_chars_scientific_impl(first, last, value, fmt);
-            }
             case chars_format::fixed:
                 return to_chars_fixed_impl(first, last, value, fmt);
             case chars_format::scientific:

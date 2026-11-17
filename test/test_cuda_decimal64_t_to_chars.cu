@@ -51,6 +51,14 @@ int main(void)
         // Ranges one character too short
         {test_type(100000001), 8, nullptr},
         {test_type(-100000001), 9, nullptr},
+        // Both sides of the limits of the fixed notation, 1e-4 and 10^precision
+        {test_type(UINT64_C(9999999999999999)), 39, "9999999999999999"},
+        {test_type(1, 16), 39, "1e+16"},
+        {test_type(1, -4), 39, "0.0001"},
+        {test_type(99999, -9), 39, "9.9999e-05"},
+        {test_type(1, 16), 4, nullptr},
+        {test_type(1, 16), 5, "1e+16"},
+        {test_type(99999, -9), 10, "9.9999e-05"},
     };
     constexpr int numElements {static_cast<int>(sizeof(cases) / sizeof(cases[0]))};
 

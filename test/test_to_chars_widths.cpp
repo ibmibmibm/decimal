@@ -446,6 +446,12 @@ void check_integer(const Int value, const char* text)
     check_exact_text(text, [value](char* first, char* last) { return detail::to_chars_integer_impl(first, last, value); }, true);
 }
 
+template <typename T>
+void check_general(const T value, const char* text)
+{
+    check_exact_text(text, [value](char* first, char* last) { return to_chars(first, last, value, chars_format::general); }, false);
+}
+
 // The 64-bit integer writer around its groups of eight digits, with zeros in a group, and at the limits
 void test_integer_groups()
 {
@@ -462,6 +468,38 @@ void test_integer_groups()
     check_integer(UINT64_C(4294967295), "4294967295");
     check_integer(UINT64_C(4294967296), "4294967296");
     check_integer(std::uint32_t{7}, "7");
+}
+
+// The general format is fixed in 1e-4 <= |value| < 10^precision
+void test_general_bounds()
+{
+    check_general(decimal64_t{1, -4}, "0.0001");
+    check_general(decimal64_t{9999, -8}, "9.999e-05");
+    check_general(decimal64_t{UINT64_C(9999999999999999), 0}, "9999999999999999");
+    check_general(decimal64_t{1, 16}, "1e+16");
+    check_general(decimal32_t{9999999, 0}, "9999999");
+    check_general(-decimal32_t{1, 7}, "-1e+07");
+    check_general(decimal128_t{0}, "0");
+    check_general(decimal128_t{uint128_t{1U, 1U}, 0}, "18446744073709551617");
+    check_general(decimal128_t{uint128_t{UINT64_C(542101086242752), UINT64_C(4003012203950112767)}, 0},
+                  "9999999999999999999999999999999999");
+    check_general(decimal128_t{1, 34}, "1e+34");
+    check_general(-decimal64_t{0, 5}, "-0");
+
+    // A fast type stores all the digits of its precision, so 1 has the digits of 1000000e-6
+    check_general(decimal_fast32_t{1, -4}, "0.0001");
+    check_general(decimal_fast32_t{99999, -9}, "9.9999e-05");
+    check_general(decimal_fast32_t{9999999, 0}, "9999999");
+    check_general(-decimal_fast32_t{1, 7}, "-1e+07");
+    check_general(decimal_fast64_t{1, -4}, "0.0001");
+    check_general(decimal_fast64_t{9999, -8}, "9.999e-05");
+    check_general(decimal_fast64_t{UINT64_C(9999999999999999), 0}, "9999999999999999");
+    check_general(decimal_fast64_t{1, 16}, "1e+16");
+    check_general(decimal_fast128_t{1, -4}, "0.0001");
+    check_general(decimal_fast128_t{9999, -8}, "9.999e-05");
+    check_general(decimal_fast128_t{uint128_t{UINT64_C(542101086242752), UINT64_C(4003012203950112767)}, 0},
+                  "9999999999999999999999999999999999");
+    check_general(decimal_fast128_t{1, 34}, "1e+34");
 }
 
 // std::format prints into a local buffer of 128 bytes first. Results around that length, also with a sign,
@@ -511,6 +549,7 @@ int main()
     test_trailing_zeros();
     test_signed_integer();
     test_integer_groups();
+    test_general_bounds();
     test_format_lengths();
 
     return boost::report_errors();
