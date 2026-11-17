@@ -915,7 +915,7 @@ template <BOOST_DECIMAL_SIGNED_INTEGRAL T1, BOOST_DECIMAL_INTEGRAL T2>
 #else
 template <typename T1, typename T2, std::enable_if_t<!detail::is_unsigned_v<T1> && detail::is_integral_v<T2>, bool>>
 #endif
-BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const T1 coeff, const T2 exp) noexcept : decimal128_t(detail::make_positive_unsigned(coeff), exp, coeff < 0) {}
+BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const T1 coeff, const T2 exp) noexcept : decimal128_t(detail::magnitude_of(coeff), exp, coeff < 0) {}
 
 BOOST_DECIMAL_CUDA_CONSTEXPR decimal128_t::decimal128_t(const bool value) noexcept : decimal128_t(static_cast<std::uint64_t>(value), 0, false) {}
 
@@ -1905,7 +1905,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
     auto lhs_components {lhs.to_components()};
     detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
 
-    auto rhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(rhs))};
+    auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     decimal128_t::biased_exponent_type rhs_exp {0};
     detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
     const detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
@@ -1942,7 +1942,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     auto rhs_components {rhs.to_components()};
     detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
 
-    auto lhs_sig {static_cast<int128::uint128_t>(detail::make_positive_unsigned(lhs))};
+    auto lhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
     decimal128_t::biased_exponent_type lhs_exp {0};
     // Only an integer of more than p digits needs rounding, and a zero keeps exponent 0
     if (lhs_sig > detail::max_significand_v<decimal128_t>)
