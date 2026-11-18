@@ -35,6 +35,15 @@ namespace decimal {
 
 namespace detail {
 
+// The float field picks the format as for a double, so hexfloat is fixed | scientific
+inline auto float_field_format(const std::ios_base::fmtflags flags) noexcept -> chars_format
+{
+    const auto float_field {flags & std::ios_base::floatfield};
+    return float_field == (std::ios_base::fixed | std::ios_base::scientific) ? chars_format::hex :
+           float_field == std::ios_base::scientific ? chars_format::scientific :
+           float_field == std::ios_base::fixed ? chars_format::fixed : chars_format::general;
+}
+
 // Reads the characters of a number as num_get does, without a putback of what follows them, and sets
 // eof at the end of the input. Returns the thousands separator if the characters have one, else '\0'.
 // If the text has a separator or a point other than '.', converted gets the text in the C locale
@@ -99,20 +108,8 @@ auto operator>>(std::basic_istream<charT, traits>& is, DecimalType& d)
         return is;
     }
 
-    auto fmt {chars_format::general};
-    const auto flags {is.flags()};
-    if (flags & std::ios_base::scientific)
-    {
-        fmt = chars_format::scientific;
-    }
-    else if (flags & std::ios_base::hex)
-    {
-        fmt = chars_format::hex;
-    }
-    else if (flags & std::ios_base::fixed)
-    {
-        fmt = chars_format::fixed;
-    }
+    // The float field picks the format as operator<< does
+    const auto fmt {detail::float_field_format(is.flags())};
 
     // The facet and the copy for the conversion can throw too
     std::string text;
@@ -340,22 +337,8 @@ void put_chars(std::basic_ostream<charT, traits>& os, char* first, char* const l
 template <typename charT, typename traits, BOOST_DECIMAL_DECIMAL_FLOATING_TYPE DecimalType>
 void put_decimal(std::basic_ostream<charT, traits>& os, const DecimalType& d)
 {
-    // The float field picks the format as for a double, so hexfloat is fixed | scientific
-    chars_format fmt = chars_format::general;
     const auto flags {os.flags()};
-    const auto float_field {flags & std::ios_base::floatfield};
-    if (float_field == (std::ios_base::fixed | std::ios_base::scientific))
-    {
-        fmt = chars_format::hex;
-    }
-    else if (float_field == std::ios_base::scientific)
-    {
-        fmt = chars_format::scientific;
-    }
-    else if (float_field == std::ios_base::fixed)
-    {
-        fmt = chars_format::fixed;
-    }
+    const auto fmt {float_field_format(flags)};
 
     // A negative precision means 6, as for printf. hexfloat, inf and NaN do not use the precision,
     // so it is 0 for them and their short text needs no large buffer
