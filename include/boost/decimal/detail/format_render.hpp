@@ -88,12 +88,13 @@ constexpr auto parse_format_spec(Iterator it, const Iterator end, format_spec<Ch
     const auto first {it};
     #endif
 
-    // A fill is any character in front of an alignment
+    // A fill is any character other than a brace in front of an alignment
     if (it != end)
     {
         auto next {it};
         ++next;
-        if (next != end && format_alignment(*next) != format_align_option::none)
+        if (next != end && *it != static_cast<char_type>('{') && *it != static_cast<char_type>('}') &&
+            format_alignment(*next) != format_align_option::none)
         {
             spec.fill = static_cast<CharT>(*it);
             spec.alignment = format_alignment(*next);

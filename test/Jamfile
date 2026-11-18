@@ -176,6 +176,7 @@ run github_issue_istream_hexfloat.cpp ;
 run github_issue_strtod_length.cpp ;
 run github_issue_nan_payload.cpp ;
 run github_issue_ctor_plus_minus.cpp ;
+run github_issue_format_fill_brace.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
 run quick.cpp ;
