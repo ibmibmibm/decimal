@@ -129,7 +129,16 @@ constexpr auto parse_format_spec(Iterator it, const Iterator end, format_spec<Ch
     if (it != end && *it == static_cast<char_type>('.'))
     {
         ++it;
+        const auto precision_first {it};
         spec.precision = parse_format_number(it, end, overflow);
+        if (it == precision_first)
+        {
+            #ifndef BOOST_DECIMAL_DISABLE_EXCEPTIONS
+            throw Error("The precision has no digits");
+            #else
+            return first;
+            #endif
+        }
     }
     if (overflow)
     {
