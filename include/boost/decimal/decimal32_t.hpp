@@ -1048,7 +1048,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(decimal32_t rhs) noexcept-> decimal3
 // The sum of finite operands. The parts must be those of lhs and rhs, and a difference passes
 // the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart go to
 // aligned_add_kernel, and in the default mode operands over 17 apart give the larger one.
-// add_impl does the rest, and the zero rules.
+// zero_operand_sum has the zero rules, and add_impl does the rest.
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d32_add_core(const decimal32_t lhs, const decimal32_t rhs,
                                                                          const std::uint32_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
                                                                          const std::uint32_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal32_t
@@ -1078,6 +1078,10 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d32_add_core(const 
                     lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
             }
         }
+    }
+    else
+    {
+        return detail::zero_operand_sum<decimal32_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_exp, rhs_sign);
     }
 
     detail::decimal32_t_components lhs_components {lhs_sig, lhs_exp, lhs_sign};

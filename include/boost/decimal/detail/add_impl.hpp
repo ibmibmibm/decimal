@@ -154,6 +154,30 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto aligned_shrink_and_pack(
     return pack_in_range<ReturnType>(q, result_exp + static_cast<ExpType>(extra), result_sign);
 }
 
+// A sum with a zero operand, from the parts before any expansion. The exponent is the smaller
+// one, or the nearest to it that the digits of the other operand allow.
+template <typename ReturnType, typename SigType, typename ExpType>
+BOOST_DECIMAL_NO_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto zero_operand_sum(const SigType lhs_sig, const ExpType lhs_exp, const bool lhs_sign,
+                                                                           const SigType rhs_sig, const ExpType rhs_exp, const bool rhs_sign) noexcept -> ReturnType
+{
+    constexpr SigType min_full {static_cast<SigType>((static_cast<SigType>(max_significand_v<ReturnType>) + SigType{1U}) / SigType{10U})};
+    const bool lhs_zero {lhs_sig == 0U};
+    auto sig {lhs_zero ? rhs_sig : lhs_sig};
+    auto exp {lhs_zero ? rhs_exp : lhs_exp};
+    const auto zero_exp {lhs_zero ? lhs_exp : rhs_exp};
+    if (sig == 0U)
+    {
+        // IEEE 754-2019 6.3: zeros of opposite signs are an exact cancel
+        return ReturnType{sig, exp < zero_exp ? exp : zero_exp, lhs_sign == rhs_sign ? lhs_sign : cancel_sign(lhs_sig)};
+    }
+    while (exp > zero_exp && sig < min_full)
+    {
+        sig = static_cast<SigType>(sig * SigType{10U});
+        --exp;
+    }
+    return ReturnType{sig, exp, lhs_zero ? rhs_sign : lhs_sign};
+}
+
 // Nonzero operands over 2p exponents apart give an inexact sum, which has p digits.
 // Nearest rounding gives the larger operand, so a short one gets its zeros.
 template <typename T, typename SigType>
