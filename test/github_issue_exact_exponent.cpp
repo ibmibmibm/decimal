@@ -98,6 +98,36 @@ void test_exact_product_128()
     BOOST_TEST_EQ(nines * wide, 9999999999999998990000000000000001_DL);
 }
 
+// An exact quotient has the difference of the exponents, or the nearest exponent
+// that holds its digits. An inexact quotient has all the digits.
+template <typename T>
+void test_exact_quotient()
+{
+    constexpr int digits {std::numeric_limits<T>::digits10};
+
+    BOOST_TEST_EQ(quantexp(T{1} / T{1}), 0);
+    BOOST_TEST_EQ(quantexp(T{10} / T{2}), 0);
+    BOOST_TEST_EQ(quantexp(T{1, 3} / T{1, -2}), 5);
+    BOOST_TEST_EQ(quantexp(T{15, -1} / T{5}), -1);
+    BOOST_TEST_EQ(quantexp(T{1} / T{4}), -2);
+    BOOST_TEST_EQ(quantexp(T{1, 2} / T{8, 5}), -6);
+    BOOST_TEST_EQ(quantexp(T{6} / 2), 0);
+    BOOST_TEST_EQ(quantexp(6 / T{2}), 0);
+    BOOST_TEST_EQ(quantexp(T{15, -1} / -5), -1);
+    BOOST_TEST_EQ(quantexp(1 / T{4, 1}), -3);
+    BOOST_TEST_EQ(quantexp(T{1} / T{3}), -digits);
+    BOOST_TEST_EQ(quantexp(T{2} / 3), -digits);
+
+    BOOST_TEST_EQ(quantexp(T{0, 3} / T{1, -2}), 5);
+    BOOST_TEST_EQ(quantexp(T{0, -2} / 7), -2);
+    BOOST_TEST_EQ(quantexp(0 / T{25, -1}), 1);
+    BOOST_TEST(signbit(T{0, 3} / T{-1, -2}));
+
+    BOOST_TEST_EQ(T(1) / T(4), T(25, -2));
+    BOOST_TEST_EQ(T(1, 3) / T(1, -2), T(1, 5));
+    BOOST_TEST_EQ(T(15, -1) / -5, T(-3, -1));
+}
+
 int main()
 {
     test_zero_operand<decimal32_t>();
@@ -112,6 +142,10 @@ int main()
     test_exact_product<decimal64_t>();
     test_exact_product<decimal128_t>();
     test_exact_product_128();
+
+    test_exact_quotient<decimal32_t>();
+    test_exact_quotient<decimal64_t>();
+    test_exact_quotient<decimal128_t>();
 
     return boost::report_errors();
 }

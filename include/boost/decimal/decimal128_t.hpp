@@ -1597,12 +1597,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
                 if (rhs_fp == FP_ZERO)
                 {
                     q = nan;
+                    return;
                 }
-                else
-                {
-                    q = sign ? -zero : zero;
-                }
-                return;
+                // A zero divided by a finite value keeps the difference of the exponents
+                break;
             default:
                 static_cast<void>(lhs);
         }
@@ -1621,9 +1619,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
     }
     #endif
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-
     #ifdef BOOST_DECIMAL_DEBUG
     std::cerr << "sig lhs: " << sig_lhs
               << "\nexp lhs: " << exp_lhs
@@ -1631,7 +1626,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
               << "\nexp rhs: " << exp_rhs << std::endl;
     #endif
 
-    q = detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs.to_components(), sign);
+    q = detail::d128_generic_div_impl<decimal128_t>(lhs.to_components(), rhs.to_components(), sign);
 }
 
 #ifdef _MSC_VER
@@ -1853,7 +1848,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
 
     #ifndef BOOST_DECIMAL_FAST_MATH
     // Check pre-conditions
-    constexpr decimal128_t zero {0, 0};
     constexpr decimal128_t inf {from_bits(detail::d128_inf_mask)};
 
     const auto lhs_fp {fpclassify(lhs)};
@@ -1865,7 +1859,11 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
         case FP_INFINITE:
             return sign ? -inf : inf;
         case FP_ZERO:
-            return rhs == 0 ? std::numeric_limits<decimal128_t>::quiet_NaN() : sign ? -zero : zero;
+            if (rhs == 0)
+            {
+                return std::numeric_limits<decimal128_t>::quiet_NaN();
+            }
+            break;
         default:
             static_cast<void>(lhs);
     }
@@ -1876,15 +1874,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal128_t lhs, const Intege
     }
     #endif
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-
+    // Only an integer of more than p digits needs rounding
     auto rhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(rhs))};
     decimal128_t::biased_exponent_type rhs_exp {0};
-    detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
+    if (rhs_sig > detail::max_significand_v<decimal128_t>)
+    {
+        detail::normalize<decimal128_t>(rhs_sig, rhs_exp, rhs < 0);
+    }
     const detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs < 0};
 
-    return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
+    return detail::d128_generic_div_impl<decimal128_t>(lhs.to_components(), rhs_components, sign);
 }
 
 template <typename Integer>
@@ -1913,9 +1912,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     }
     #endif
 
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
-
     auto lhs_sig {static_cast<int128::uint128_t>(detail::magnitude_of(lhs))};
     decimal128_t::biased_exponent_type lhs_exp {0};
     // Only an integer of more than p digits needs rounding, and a zero keeps exponent 0
@@ -1925,7 +1921,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal128_
     }
     const detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs < 0};
 
-    return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs_components, sign);
+    return detail::d128_generic_div_impl<decimal128_t>(lhs_components, rhs.to_components(), sign);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator%(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t

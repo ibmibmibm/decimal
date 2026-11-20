@@ -11,6 +11,7 @@
 #include <boost/decimal/detail/fenv_rounding.hpp>
 #include <boost/decimal/detail/normalize.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
+#include <boost/decimal/detail/remove_trailing_zeros.hpp>
 #include <boost/decimal/detail/components.hpp>
 #include <boost/decimal/detail/u256.hpp>
 #include "int128.hpp"
@@ -61,16 +62,57 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_default_roundin
 // The post-rounding carry q == 10^p shifts down to 10^(p-1) and bumps the
 // exponent by one digit.
 
+// IEEE 754-2019 5.4.1: an exact quotient has the exponent nearest to the difference of the
+// exponents of the operands. Zeros at the end of q go in steps of 16, 8, 4, 2 and 1 digits.
+template <typename SigType, typename ExpType>
+BOOST_DECIMAL_NO_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto exact_quotient_exponent(SigType& q, ExpType& exp, const ExpType ideal_exp) noexcept -> void
+{
+    for (int step {16}; step != 0; step /= 2)
+    {
+        if (exp + step <= ideal_exp)
+        {
+            const auto power {pow10(static_cast<SigType>(static_cast<std::uint64_t>(step)))};
+            if (q % power == 0U)
+            {
+                q /= power;
+                exp += step;
+            }
+        }
+    }
+}
+
+// A division of two words is slow, so this overload removes all the zeros at one time, and puts
+// back those that are past the preferred exponent
+template <typename ExpType>
+BOOST_DECIMAL_NO_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto exact_quotient_exponent(int128::uint128_t& q, ExpType& exp, const ExpType ideal_exp) noexcept -> void
+{
+    if (exp < ideal_exp)
+    {
+        const auto zeros {remove_trailing_zeros(q)};
+        const auto removed {static_cast<ExpType>(zeros.number_of_removed_zeros)};
+        const auto steps {removed < ideal_exp - exp ? removed : ideal_exp - exp};
+        q = zeros.trimmed_number * pow10(int128::uint128_t{static_cast<std::uint64_t>(removed - steps)});
+        exp += steps;
+    }
+}
+
 // d32/fast32 finalizer. Dividend = lhs.sig * 10^7 fits in uint64; quotient is
 // at most 10^7 - 1 which fits in uint32; remainder is bounded by the divisor
 // which fits in uint32 (rhs.sig < 10^7).
 template <typename ReturnType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u64(
     std::uint64_t q, std::uint64_t r, std::uint32_t divisor,
-    ExpType result_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
+    ExpType result_exp, ExpType ideal_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
 {
     constexpr auto ten_to_p {pow10(static_cast<std::uint64_t>(detail::precision_v<ReturnType>))};
     constexpr auto ten_to_p_minus_1 {pow10(static_cast<std::uint64_t>(detail::precision_v<ReturnType> - 1))};
+
+    // An exact quotient takes the exponent nearest to the preferred one
+    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY(r == 0U))
+    {
+        exact_quotient_exponent(q, result_exp, ideal_exp);
+        return pack_in_range<ReturnType>(static_cast<typename ReturnType::significand_type>(q), result_exp, sign);
+    }
 
     // Below the subnormal exponent the constructor rounds once, with the remainder as a sticky digit.
     // Rounding to the precision here first would round the result twice.
@@ -103,9 +145,9 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u64(
 template <typename ReturnType, typename ExpType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u64_out_of_line(
     std::uint64_t q, std::uint64_t r, std::uint32_t divisor,
-    ExpType result_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
+    ExpType result_exp, ExpType ideal_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
 {
-    return div_finalize_u64<ReturnType>(q, r, divisor, result_exp, sign, round);
+    return div_finalize_u64<ReturnType>(q, r, divisor, result_exp, ideal_exp, sign, round);
 }
 
 // d64/fast64 finalizer. Quotient and remainder both fit in uint64 because
@@ -114,10 +156,17 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u64_out_of_line(
 template <typename ReturnType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u128(
     std::uint64_t q, std::uint64_t r, std::uint64_t divisor,
-    ExpType result_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
+    ExpType result_exp, ExpType ideal_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
 {
     constexpr auto ten_to_p {pow10(static_cast<std::uint64_t>(detail::precision_v<ReturnType>))};
     constexpr auto ten_to_p_minus_1 {pow10(static_cast<std::uint64_t>(detail::precision_v<ReturnType> - 1))};
+
+    // An exact quotient takes the exponent nearest to the preferred one
+    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY(r == 0U))
+    {
+        exact_quotient_exponent(q, result_exp, ideal_exp);
+        return pack_in_range<ReturnType>(static_cast<typename ReturnType::significand_type>(q), result_exp, sign);
+    }
 
     // Below the subnormal exponent the constructor rounds once, with the remainder as a sticky digit.
     // Rounding to the precision here first would round the result twice.
@@ -151,10 +200,17 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u128(
 template <typename ReturnType, typename ExpType>
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_finalize_u256(
     int128::uint128_t q, int128::uint128_t r, int128::uint128_t divisor,
-    ExpType result_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
+    ExpType result_exp, ExpType ideal_exp, bool sign, const rounding_mode round) noexcept -> ReturnType
 {
     constexpr auto ten_to_p {pow10(int128::uint128_t{static_cast<std::uint64_t>(detail::precision_v<ReturnType>)})};
     constexpr auto ten_to_p_minus_1 {pow10(int128::uint128_t{static_cast<std::uint64_t>(detail::precision_v<ReturnType> - 1)})};
+
+    // An exact quotient takes the exponent nearest to the preferred one
+    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY(r == 0U))
+    {
+        exact_quotient_exponent(q, result_exp, ideal_exp);
+        return pack_in_range<ReturnType>(q, result_exp, sign);
+    }
 
     // Below the subnormal exponent the constructor rounds once, with the remainder as a sticky digit.
     // Rounding to the precision here first would round the result twice.
@@ -190,6 +246,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto generic_div_impl(co
 {
     auto lhs_c {lhs.to_components()};
     auto rhs_c {rhs.to_components()};
+    const auto ideal_exp {static_cast<int>(lhs_c.exp) - static_cast<int>(rhs_c.exp)};
 
     detail::expand_significand<DecimalType>(lhs_c.sig, lhs_c.exp);
     detail::expand_significand<DecimalType>(rhs_c.sig, rhs_c.exp);
@@ -199,7 +256,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto generic_div_impl(co
     if (BOOST_DECIMAL_UNLIKELY(lhs_c.sig == 0U))
     {
         using sig_type = typename decltype(lhs_c)::significand_type;
-        return DecimalType{sig_type{0U}, lhs_c.exp - rhs_c.exp, sign};
+        return DecimalType{sig_type{0U}, ideal_exp, sign};
     }
 
     // Scale by 10^(p-1) when lhs >= rhs, thus the quotient has exactly p digits
@@ -215,11 +272,11 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto generic_div_impl(co
     // the d32 operators slower in the nearest mode, but not d64 or d128.
     if (BOOST_DECIMAL_UNLIKELY(!impl::div_default_rounding(lhs_c.sig)))
     {
-        return impl::div_finalize_u64_out_of_line<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, sign,
+        return impl::div_finalize_u64_out_of_line<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, ideal_exp, sign,
                                                                detail::current_rounding_mode());
     }
 
-    return impl::div_finalize_u64<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, sign,
+    return impl::div_finalize_u64<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, ideal_exp, sign,
                                                rounding_mode::fe_dec_to_nearest);
 }
 
@@ -234,6 +291,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_generic_div_imp
 
     auto lhs_c {lhs.to_components()};
     auto rhs_c {rhs.to_components()};
+    const auto ideal_exp {static_cast<int>(lhs_c.exp) - static_cast<int>(rhs_c.exp)};
 
     detail::expand_significand<DecimalType>(lhs_c.sig, lhs_c.exp);
     detail::expand_significand<DecimalType>(rhs_c.sig, rhs_c.exp);
@@ -241,7 +299,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_generic_div_imp
     if (BOOST_DECIMAL_UNLIKELY(lhs_c.sig == 0U))
     {
         using sig_type = typename decltype(lhs_c)::significand_type;
-        return DecimalType{sig_type{0U}, lhs_c.exp - rhs_c.exp, sign};
+        return DecimalType{sig_type{0U}, ideal_exp, sign};
     }
 
     // Scale by 10^(p-1) when lhs >= rhs, thus the quotient has exactly p digits
@@ -257,6 +315,7 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_generic_div_imp
                                                 remainder,
                                                 divisor,
                                                 res_exp,
+                                                ideal_exp,
                                                 sign,
                                                 detail::current_rounding_mode());
 }
@@ -270,13 +329,14 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_generic_div_impl(const T& lhs, const T& r
 {
     auto lhs_c {lhs.to_components()};
     auto rhs_c {rhs.to_components()};
+    const auto ideal_exp {static_cast<int>(lhs_c.exp) - static_cast<int>(rhs_c.exp)};
 
     detail::expand_significand<DecimalType>(lhs_c.sig, lhs_c.exp);
     detail::expand_significand<DecimalType>(rhs_c.sig, rhs_c.exp);
 
     if (BOOST_DECIMAL_UNLIKELY(lhs_c.sig == int128::uint128_t{0U}))
     {
-        return DecimalType{int128::uint128_t{0U}, lhs_c.exp - rhs_c.exp, sign};
+        return DecimalType{int128::uint128_t{0U}, ideal_exp, sign};
     }
 
     // Scale by 10^(p-1) when lhs >= rhs, thus the quotient has exactly p digits
@@ -291,7 +351,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_generic_div_impl(const T& lhs, const T& r
     const int128::uint128_t r {dr.remainder.bytes[1], dr.remainder.bytes[0]};
     const auto res_exp {lhs_c.exp - rhs_c.exp - static_cast<int>(precision_v<DecimalType>) + static_cast<int>(shorter)};
 
-    return impl::div_finalize_u256<DecimalType>(q, r, divisor, res_exp, sign, detail::current_rounding_mode());
+    return impl::div_finalize_u256<DecimalType>(q, r, divisor, res_exp, ideal_exp, sign, detail::current_rounding_mode());
 }
 
 #ifdef _MSC_VER

@@ -127,7 +127,7 @@ void test_infinity_times_zero()
     #endif
 }
 
-// A zero dividend keeps exponent 0, as a decimal zero does
+// An integer zero dividend gives the exponent that a decimal zero dividend gives
 template <typename T, typename Integer>
 void test_zero_dividend()
 {

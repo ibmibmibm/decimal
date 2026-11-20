@@ -1541,12 +1541,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_div_impl(const decimal64_t lhs, const deci
                 if (rhs_fp == FP_ZERO)
                 {
                     q = nan;
+                    return;
                 }
-                else
-                {
-                    q = sign ? -zero : zero;
-                }
-                return;
+                // A zero divided by a finite value keeps the difference of the exponents
+                break;
             default:
                 static_cast<void>(lhs);
         }
@@ -1565,9 +1563,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_div_impl(const decimal64_t lhs, const deci
     }
     #endif
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal64_t>(lhs_components.sig, lhs_components.exp);
-
     #ifdef BOOST_DECIMAL_DEBUG
     std::cerr << "sig lhs: " << sig_lhs
               << "\nexp lhs: " << exp_lhs
@@ -1575,7 +1570,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_div_impl(const decimal64_t lhs, const deci
               << "\nexp rhs: " << exp_rhs << std::endl;
     #endif
 
-    q = detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs.to_components(), sign);
+    q = detail::d64_generic_div_impl<decimal64_t>(lhs.to_components(), rhs.to_components(), sign);
 }
 
 // The sums that the operators do not finish. A call keeps the operators small enough to inline.
@@ -1824,7 +1819,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal64_t lhs, const Integer
 
     #ifndef BOOST_DECIMAL_FAST_MATH
     // Check pre-conditions
-    constexpr decimal64_t zero {0, 0};
     constexpr decimal64_t inf {from_bits(detail::d64_inf_mask)};
 
     const auto lhs_fp {fpclassify(lhs)};
@@ -1836,7 +1830,11 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal64_t lhs, const Integer
         case FP_INFINITE:
             return sign ? -inf : inf;
         case FP_ZERO:
-            return rhs == 0 ? std::numeric_limits<decimal64_t>::quiet_NaN() : sign ? -zero : zero;
+            if (rhs == 0)
+            {
+                return std::numeric_limits<decimal64_t>::quiet_NaN();
+            }
+            break;
         default:
             static_cast<void>(lhs);
     }
@@ -1847,17 +1845,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal64_t lhs, const Integer
     }
     #endif
 
-    auto lhs_sig {lhs.full_significand()};
-    auto lhs_exp {lhs.biased_exponent()};
-    detail::expand_significand<decimal64_t>(lhs_sig, lhs_exp);
-    detail::decimal64_t_components lhs_components {lhs_sig, lhs_exp, lhs.isneg()};
-
+    // Only an integer of more than p digits needs rounding
     auto rhs_sig {static_cast<integer_type>(detail::make_positive_unsigned(rhs))};
     exp_type rhs_exp {};
-    detail::normalize<decimal64_t>(rhs_sig, rhs_exp, rhs < 0);
+    if (rhs_sig > detail::d64_max_significand_value)
+    {
+        detail::normalize<decimal64_t>(rhs_sig, rhs_exp, rhs < 0);
+    }
     detail::decimal64_t_components rhs_components {static_cast<sig_type>(rhs_sig), rhs_exp, rhs < 0};
 
-    return detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs_components, sign);
+    return detail::d64_generic_div_impl<decimal64_t>(lhs.to_components(), rhs_components, sign);
 }
 
 template <typename Integer>
@@ -1890,17 +1887,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const Integer lhs, const decimal64_t
     }
     #endif
 
-    auto rhs_sig {rhs.full_significand()};
-    auto rhs_exp {rhs.biased_exponent()};
-    detail::expand_significand<decimal64_t>(rhs_sig, rhs_exp);
-
+    // Only an integer of more than p digits needs rounding
     exp_type lhs_exp {};
     auto lhs_sig {static_cast<integer_type>(detail::make_positive_unsigned(lhs))};
-    detail::normalize<decimal64_t>(lhs_sig, lhs_exp, lhs < 0);
+    if (lhs_sig > detail::d64_max_significand_value)
+    {
+        detail::normalize<decimal64_t>(lhs_sig, lhs_exp, lhs < 0);
+    }
     detail::decimal64_t_components lhs_components {static_cast<sig_type>(lhs_sig), lhs_exp, lhs < 0};
-    detail::decimal64_t_components rhs_components {rhs_sig, rhs_exp, rhs.isneg()};
 
-    return detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs_components, sign);
+    return detail::d64_generic_div_impl<decimal64_t>(lhs_components, rhs.to_components(), sign);
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator%(const decimal64_t lhs, const decimal64_t rhs) noexcept -> decimal64_t
