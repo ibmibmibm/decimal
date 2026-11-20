@@ -48,11 +48,35 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto finite_to_decimal(const SigType sig, const Exp
     return pack_in_range<TargetType>(wide_sig, static_cast<int>(exp) - zeros, sign);
 }
 
+// A nonzero coefficient of a fast type has the digits of its precision, so a type with fewer
+// digits rounds a constant count of them, and the constructor does not count the digits
+template <typename TargetType, typename Decimal, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto rounded_to_decimal(SigType sig, const ExpType exp, const bool sign,
+                                                     std::true_type) noexcept -> TargetType
+{
+    auto new_exp {static_cast<int>(exp)};
+    if (sig != 0U)
+    {
+        auto biased_exp {new_exp + bias_v<TargetType>};
+        coefficient_rounding<TargetType>(sig, new_exp, biased_exp, sign, precision_v<Decimal>);
+    }
+
+    return TargetType{static_cast<typename TargetType::significand_type>(sig), new_exp, sign};
+}
+
+template <typename TargetType, typename Decimal, typename SigType, typename ExpType>
+BOOST_DECIMAL_CUDA_CONSTEXPR auto rounded_to_decimal(const SigType sig, const ExpType exp, const bool sign,
+                                                     std::false_type) noexcept -> TargetType
+{
+    return TargetType{sig, exp, sign};
+}
+
 template <typename TargetType, typename Decimal, typename SigType, typename ExpType>
 BOOST_DECIMAL_CUDA_CONSTEXPR auto finite_to_decimal(const SigType sig, const ExpType exp, const bool sign,
                                                     std::false_type) noexcept -> TargetType
 {
-    return TargetType{sig, exp, sign};
+    return rounded_to_decimal<TargetType, Decimal>(sig, exp, sign,
+        std::integral_constant<bool, is_fast_type_v<Decimal> && (precision_v<TargetType> < precision_v<Decimal>)>{});
 }
 
 } // namespace detail
