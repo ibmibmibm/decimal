@@ -32,22 +32,6 @@ namespace detail {
 
 namespace impl {
 
-// Default-rounding gate. The d32 driver inlines div_finalize_u64 for
-// fe_dec_to_nearest, and calls div_finalize_u64_out_of_line in other modes.
-template <typename Anchor>
-BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto div_default_rounding(const Anchor& anchor) noexcept -> bool
-{
-    static_cast<void>(anchor);
-    bool default_rounding {_boost_decimal_global_rounding_mode == rounding_mode::fe_dec_to_nearest};
-    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
-    if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(anchor))
-    {
-        default_rounding = (_boost_decimal_global_runtime_rounding_mode == rounding_mode::fe_dec_to_nearest);
-    }
-    #endif
-    return default_rounding;
-}
-
 // Division finalization with inline round-half-to-even. The finalizers
 // round in the mode that the caller gives, with this rule for
 // fe_dec_to_nearest. The driver computes
@@ -270,10 +254,11 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto generic_div_impl(co
 
     // Only this driver keeps the other modes out of line: inlined, they made
     // the d32 operators slower in the nearest mode, but not d64 or d128.
-    if (BOOST_DECIMAL_UNLIKELY(!impl::div_default_rounding(lhs_c.sig)))
+    // Not const, see current_rounding_mode
+    auto round {detail::current_rounding_mode()};
+    if (BOOST_DECIMAL_UNLIKELY(round != rounding_mode::fe_dec_to_nearest))
     {
-        return impl::div_finalize_u64_out_of_line<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, ideal_exp, sign,
-                                                               detail::current_rounding_mode());
+        return impl::div_finalize_u64_out_of_line<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, ideal_exp, sign, round);
     }
 
     return impl::div_finalize_u64<DecimalType>(q, r, static_cast<std::uint32_t>(divisor), res_exp, ideal_exp, sign,
