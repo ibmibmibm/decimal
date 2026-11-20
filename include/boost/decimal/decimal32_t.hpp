@@ -1847,12 +1847,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto div_impl(const decimal32_t lhs, const decimal3
                 if (rhs_fp == FP_ZERO)
                 {
                     q = nan;
+                    return;
                 }
-                else
-                {
-                    q = sign ? -zero : zero;
-                }
-                return;
+                // A zero divided by a finite value keeps the difference of the exponents
+                break;
             default:
                 static_cast<void>(lhs);
         }
@@ -1871,11 +1869,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto div_impl(const decimal32_t lhs, const decimal3
     }
     #endif
 
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal32_t>(lhs_components.sig, lhs_components.exp);
-
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal32_t>(rhs_components.sig, rhs_components.exp);
+    const auto lhs_components {lhs.to_components()};
+    const auto rhs_components {rhs.to_components()};
 
     #ifdef BOOST_DECIMAL_DEBUG
     std::cerr << "sig lhs: " << sig_lhs
@@ -1905,7 +1900,6 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal32_t lhs, Integer rhs) 
 
     #ifndef BOOST_DECIMAL_FAST_MATH
     // Check pre-conditions
-    constexpr decimal32_t zero {0, 0};
     constexpr decimal32_t inf {boost::decimal::from_bits(boost::decimal::detail::d32_inf_mask)};
 
     const bool sign {lhs.isneg() != (rhs < 0)};
@@ -1919,7 +1913,11 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal32_t lhs, Integer rhs) 
         case FP_INFINITE:
             return sign ? -inf : inf;
         case FP_ZERO:
-            return rhs == 0 ? std::numeric_limits<decimal32_t>::quiet_NaN() : sign ? -zero : zero;
+            if (rhs == 0)
+            {
+                return std::numeric_limits<decimal32_t>::quiet_NaN();
+            }
+            break;
         default:
             static_cast<void>(lhs);
     }
@@ -1930,14 +1928,15 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(const decimal32_t lhs, Integer rhs) 
     }
     #endif
 
-    auto sig_lhs {lhs.full_significand()};
-    auto exp_lhs {lhs.biased_exponent()};
-    detail::expand_significand<decimal32_t>(sig_lhs, exp_lhs);
-    detail::decimal32_t_components lhs_components {sig_lhs, exp_lhs, lhs.isneg()};
+    const auto lhs_components {lhs.to_components()};
 
+    // Only an integer of more than p digits needs rounding
     exp_type exp_rhs {};
     auto unsigned_rhs {static_cast<integer_type>(detail::make_positive_unsigned(rhs))};
-    detail::normalize(unsigned_rhs, exp_rhs, rhs < 0);
+    if (unsigned_rhs > detail::d32_max_significand_value)
+    {
+        detail::normalize(unsigned_rhs, exp_rhs, rhs < 0);
+    }
     detail::decimal32_t_components rhs_components {static_cast<sig_type>(unsigned_rhs), exp_rhs, rhs < 0};
 
     return detail::generic_div_impl<decimal32_t>(lhs_components, rhs_components);
@@ -1973,17 +1972,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator/(Integer lhs, const decimal32_t rhs) 
     }
     #endif
 
-    auto sig_rhs {rhs.full_significand()};
-    auto exp_rhs {rhs.biased_exponent()};
-    detail::expand_significand<decimal32_t>(sig_rhs, exp_rhs);
-
+    // Only an integer of more than p digits needs rounding
     exp_type lhs_exp {};
     auto unsigned_lhs {static_cast<integer_type>(detail::make_positive_unsigned(lhs))};
-    detail::normalize(unsigned_lhs, lhs_exp, lhs < 0);
+    if (unsigned_lhs > detail::d32_max_significand_value)
+    {
+        detail::normalize(unsigned_lhs, lhs_exp, lhs < 0);
+    }
     detail::decimal32_t_components lhs_components {static_cast<sig_type>(unsigned_lhs), lhs_exp, lhs < 0};
-    detail::decimal32_t_components rhs_components {sig_rhs, exp_rhs, rhs.isneg()};
 
-    return detail::generic_div_impl<decimal32_t>(lhs_components, rhs_components);
+    return detail::generic_div_impl<decimal32_t>(lhs_components, rhs.to_components());
 }
 
 BOOST_DECIMAL_CUDA_CONSTEXPR auto decimal32_t::operator/=(const decimal32_t rhs) noexcept -> decimal32_t&
