@@ -1081,6 +1081,15 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d32_add_core(const 
                     lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
             }
         }
+        // The operand with the larger exponent keeps p digits after the shift. Full operands
+        // stop at the first test, and a table entry of one stops any gap of 7 or more.
+        else if ((exp_gap > 0 ? lhs_sig : rhs_sig) < UINT32_C(1000) &&
+                 (exp_gap > 0 ? lhs_sig : rhs_sig) < detail::pow10(static_cast<std::uint32_t>(exp_diff < 7 ? 7 - exp_diff : 0)))
+        {
+            return detail::aligned_add_in_mode<decimal32_t, std::uint64_t>(
+                static_cast<std::uint64_t>(lhs_sig), static_cast<std::uint64_t>(rhs_sig),
+                lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
+        }
     }
     else
     {

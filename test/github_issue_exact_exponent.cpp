@@ -46,11 +46,34 @@ void test_zero_operand()
     BOOST_TEST(signbit(-T{0} - T{0, 2}));
 }
 
+// An exact sum of short operands has the smaller exponent at each exponent gap
+template <typename T>
+void test_short_sum()
+{
+    BOOST_TEST_EQ(quantexp(T{1, 4} + 1), 0);
+    BOOST_TEST_EQ(quantexp(1 + T{1, 4}), 0);
+    BOOST_TEST_EQ(quantexp(T{1, 4} + T{1}), 0);
+    BOOST_TEST_EQ(quantexp(T{1, 4} - T{1}), 0);
+    BOOST_TEST_EQ(quantexp(T{1} - T{1, 4}), 0);
+    BOOST_TEST_EQ(quantexp(T{1, 5} + T{25, -1}), -1);
+    BOOST_TEST_EQ(quantexp(T{1, 6} + T{1}), 0);
+    BOOST_TEST_EQ(quantexp(T{12, 2} - T{5, -3}), -3);
+
+    BOOST_TEST_EQ(T(1, 4) + T(1), T(10001));
+    BOOST_TEST_EQ(T(1) - T(1, 4), T(-9999));
+    BOOST_TEST_EQ(T(1, 5) + T(25, -1), T(1000025, -1));
+    BOOST_TEST_EQ(T(12, 2) - T(5, -3), T(1199995, -3));
+}
+
 int main()
 {
     test_zero_operand<decimal32_t>();
     test_zero_operand<decimal64_t>();
     test_zero_operand<decimal128_t>();
+
+    test_short_sum<decimal32_t>();
+    test_short_sum<decimal64_t>();
+    test_short_sum<decimal128_t>();
 
     return boost::report_errors();
 }
