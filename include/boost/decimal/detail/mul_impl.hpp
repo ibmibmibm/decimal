@@ -377,17 +377,16 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_mul_impl(const T1& lhs_sig_in, const U1 l
 
     const bool sign {lhs_sign != rhs_sign};
 
-    // Small-product fast path: when both operands have at most precision/2
-    // digits, the un-expanded product is guaranteed to fit in uint128 (no
-    // umul256 needed) and may even fit in p digits, in which case the
-    // product itself is the result. Gated on both sigs being below the
-    // sqrt(max_sig) threshold so the uint128 multiply cannot overflow.
-    constexpr auto small_sig_threshold {detail::pow10<sig_type>(static_cast<sig_type>(detail::precision_v<ReturnType> / 2))};
-    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY(lhs_sig_in <= small_sig_threshold && rhs_sig_in <= small_sig_threshold))
+    // A product of at most p digits is the result, with the sum of the exponents. It needs
+    // an operand of one word, and its three words must be below 10^p.
+    if (!detail::is_fast_type_v<ReturnType> && BOOST_DECIMAL_UNLIKELY((lhs_sig_in.high == 0U || rhs_sig_in.high == 0U)))
     {
-        const auto small_prod {lhs_sig_in * rhs_sig_in};
+        const auto narrow {lhs_sig_in.high == 0U ? lhs_sig_in.low : rhs_sig_in.low};
+        const auto high_part {detail::umul128(lhs_sig_in.high | rhs_sig_in.high, narrow)};
+        const auto low_part {detail::umul128(lhs_sig_in.low, rhs_sig_in.low)};
+        const sig_type small_prod {high_part.low + low_part.high, low_part.low};
         constexpr auto small_threshold {static_cast<sig_type>(detail::max_significand_v<ReturnType>) + sig_type{1U}};
-        if (small_prod < small_threshold)
+        if (high_part.high == 0U && small_prod.high >= high_part.low && small_prod < small_threshold)
         {
             const auto small_exp {static_cast<typename ReturnType::biased_exponent_type>(lhs_exp_in + rhs_exp_in)};
             return detail::pack_in_range<ReturnType>(small_prod, small_exp, sign);
