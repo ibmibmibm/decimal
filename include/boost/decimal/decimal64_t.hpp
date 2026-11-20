@@ -1579,8 +1579,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_div_impl(const decimal64_t lhs, const deci
 }
 
 // The sums that the operators do not finish. A call keeps the operators small enough to inline.
-BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const std::uint64_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
-                                               const std::uint64_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal64_t
+BOOST_DECIMAL_NO_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const std::uint64_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
+                                                                       const std::uint64_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal64_t
 {
     if (lhs_sig != 0U && rhs_sig != 0U)
     {
@@ -1601,6 +1601,10 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const std::uint64_t lhs_sig, cons
             return detail::band_add_selected<decimal64_t, std::uint64_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_exp, rhs_sign, static_cast<unsigned>(exp_diff));
         }
     }
+    else
+    {
+        return detail::zero_operand_sum<decimal64_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_exp, rhs_sign);
+    }
 
     detail::decimal64_t_components lhs_components {lhs_sig, lhs_exp, lhs_sign};
     detail::decimal64_t_components rhs_components {rhs_sig, rhs_exp, rhs_sign};
@@ -1613,7 +1617,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_wide(const std::uint64_t lhs_sig, cons
 // The sum of finite operands. The parts must be those of lhs and rhs, and a difference passes
 // the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart go to
 // aligned_add_kernel, and in the default mode operands over 36 apart give the larger one.
-// d64_add_wide does the rest, and the zero rules.
+// d64_add_wide does the rest, with the zero rules of zero_operand_sum.
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d64_add_core(const decimal64_t lhs, const decimal64_t rhs,
                                                                          const std::uint64_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
                                                                          const std::uint64_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal64_t

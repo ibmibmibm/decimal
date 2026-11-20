@@ -1642,7 +1642,7 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
 // the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart, or with
 // a short larger operand, go to aligned_add_kernel, full operands in the band to
 // band_add_kernel, and in the default mode operands over 75 apart give the larger one.
-// d128_add_impl_new does the rest, and the zero rules.
+// zero_operand_sum has the zero rules, and d128_add_impl_new does the rest.
 BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs,
                                                                           const int128::uint128_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
                                                                           const int128::uint128_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal128_t
@@ -1677,6 +1677,10 @@ BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const
                 detail::band_add_kernel<decimal128_t, int128::uint128_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_sign, static_cast<unsigned>(exp_diff)) :
                 detail::band_add_kernel<decimal128_t, int128::uint128_t>(rhs_sig, rhs_exp, rhs_sign, lhs_sig, lhs_sign, static_cast<unsigned>(exp_diff));
         }
+    }
+    else
+    {
+        return detail::zero_operand_sum<decimal128_t>(lhs_sig, lhs_exp, lhs_sign, rhs_sig, rhs_exp, rhs_sign);
     }
 
     detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs_sign};
