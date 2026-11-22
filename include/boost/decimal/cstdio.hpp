@@ -190,6 +190,13 @@ inline auto print_value(char* first, char* last, const DecimalType v, const para
     return r;
 }
 
+// A format with no decimal arguments still needs a value type, and std::common_type<> has none
+template <typename... T>
+struct format_values_type : std::common_type<T...> {};
+
+template <>
+struct format_values_type<> { using type = decimal32_t; };
+
 template <typename... T>
 inline auto snprintf_impl(char* buffer, const std::size_t buf_size, const char* format, const T... values) noexcept
     #ifndef BOOST_DECIMAL_HAS_CONCEPTS
@@ -203,7 +210,7 @@ inline auto snprintf_impl(char* buffer, const std::size_t buf_size, const char* 
         return -1;
     }
 
-    const std::initializer_list<std::common_type_t<T...>> values_list {values...};
+    const std::initializer_list<typename format_values_type<T...>::type> values_list {values...};
     auto value_iter = values_list.begin();
 
     // Like std::snprintf, count the full output but write only what fits before the null terminator

@@ -235,6 +235,19 @@ void test_bad_input()
     boost::decimal::snprintf(buffer, sizeof(buffer), "%.3", val);
 }
 
+void test_no_values()
+{
+    char buffer[16] {};
+    BOOST_TEST_EQ(boost::decimal::snprintf(buffer, sizeof(buffer), "plain text"), 10);
+    BOOST_TEST_CSTR_EQ(buffer, "plain text");
+    BOOST_TEST_EQ(boost::decimal::snprintf(buffer, sizeof(buffer), "100%%"), 4);
+    BOOST_TEST_CSTR_EQ(buffer, "100%");
+
+    errno = 0;
+    BOOST_TEST_EQ(boost::decimal::snprintf(buffer, sizeof(buffer), "%H"), -1);
+    BOOST_TEST_EQ(errno, EINVAL);
+}
+
 int main()
 {
     test_bootstrap<decimal32_t>();
@@ -252,6 +265,8 @@ int main()
     test_bad_input<decimal32_t>();
     test_bad_input<decimal64_t>();
     test_bad_input<decimal128_t>();
+
+    test_no_values();
 
     return boost::report_errors();
 }
