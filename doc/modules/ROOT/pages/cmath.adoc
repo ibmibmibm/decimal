@@ -8,14 +8,19 @@ https://www.boost.org/LICENSE_1_0.txt
 = `<cmath>` Support
 :idprefix: cmath_
 
-Decimal contains overloads for all functions from `<cmath>`, and they give the same special values as built-in floating point types.
+Decimal contains overloads for the functions from `<cmath>` in the lists below, and they give the same special values as built-in floating point types, except the values that xref:cmath.adoc#cmath_spec_fun[Special Functions] lists.
 They do not set `errno` or the floating-point exception flags, see xref:design.adoc#design_floating_point_exception_flags_are_not_supported[Design Decisions].
 They are also all constexpr with pass:[C++14] unlike the built-in floating point types which require either pass:[C++23] or 26.
+With GCC 8 and earlier, some arguments of the polynomial functions are an exception, see xref:cmath.adoc#cmath_spec_fun[Special Functions].
 Additionally, all functions are marked `noexcept`.
 
 The functions that round use the global rounding mode as described in xref:cfenv.adoc[rounding modes], except where a function has a fixed rule, such as `round` and `roundeven`.
 The functions that classify a value, such as `isnan`, do not round.
-The functions that are not exact also use `BOOST_DECIMAL_DEC_EVAL_METHOD`, see xref:cfloat.adoc[evaluation methods].
+The functions that are not exact also use `BOOST_DECIMAL_DEC_EVAL_METHOD`, except `pow`, see xref:cfloat.adoc[evaluation methods].
+
+Next to a rounding boundary, some functions decide the result with exact integers on the stack.
+With GCC 16 and `-O2` on x86-64, this step and its callers need about 25 KB of stack for the polynomial functions, and about 11 KB for `pow` and `beta`.
+On a target with a small stack, such as a microcontroller, make sure that the stack has this room before you call these functions.
 
 == Basic Operations
 [#basic_cmath_ops]
@@ -500,6 +505,38 @@ The following functions have been implemented for decimal types:
 | https://en.cppreference.com/w/cpp/numeric/special_functions/legendre[legendre] | Legendre Polynomials
 | https://en.cppreference.com/w/cpp/numeric/special_functions/riemann_zeta[riemann_zeta] | Computes the Riemann Zeta function
 |===
+
+`assoc_legendre` follows the C++ special-function convention and leaves out the Condon-Shortley phase, the factor `(-1)^m`.
+Earlier versions of this library and Boost.Math include this factor.
+If you need the earlier sign, multiply the result by `(-1)^m`.
+For example, `assoc_legendre(1, 1, 0.5_DF)` is now `0.8660254_DF`, and the earlier value is `-0.8660254_DF`.
+
+At these arguments, the results are different from earlier versions of this library:
+
+- `comp_ellint_1(1)` and `comp_ellint_1(-1)` are positive infinity. Earlier, they were NaN.
+- `ellint_1(k, phi)` and `ellint_2(k, phi)` with an infinite `phi` and `|k| \<= 1` are an infinity with the sign of `phi`. Earlier, they were NaN.
+- `riemann_zeta` of negative infinity is NaN. Earlier, it was negative infinity.
+- `beta(x, y)` with `x \<= 0` or `y \<= 0` is NaN, because the C++ standard gives a domain error there. Earlier, some of these arguments gave a number or an infinity.
+- `beta(x, y)` with an argument of positive infinity and a positive other argument is 0. Earlier, it was NaN.
+- `laguerre` and `assoc_laguerre` with `n` above 65535 are NaN.
+
+`riemann_zeta(1)` is NaN, because 1 is the pole of the function.
+
+The C++ standard defines `laguerre` and `assoc_laguerre` for `x >= 0`.
+As an extension, this library also gives the value of the polynomial for a negative `x`.
+
+The C++ standard makes the effect of `hermite`, `laguerre` and `assoc_laguerre` implementation-defined for `n` of 128 and above, and for `assoc_laguerre` also for `m` of 128 and above.
+This library accepts these values for `n` up to 65535.
+For a larger `n`, the result is a NaN.
+The standard also makes the effect of `legendre` and `assoc_legendre` implementation-defined for `n` of 128 and above.
+This library accepts `n` up to 128 for these two functions, and for a larger `n` the result is a NaN.
+Next to a rounding boundary or a root, these functions decide the result with exact integers of up to 36864 bits.
+This step needs about 25 KB of stack for each of the decimal types, and `legendre` and `assoc_legendre` take the same step.
+With GCC 8 and earlier, this step is not a constant expression, so a call that needs it does not compile where a constant expression is necessary.
+This can occur at each degree, for example for `assoc_legendre(1, 1, x)` with a tiny `x`.
+With a long significand, these integers do not fit from about degree 280 for `decimal128_t`, 500 for `decimal64_t` and 820 for `decimal32_t`.
+The degree is lower for a very small `x`.
+For these arguments the result comes from a 256-bit or 320-bit approximation, and the library does not guarantee correct rounding.
 
 [source, c++]
 ----

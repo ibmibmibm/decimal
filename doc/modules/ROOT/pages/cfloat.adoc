@@ -62,5 +62,6 @@ The valid values are:
 Only the `<cmath>` functions that are not exact, such as `exp`, `sqrt` and `tgamma`, use the evaluation method.
 The arithmetic operators do not use it.
 A function with a wider evaluation type rounds its result in that type, and the conversion to the original type rounds it a second time.
+`pow` does not use a wider evaluation type, so it rounds one time with each evaluation method.
 
 To use the functionality you must `#define BOOST_DECIMAL_DEC_EVAL_METHOD` to the value you want before you `#include <boost/decimal.hpp>`, or any Boost.Decimal header if you are not using the convenience header.

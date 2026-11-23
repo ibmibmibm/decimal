@@ -30,11 +30,17 @@ The functions in this list compute the result as an integer with more digits tha
 If the result with its error can be on the two sides of a rounding boundary, they compute it again with more digits, up to a last computation, which rounds without this check.
 
 - `exp`, `exp2`, `expm1`, `log`, `log10`, `log2`, `log1p`
+- `pow`, `hypot`
+- `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
 - `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+- `erf`, `erfc`, `tgamma`, `lgamma`
+- `beta`, `riemann_zeta`, `ellint_1`, `ellint_2`, `comp_ellint_1`, `comp_ellint_2`
+- `hermite`, `laguerre`, `assoc_laguerre`, `legendre`, `assoc_legendre`
 
 The aim of these functions is a correctly rounded result (an error of at most https://en.wikipedia.org/wiki/Unit_in_the_last_place[0.5 ULP] in the nearest modes), but the library does not have a proof for all arguments.
+The polynomial functions have a limit for high degrees, see xref:cmath.adoc#cmath_spec_fun[Special Functions].
 This applies to the default `BOOST_DECIMAL_DEC_EVAL_METHOD` of 0.
-With a wider evaluation type, the result rounds two times, see xref:cfloat.adoc[evaluation methods].
+With a wider evaluation type, the result rounds two times, except for `pow`, see xref:cfloat.adoc[evaluation methods].
 
 `sqrt` and `cbrt` also round one time in the current rounding mode, because an integer remainder picks the result.
 With the default evaluation method, their result is correctly rounded, and with a wider evaluation type it rounds two times.
