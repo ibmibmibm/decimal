@@ -167,6 +167,17 @@ template <class T> bool list_argument(const std::string &s, T &x)
 }
 #define MPFR1(f) [](mpfr_t o, mpfr_t a) { return f(o, a, MPFR_RNDN); }
 #define DEC1(f) [](T x) { return f(x); }
+#ifdef BOUND_MARGIN
+#include "bound_margin.hpp"
+#else
+static void margin_events(mpfr_t, const char *, const std::string &)
+{
+}
+static bool margin_report()
+{
+    return true;
+}
+#endif
 // With GRID_REC set to a file, the file gets a line for each check: name|arguments|mode|result
 static FILE *g_rec = std::getenv("GRID_REC") ? std::fopen(std::getenv("GRID_REC"), "w") : nullptr;
 static long g_bad_total;
@@ -211,6 +222,7 @@ static long g_inconclusive, g_skipped_total;
 static bool g_say_undecided = true;
 template <class T> bool check_value(T r, mpfr_t t, int mode, const char *name, const std::string &arg, long &bad)
 {
+    margin_events(t, name, arg);
     static big_float d(check_precision), u(check_precision), mx(check_precision), mn(check_precision),
         a0(check_precision);
     // The largest and the smallest normal value, set one time: a conversion at this precision is slow
@@ -805,7 +817,9 @@ template <class T> void check_ellint(const char *tn)
                 {
                     fesetround(g_modes[m]);
                     T f = ellint_1(k, p);
+                    margin_events(oF.v, "ellint_1", as);
                     T e = ellint_2(k, p);
+                    margin_events(oE.v, "ellint_2", as);
                     fesetround(g_modes[0]);
                     ++n;
                     check_ref(f, oF.v, m, "ellint_1", as, bF,
@@ -2019,7 +2033,9 @@ template <class T> void check_near()
                 {
                     fesetround(g_modes[m]);
                     T f = ellint_1(k, p);
+                    margin_events(oF.v, "ellint_1", as);
                     T e = ellint_2(k, p);
+                    margin_events(oE.v, "ellint_2", as);
                     fesetround(g_modes[0]);
                     ++n;
                     check_ref(f, oF.v, m, "ellint_1", as, bF,
@@ -2042,7 +2058,9 @@ template <class T> void check_near()
             {
                 fesetround(g_modes[m]);
                 T f = comp_ellint_1(k);
+                margin_events(oF.v, "comp_ellint_1", as);
                 T e = comp_ellint_2(k);
+                margin_events(oE.v, "comp_ellint_2", as);
                 fesetround(g_modes[0]);
                 ++n;
                 check_ref(f, oF.v, m, "comp_ellint_1", as, bC, [&](mpfr_t o) {
@@ -2805,6 +2823,10 @@ int main(int argc, char **argv)
                   "main|short|exact|near|ext|ell|assoc|self|list <file>");
         return 2;
     }
+#ifdef BOUND_MARGIN
+    margin_self_test();
+    boost_mut::record_events = true;
+#endif
 #define ALL(T, n)                                                                                                      \
     if (t == n)                                                                                                        \
     {                                                                                                                  \
@@ -2837,5 +2859,6 @@ int main(int argc, char **argv)
         std::puts("the file of GRID_REC did not get all records");
     // With GRID_STRICT set, an inconclusive result also gives the status 1
     const bool strict_failed = std::getenv("GRID_STRICT") && g_inconclusive != 0;
-    return g_bad_total == 0 && !g_rec_failed && !strict_failed ? 0 : 1;
+    const bool margin_failed = !margin_report();
+    return g_bad_total == 0 && !g_rec_failed && !strict_failed && !margin_failed ? 0 : 1;
 }
