@@ -10,12 +10,16 @@ These programs show the measured error and the rounded results, so that you can 
 
 ## Build
 
-The C++ programs need GCC 9 or Clang 9, or a later version, with C++17, and `rounding_grid` also needs MPFR and GMP.
-`near_ties.py` needs Python 3 and mpmath.
+The C++ programs need GCC 9 or Clang 9, or a later version, with C++17, and `zeta_error`, `ellint_error` and `rounding_grid` also need MPFR 4.0 or later and GMP.
+`zeta_fit.py`, `erfc_fit.py` and `near_ties.py` need Python 3 and mpmath.
 Run these commands from the root of the repository:
 
 ```sh
 g++ -std=c++17 -O2 -Iinclude tools/cmath_accuracy/rounding_grid.cpp -lmpfr -lgmp -o rounding_grid
+g++ -std=c++17 -O2 -Iinclude tools/cmath_accuracy/zeta_error.cpp -lmpfr -lgmp -o zeta_error
+g++ -std=c++17 -O2 -Iinclude tools/cmath_accuracy/ellint_error.cpp -lmpfr -lgmp -o ellint_error
+g++ -std=c++17 -O2 -Iinclude tools/cmath_accuracy/erf_error.cpp -o erf_error
+g++ -std=c++17 -O2 -Iinclude tools/cmath_accuracy/exp_error.cpp -o exp_error
 ```
 
 ## Programs
@@ -59,11 +63,27 @@ For the fast types, an overflow result has the same check as for the other types
 A fast type has no subnormal results, so a result below the smallest normal value must be at most that value, and no rounding check follows.
 The last line gives the number of inconclusive results, and the number of results of a fast type that have no rounding check.
 
+`zeta_fit.py` prints the tables of `impl/riemann_zeta_impl.hpp` and the error of each interval.
+
+`erfc_fit.py <type>` prints the table of `erfc` for the type (`d32`, `d64` or `d128`) in `impl/fixed_point_tables.hpp`, and the degree of each interval.
+Each interval gets the Chebyshev interpolation of the lowest degree whose relative error on 201 points is below the limit of the type in the program.
+With `--float` as a second argument for `d64` or `d128`, it prints the bodies of `erf_float_mant_for` and `erf_float_table_for` in `erf.hpp` instead, which come from that table.
+
 `near_ties.py <digits> <count> <seed>` writes a file `near_<case>.txt` for each case, for the part `list` of `rounding_grid`.
 The cases are the functions that are a constant plus a small term, for example `acos(x)` next to pi/2 for a small x.
 There the arguments that are next to each other give results that are very close, so a result can be much nearer to a rounding boundary than a random argument gives.
 Each line has an argument that the program solved for a rounding boundary and then rounded to the digits of the type.
 The ranges of the arguments are those of 34 digits, and fewer digits take a part of each range in proportion.
+
+`zeta_error <n>` prints the largest error of the first try of `riemann_zeta` for x > 0, against MPFR.
+
+`ellint_error <n>` prints the largest error of the one-word first try of `comp_ellint_1` and `comp_ellint_2`, against an AGM (arithmetic-geometric mean) in MPFR.
+It also prints the largest ratio of that error to the bound in the library.
+
+`erf_error <count> <seed> <lo> <hi>` compares the two-word and three-word digits of `erf` and `erfc` for decimal128_t.
+Where the two digits have exponents one apart, the difference is in units of the smaller exponent, as in `test_first_try_bounds`.
+
+`exp_error <n>` compares the one-word digits of the first try of `exp`, `exp2`, `sinh` and `cosh` for decimal64_t with the three-word digits.
 
 ## Limits
 

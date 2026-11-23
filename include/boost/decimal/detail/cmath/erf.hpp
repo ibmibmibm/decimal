@@ -217,7 +217,7 @@ template <int N>
 using erf_float_mant_t = erf_float_mant<N, N == 2 ? 134U : 199U>;
 
 // The tables of decimal64_t on [1, 10] and of decimal128_t on [1, 12], from erfc_d64 and erfc_d128. A test in
-// github_issue_erf.cpp makes them again from the coefficients.
+// github_issue_erf.cpp makes them again from the coefficients, and tools/cmath_accuracy/erfc_fit.py --float too.
 constexpr auto erf_float_mant_for(std::integral_constant<int, 2>) noexcept -> erf_float_mant_t<2>
 {
     return {

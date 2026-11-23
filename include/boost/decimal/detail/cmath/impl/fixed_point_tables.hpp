@@ -1093,7 +1093,7 @@ struct fx_table_imp
     static constexpr fx<4> two_inv_sqrt_pi {{UINT64_C(0x9CD0AC1866731058), UINT64_C(0x0A04D075D61F3A8B), UINT64_C(0xB8EA453FB5FF61A2), UINT64_C(0x48375D410A6DB446)}};
 
     // |q_k| of the polynomials sum q_k u^k of g(x) = erfc(x) exp(x^2) with u = (x - c) / h on [c - h, c + h], one
-    // after the other: q_k alternates in sign.
+    // after the other: q_k alternates in sign. tools/cmath_accuracy/erfc_fit.py prints each table.
 
     // One word on [1, 2], [2, 4] and [4, 8], for decimal32_t
     static constexpr fx<1> erfc_d32[69] =
