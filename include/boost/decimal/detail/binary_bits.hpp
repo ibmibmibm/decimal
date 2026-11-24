@@ -73,6 +73,38 @@ constexpr auto wide_sign(const int128::uint128_t& bits) noexcept -> bool
     return ((bits.high >> (std::numeric_limits<Float>::digits == 64 ? 15U : 63U)) & 1U) != 0U;
 }
 
+// An x87 number with the largest exponent, or an unnormal one with the integer bit clear, is an infinity or a NaN
+constexpr auto x87_not_finite(const int biased, const std::uint64_t significand) noexcept -> bool
+{
+    return biased == wide_max_biased_exponent || (biased != 0 && significand < (UINT64_C(1) << 63U));
+}
+
+// An x87 or binary128 number as significand * 2^exponent, or an infinity or a NaN. x87 keeps the leading bit of the
+// significand, and binary128 implies it for a normal number.
+struct wide_fields
+{
+    int128::uint128_t significand;
+    int exponent;
+    bool negative;
+    bool infinite;
+    bool nan;
+};
+
+template <typename Float>
+constexpr auto decode_wide(const int128::uint128_t& bits) noexcept -> wide_fields
+{
+    constexpr bool x87 {std::numeric_limits<Float>::digits == 64};
+    constexpr int fraction_bits {x87 ? 63 : 112};
+    const int128::uint128_t leading {x87 ? int128::uint128_t {UINT64_C(1) << 63U} : int128::uint128_t {1U} << 112U};
+    const auto biased {wide_biased_exponent<Float>(bits)};
+    const auto fraction {x87 ? int128::uint128_t {bits.low & (leading.low - 1U)} : bits & (leading - 1U)};
+    const auto significand {x87 ? int128::uint128_t {bits.low} : biased == 0 ? fraction : fraction | leading};
+    const bool not_finite {x87 ? x87_not_finite(biased, bits.low) : biased == wide_max_biased_exponent};
+    const bool infinite {biased == wide_max_biased_exponent && fraction == 0U && (!x87 || bits.low != 0U)};
+    const auto exponent {(biased == 0 ? 1 : biased) - wide_exponent_bias - fraction_bits};
+    return {significand, exponent, wide_sign<Float>(bits), infinite, not_finite && !infinite};
+}
+
 } // namespace detail
 } // namespace decimal
 } // namespace boost

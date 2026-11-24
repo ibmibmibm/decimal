@@ -960,21 +960,10 @@ template <typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal64_t::decimal64_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
-    // Neither test raises an exception of the binary environment, nor draws -Wfloat-equal
-    // The infinity comes through double because numeric_limits<__float128> is empty on old libstdc++
-    constexpr Float inf {detail::infinity_value<Float>()};
-
-    if (detail::is_nan_value(val))
+    // A finite value takes one test, which reads the exponent bits of a type without hardware compares
+    if (!detail::binary_to_decimal::takes_from_float(val))
     {
-        *this = from_bits(detail::d64_nan_mask);
-    }
-    else if (!(val < inf))
-    {
-        *this = from_bits(detail::d64_inf_mask);
-    }
-    else if (!(val > -inf))
-    {
-        *this = -from_bits(detail::d64_inf_mask);
+        *this = detail::binary_to_decimal::special_value<decimal64_t>(val);
     }
     else
     #endif

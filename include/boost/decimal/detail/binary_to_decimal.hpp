@@ -524,6 +524,14 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -
     const auto top {x87 ? bits.low : (UINT64_C(1) << 63U) | (bits.high << 15U) | (bits.low >> 49U)};
     const auto bottom {x87 ? UINT64_C(0) : bits.low & ((UINT64_C(1) << 49U) - 1U)};
     const auto binary_exponent {biased - wide_exponent_bias - 63};
+    // The constructors leave the x87 infinity and NaN here, as Clang reads the bits through the stack and that stalls.
+    // An unnormal number is a NaN as for the hardware.
+    if (x87 && x87_not_finite(biased, top))
+    {
+        constexpr auto infinity {std::numeric_limits<DecimalType>::infinity()};
+        const auto nan {decode_wide<Float>(bits).nan};
+        return nan ? std::numeric_limits<DecimalType>::quiet_NaN() : sign ? -infinity : infinity;
+    }
     // Ryu takes the bits where it decides, as GCC else keeps an x87 copy of x for it, and the reads of the bits above
     // wait on that store
     if (biased == 0 || top < (UINT64_C(1) << 63U) ||
@@ -717,6 +725,52 @@ template <>
 struct significand_digits<__float128> : std::integral_constant<int, 113> {};
 #endif
 
+// The tests do not draw -Wfloat-equal, but a signaling NaN can raise the invalid exception of the binary environment.
+// The infinity comes through double because numeric_limits<__float128> is empty on old libstdc++.
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto is_finite_value(const Float val, std::false_type) noexcept -> bool
+{
+    constexpr Float inf {infinity_value<Float>()};
+    return !is_nan_value(val) && val < inf && val > -inf;
+}
+
+// binary128 compares in software, so its exponent bits decide
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto is_finite_value(const Float val, std::true_type) noexcept -> bool
+{
+    return wide_biased_exponent<Float>(bit_cast<int128::uint128_t>(val)) != wide_max_biased_exponent;
+}
+
+// Whether a constructor gives val to from_float: a finite value, or each x87 number, as from_float picks
+// from_wide_scaled for it, which tests the number itself. Clang reads its bits through the stack, and each read waits.
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto takes_from_float(const Float val) noexcept -> bool
+{
+    if (constant_test<sizeof(Float) == 16 && significand_digits<Float>::value == 64>())
+    {
+        return true;
+    }
+    return is_finite_value(val, std::integral_constant<bool, sizeof(Float) == 16 &&
+                                                             significand_digits<Float>::value == 113> {});
+}
+
+// The decimal infinity or quiet NaN of a binary number that takes_from_float leaves to the constructor
+template <typename DecimalType, typename Float>
+constexpr auto special_value(const Float val) noexcept -> DecimalType
+{
+    if (is_nan_value(val))
+    {
+        return std::numeric_limits<DecimalType>::quiet_NaN();
+    }
+    // The sign bit, as Clang can compute val > 0 before the test for a NaN, and that compare raises FE_INVALID
+    #if defined(__GNUC__) || defined(__clang__)
+    const bool negative {__builtin_signbit(val) != 0};
+    #else
+    const bool negative {val < 0};
+    #endif
+    return negative ? -std::numeric_limits<DecimalType>::infinity() : std::numeric_limits<DecimalType>::infinity();
+}
+
 // The conversion that from_float picks for a binary type and a decimal type
 enum class float_path
 {
@@ -799,6 +853,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> Deci
                                    (digits == 64 ? float_path::wide : float_path::quad) :
                                std::is_same<components, ryu::floating_decimal_128>::value ? float_path::ryu :
                                                                                             float_path::shortest};
+    static_assert(path == float_path::wide || sizeof(Float) != 16 || digits != 64,
+                  "takes_from_float leaves the test of an x87 number to from_wide_scaled");
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }
 
