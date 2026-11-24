@@ -8,6 +8,7 @@
 #include <boost/decimal/fwd.hpp>
 #include <boost/decimal/detail/attributes.hpp>
 #include <boost/decimal/detail/apply_sign.hpp>
+#include <boost/decimal/detail/binary_to_decimal.hpp>
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/int128.hpp>
@@ -1743,15 +1744,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR decimal32_t::decimal32_t(const Float val) noexcept
     else
     #endif
     {
-        const auto components {detail::floating_point_to_fd(val)};
-
-        #ifdef BOOST_DECIMAL_DEBUG
-        std::cerr << "Mant: " << components.mantissa
-                  << "\nExp: " << components.exponent
-                  << "\nSign: " << components.sign << std::endl;
-        #endif
-
-        *this = decimal32_t {components.mantissa, components.exponent, components.sign};
+        *this = detail::binary_to_decimal::from_float<decimal32_t>(val);
     }
 }
 

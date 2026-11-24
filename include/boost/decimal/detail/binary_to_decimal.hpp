@@ -17,6 +17,7 @@
 #include <boost/decimal/detail/integer_search_trees.hpp>
 #include <boost/decimal/detail/power_tables.hpp>
 #include <boost/decimal/detail/remove_trailing_zeros.hpp>
+#include <boost/decimal/detail/utilities.hpp>
 
 #ifndef BOOST_DECIMAL_BUILD_MODULE
 #include <cstdint>
@@ -82,6 +83,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto exact_scaled(const std::uint64_t significand,
     -> scaled_value<int128::uint128_t>
 {
     const auto estimate {dragonbox::floor_log10_pow2(binary_exponent + 63 - countl_zero(significand))};
+
     const auto k {36 - estimate};
 
     std::uint64_t words[24];
@@ -235,6 +237,63 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
 
     const auto exact {exact_scaled(significand, binary_exponent)};
     return to_decimal_type<DecimalType>(exact.significand, exact.exponent, exact.inexact, sign);
+}
+
+// Shortest digits one past the precision that end in 5 are a tie, which the exact value of the binary number breaks:
+// the 5 alone rounds as above it, and a 4 with the sticky digit as below it
+template <typename DecimalType, typename Float, typename UInt>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_shortest(const Float val,
+                                                 const dragonbox::floating_decimal<UInt>& components) noexcept
+    -> DecimalType
+{
+    // The test for one digit past the precision wraps to false if the precision holds all the digits of UInt
+    constexpr auto pow10_precision {precision_v<DecimalType> < std::numeric_limits<UInt>::digits10 ?
+                                    pow10(static_cast<UInt>(precision_v<DecimalType>)) : UInt {}};
+    if (components.mantissa - pow10_precision < pow10_precision * 9U && components.mantissa % 10U == 5U)
+    {
+        // A subnormal double has fewer digits, but Dragonbox takes its shortest digits from the same scale
+        const auto bits {bit_cast<std::uint64_t>(static_cast<double>(val))};
+        const auto exponent_bits {static_cast<int>((bits >> 52U) & 0x7FFU)};
+        const auto fraction {bits & ((UINT64_C(1) << 52U) - 1U)};
+        const auto significand {exponent_bits == 0 ? fraction : fraction | (UINT64_C(1) << 52U)};
+        const auto scaled {dragonbox_scaled(significand * 2U, exponent_bits == 0 ? -1074 : exponent_bits - 1075)};
+        const auto shortest {static_cast<std::uint64_t>(components.mantissa) *
+                             pow10(static_cast<std::uint64_t>(components.exponent - scaled.exponent))};
+        if (shortest != scaled.significand || scaled.inexact)
+        {
+            const std::uint64_t digits {scaled.significand >= shortest ? components.mantissa :
+                                                                         components.mantissa - 1U};
+            return to_decimal_type<DecimalType>(digits, components.exponent, true, components.sign);
+        }
+    }
+
+    return DecimalType {components.mantissa, components.exponent, components.sign};
+}
+
+// 2^64 is 6 modulo 10, so the last digit needs no division of 128 bits
+constexpr auto last_digit(const int128::uint128_t value) noexcept -> std::uint64_t
+{
+    return (value.low % 10U + 6U * (value.high % 10U)) % 10U;
+}
+
+// The wider types take the side of the exact value from Ryu
+template <typename DecimalType, typename Float>
+constexpr auto from_shortest(const Float, const ryu::floating_decimal_128& components) noexcept -> DecimalType
+{
+    if (components.direction != 0 && last_digit(components.mantissa) == 5U &&
+        num_digits(components.mantissa) == precision_v<DecimalType> + 1)
+    {
+        const auto digits {components.direction > 0 ? components.mantissa : components.mantissa - 1U};
+        return to_decimal_type<DecimalType>(digits, components.exponent, true, components.sign);
+    }
+    return DecimalType {components.mantissa, components.exponent, components.sign};
+}
+
+// Dragonbox or Ryu gives the shortest digits
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val) noexcept -> DecimalType
+{
+    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
 }
 
 } // namespace binary_to_decimal

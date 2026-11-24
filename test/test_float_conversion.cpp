@@ -137,6 +137,56 @@ void test_ryu()
     BOOST_TEST(fd.mantissa == (unsigned_128_type {UINT64_C(1876924362740321), UINT64_C(17418691559299806659)}));
     #endif
     BOOST_TEST_EQ(fd.exponent, 3);
+
+    // A binary128 integer below 2^120 keeps every digit, so the digits are exact
+    const auto exact {generic_binary_to_decimal(unsigned_128_type {UINT64_C(0x4072000000000000), UINT64_C(1)}, 112, 15, false)};
+    BOOST_TEST(exact.mantissa == (unsigned_128_type {UINT64_C(2251799813685248), UINT64_C(8)}));
+    BOOST_TEST_EQ(exact.exponent, 0);
+    BOOST_TEST_EQ(exact.direction, 0);
+}
+
+// Shortest digits one past the precision that end in 5 round toward the exact value of the binary number
+void test_shortest_tie()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {1.0000025F}, 1.000003_DF);
+    BOOST_TEST_EQ(decimal32_t {1.0000035F}, 1.000003_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {1.0000025F}, 1.000003_DFF);
+    BOOST_TEST_EQ(decimal64_t {2.9576661961133885e-8}, 2.957666196113389e-8_DD);
+    BOOST_TEST_EQ(decimal64_t {1.1430767782883795e-192}, 1.143076778288379e-192_DD);
+    BOOST_TEST_EQ(decimal_fast64_t {2.9576661961133885e-8}, 2.957666196113389e-8_DDF);
+    BOOST_TEST_EQ(decimal32_t {5.9139005e-26}, 5.913901e-26_DF);
+    BOOST_TEST_EQ(decimal32_t {0.87616956F}, 0.8761696_DF);
+    BOOST_TEST_EQ(decimal64_t {-2.9362768111642555e224}, "-2.936276811164256e224"_DD);
+    BOOST_TEST_EQ(decimal64_t {2750498739004538.5}, 2750498739004538_DD);
+    BOOST_TEST_EQ(decimal_fast32_t {2.4941545e31}, 2.494155e31_DFF);
+
+    // A float on the tie goes to the even digit, and one with two digits past the precision rounds both
+    BOOST_TEST_EQ(decimal32_t {574335.25F}, 574335.2_DF);
+    BOOST_TEST_EQ(decimal32_t {108435896.0F}, 1.084359e8_DF);
+
+    // A subnormal double has its exact value below the tie, and a normal decimal result
+    BOOST_TEST_EQ(decimal64_t {1.9103049429316615e-308}, 1.910304942931661e-308_DD);
+    BOOST_TEST_EQ(decimal_fast64_t {1.4615434887007215e-308}, 1.461543488700721e-308_DDF);
+
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST_EQ(decimal64_t {268.41196881091365L}, 268.4119688109137_DD);
+    BOOST_TEST_EQ(decimal64_t {6.1440403750342675L}, 6.144040375034267_DD);
+    #elif BOOST_DECIMAL_LDBL_BITS == 128
+    BOOST_TEST_EQ(decimal128_t {0.039266412274453850025464945980491025L}, "0.03926641227445385002546494598049103"_DL);
+    BOOST_TEST_EQ(decimal128_t {0.19676412089341422684781472488646195L}, "0.1967641208934142268478147248864619"_DL);
+    #endif
+
+    // A wide number on a midpoint is a tie to even, and one next to 10^-42 carries to it without trailing zeros
+    #if BOOST_DECIMAL_LDBL_BITS == 80 || BOOST_DECIMAL_LDBL_BITS == 128
+    BOOST_TEST_EQ(decimal32_t {12345675.0L}, 1.234568e7_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {12345665.0L}, 1.234566e7_DFF);
+    BOOST_TEST_EQ(decimal64_t {12345678901234565.0L}, 1.234567890123456e16_DD);
+    BOOST_TEST_EQ(quantexp(decimal32_t {1e-42L}), -42);
+    BOOST_TEST_EQ(quantexp(decimal64_t {1e-42L}), -42);
+    #endif
 }
 
 // A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
@@ -638,6 +688,7 @@ int main()
     test_ryu<long double>();
     #endif
 
+    test_shortest_tie();
     test_narrow_midpoint();
     test_narrow_shortest();
     #ifdef BOOST_DECIMAL_HAS_FLOAT16
