@@ -116,14 +116,38 @@ BOOST_DECIMAL_FORCE_INLINE constexpr auto scaled_bits(const binary_uint<Binary> 
     return dragonbox_scaled(significand * 2U, exponent_bits == 0 ? 1 - offset : exponent_bits - offset);
 }
 
-// x * 10^k exactly with 37 or 38 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
+// x * 10^k exactly with 35 to 38 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
 BOOST_DECIMAL_CXX20_CONSTEXPR auto exact_scaled(const std::uint64_t significand, const int binary_exponent) noexcept
     -> scaled_value<int128::uint128_t>
 {
     const auto estimate {dragonbox::floor_log10_pow2(binary_exponent + 63 - countl_zero(significand))};
 
-    const auto k {36 - estimate};
+    // 10^k rounded up gives 35 or 36 digits and a fraction above the exact one by less than significand units, so a
+    // larger fraction keeps the digits and is not zero. A double is below 10^309, so k is in the table or above it.
+    const auto short_k {34 - estimate};
+    BOOST_DECIMAL_ASSERT(short_k >= fast_float::significand_table_min_power);
+    if (short_k <= fast_float::significand_table_max_power)
+    {
+        const auto cache {dragonbox::cache_128(short_k)};
+        const auto shift {127 - dragonbox::floor_log2_pow10(short_k) - binary_exponent};
+        const auto low {dragonbox::umul128(significand, cache.low)};
+        const auto upper {dragonbox::umul128(significand, cache.high) + low.high};
+        const auto low_word {static_cast<std::uint64_t>(low)};
+        if (shift >= 64)
+        {
+            const auto upper_fraction {upper & ((int128::uint128_t {1U} << (shift - 64)) - 1U)};
+            if (upper_fraction != 0U || low_word >= significand)
+            {
+                return {upper >> (shift - 64), -short_k, true};
+            }
+        }
+        else if ((low_word & ((UINT64_C(1) << shift) - 1U)) >= significand)
+        {
+            return {(upper << (64 - shift)) | (low_word >> shift), -short_k, true};
+        }
+    }
 
+    const auto k {36 - estimate};
     std::uint64_t words[24];
     fast_float::big_uint value {words, 24U, int128::uint128_t {significand}};
     bool inexact {};

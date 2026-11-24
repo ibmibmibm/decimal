@@ -368,6 +368,53 @@ struct static_value
     static constexpr long double long_number {1.5L};
 };
 
+void test_big_integer()
+{
+    using namespace boost::decimal::detail::fast_float;
+
+    // Different numbers of words, and a shift past all the words
+    BOOST_TEST_EQ(compare_exact(0, 1U, boost::int128::uint128_t {1U, 0U}, 0), -1);
+    BOOST_TEST_EQ(compare_exact(0, boost::int128::uint128_t {1U, 0U}, 1U, 0), 1);
+    std::uint64_t words[4] {};
+    big_uint value {words, 4U, boost::int128::uint128_t {1U}};
+    BOOST_TEST(value.shr(128));
+
+    // Zero shifted left is still zero
+    std::uint64_t zero_words[4] {};
+    big_uint zero {zero_words, 4U, boost::int128::uint128_t {0U}};
+    zero.shl(64);
+    std::uint64_t other_words[4] {};
+    BOOST_TEST_EQ(zero.compare(big_uint {other_words, 4U, boost::int128::uint128_t {0U}}), 0);
+
+    // The compare writes each word before it reads it, so words that start as all ones give the same signs. Equal
+    // values read every word.
+    struct exact_case
+    {
+        std::int64_t q;
+        boost::int128::uint128_t sig;
+        boost::int128::uint128_t m;
+        std::int64_t e;
+        int sign;
+    };
+    const exact_case cases[] {{-300, {1U, 5U}, 3U, -1000, 1}, {300, 7U, {9U, 1U}, 900, 1}, {-27, 999U, 1U, -90, 1},
+                              {0, 1U, 1U, 0, 0}, {350, {UINT64_MAX, 3U}, 1U, 1300, -1},
+                              {-350, 1U, {UINT64_MAX, 1U}, -1300, 1}, {0, {64U, 0U}, 1U, 70, 0},
+                              {0, {64U, 1U}, 1U, 70, 1}, {0, 1U, {64U, 0U}, -70, 0}, {-3, {125U, 0U}, 1U, 61, 0},
+                              {3, 1U, {125U, 0U}, -61, 0}};
+    for (const auto& c : cases)
+    {
+        std::uint64_t value_words[24];
+        std::uint64_t other_words_24[24];
+        for (std::size_t i {}; i < 24U; ++i)
+        {
+            value_words[i] = UINT64_MAX;
+            other_words_24[i] = UINT64_MAX;
+        }
+        BOOST_TEST_EQ(compare_exact_words(value_words, other_words_24, 24U, c.q, c.sig, c.m, c.e), c.sign);
+        BOOST_TEST_EQ(compare_exact(c.q, c.sig, c.m, c.e), c.sign);
+    }
+}
+
 void test_static_member()
 {
     using namespace boost::decimal;
@@ -918,6 +965,7 @@ int main()
     #endif
     test_x87_shortest();
     test_static_member();
+    test_big_integer();
 
     #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
     test_wide_shortest<__float128>();
