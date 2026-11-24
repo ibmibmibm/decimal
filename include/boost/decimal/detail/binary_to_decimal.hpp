@@ -273,6 +273,10 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
     return to_decimal_type<DecimalType>(exact.significand, exact.exponent, exact.inexact != 0U, sign);
 }
 
+// A function call, because MSVC warns about a constant condition in an if
+template <bool value>
+constexpr auto constant_test() noexcept -> bool { return value; }
+
 // Shortest digits one past the precision that end in 5 are a tie, which the exact value of the binary number breaks:
 // the 5 alone rounds as above it, and a 4 with the sticky digit as below it
 template <typename DecimalType, typename Float, typename UInt>
@@ -298,6 +302,23 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_shortest(const Float val,
         }
     }
 
+    // A float to 7 digits has one or two digits more, and a double to 16 one, so constant divisors round them. A fast
+    // type rounds a double in its constructor, which pack_in_range calls. Digits that fit are packed directly.
+    constexpr int extra_digits {std::numeric_limits<Float>::max_digits10 - precision_v<DecimalType>};
+    constexpr bool rounds {extra_digits == 2 || (extra_digits == 1 && !is_fast_type_v<DecimalType>)};
+    if (constant_test<rounds>() && components.mantissa >= pow10_precision)
+    {
+        const auto two {components.mantissa >= pow10_precision * 10U};
+        auto rounded {two ? components.mantissa / 10U : components.mantissa};
+        const auto sticky {rounded * (two ? 10U : 1U) != components.mantissa};
+        const auto exponent {components.exponent + static_cast<int>(two) +
+                             fenv_round<DecimalType>(rounded, components.sign, sticky)};
+        return pack_in_range<DecimalType>(rounded, exponent, components.sign);
+    }
+    if (constant_test<extra_digits <= 0 || rounds || is_fast_type_v<DecimalType>>())
+    {
+        return pack_in_range<DecimalType>(components.mantissa, components.exponent, components.sign);
+    }
     return DecimalType {components.mantissa, components.exponent, components.sign};
 }
 
@@ -391,7 +412,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_double_narrow(const Float val) noexcept 
 enum class float_path
 {
     shortest,
-    narrow
+    narrow,
+    fast_shortest
 };
 
 template <float_path path>
@@ -411,6 +433,19 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<fl
     return from_double_narrow<DecimalType>(val);
 }
 
+// A fast type keeps all its digits, so Dragonbox can leave the trailing zeros
+template <typename DecimalType>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const float val, float_path_tag<float_path::fast_shortest>) noexcept -> DecimalType
+{
+    return from_shortest<DecimalType>(val, dragonbox::floating_point_to_fd32<false>(val));
+}
+
+template <typename DecimalType>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const double val, float_path_tag<float_path::fast_shortest>) noexcept -> DecimalType
+{
+    return from_shortest<DecimalType>(val, dragonbox::floating_point_to_fd64<false>(val));
+}
+
 // A float or double to 7 digits rounds once unless near a decimal
 template <typename DecimalType, typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val) noexcept -> DecimalType
@@ -420,7 +455,10 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val) noexcept -> Decim
     constexpr bool narrow {std::is_same<components, dragonbox::floating_decimal<std::uint64_t>>::value ||
                            (std::is_same<components, dragonbox::floating_decimal<std::uint32_t>>::value &&
                             digits == 24)};
-    constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow : float_path::shortest};
+    constexpr bool plain {std::is_same<Float, float>::value || std::is_same<Float, double>::value};
+    constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow :
+                               is_fast_type_v<DecimalType> && plain ? float_path::fast_shortest :
+                               float_path::shortest};
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }
 
