@@ -361,6 +361,87 @@ void test_narrow_nearest_shortest(const int fraction_bits, const int bias)
     }
 }
 
+// A constructor that binds a reference needs a definition of this member before C++17, which it does not have
+struct static_value
+{
+    static constexpr double number {1.5};
+    static constexpr long double long_number {1.5L};
+};
+
+void test_static_member()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {static_value::number}, 1.5_DF);
+    BOOST_TEST_EQ(decimal64_t {static_value::number}, 1.5_DD);
+    BOOST_TEST_EQ(decimal128_t {static_value::number}, 1.5_DL);
+    BOOST_TEST_EQ(decimal_fast32_t {static_value::number}, 1.5_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {static_value::number}, 1.5_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {static_value::number}, 1.5_DLF);
+
+    #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
+    BOOST_TEST_EQ(decimal32_t {static_value::long_number}, 1.5_DF);
+    BOOST_TEST_EQ(decimal64_t {static_value::long_number}, 1.5_DD);
+    BOOST_TEST_EQ(decimal128_t {static_value::long_number}, 1.5_DL);
+    BOOST_TEST_EQ(decimal_fast32_t {static_value::long_number}, 1.5_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {static_value::long_number}, 1.5_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {static_value::long_number}, 1.5_DLF);
+    #endif
+}
+
+// An x87 number gives its shortest digits to decimal128_t, and a number past the cache of 10^k gives the right decimal
+void test_x87_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    BOOST_TEST_EQ(decimal128_t {0.1L}, 0.1_DL);
+
+    // The lower end of the interval has trailing zeros, which the removal of digits follows
+    BOOST_TEST_EQ(decimal128_t {static_cast<long double>(UINT64_C(0x802488BC3909E488)) * 4}, "3.693462191203415299e19"_DL);
+    BOOST_TEST_EQ(decimal128_t {1.0L / 3}, 0.33333333333333333334_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {1.0L / 7}, 0.14285714285714285714_DLF);
+    BOOST_TEST_EQ(decimal_fast32_t {19.99L}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99L}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e-2L}, 1e-2_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {1e-2L}, 1e-2_DDF);
+    BOOST_TEST_EQ(decimal128_t {1e4094L}, 1e4094_DL);
+    BOOST_TEST_EQ(decimal32_t {4.523111e59L}, 4.523111e59_DF);
+    BOOST_TEST_EQ(decimal128_t {3731834064558506577.25L}, 3731834064558506577.2_DL);
+    BOOST_TEST_EQ(decimal128_t {-1.22880506150931258406e21L}, -1.2288050615093125841e21_DL);
+    BOOST_TEST_EQ(decimal128_t {-106361266909726144176.0L}, -1.0636126690972614418e20_DL);
+    BOOST_TEST_EQ(decimal32_t {-9.80000000000000000154e-66L}, "-9.8e-66"_DF);
+    BOOST_TEST_EQ(decimal32_t {6.88519250000000000078e-91L}, "6.885193e-91"_DF);
+
+    // The interval of a power of two is half as wide below it, so the nearest decimal below can be outside
+    BOOST_TEST_EQ(decimal32_t {0.5L}, 0.5_DF);
+    BOOST_TEST_EQ(decimal64_t {2.0L}, 2_DD);
+    BOOST_TEST_EQ(decimal128_t {1.0L}, 1_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {0.5L}, 0.5_DLF);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, 101)}, 2535301200456458803000000000000_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, 110)}, 1.2980742146337069071e33_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, -102)}, 1.9721522630525295135e-31_DL);
+    BOOST_TEST_EQ(decimal128_t {std::ldexp(1.0L, -109)}, 1.5407439555097886825e-33_DL);
+    BOOST_TEST_EQ(decimal64_t {std::ldexp(1.0L, 70)}, 1180591620717411000000_DD);
+    BOOST_TEST(isinf(decimal64_t {1e4094L}));
+    BOOST_TEST_EQ(decimal64_t {1e-4094L}, 0_DD);
+
+    // A constant expression reads the bits with bit_cast, which Clang does not do for a long double
+    #if defined(BOOST_DECIMAL_HAS_CONSTEXPR_BITCAST) && !defined(BOOST_DECIMAL_NO_CONSTEVAL_DETECTION)
+    static_assert(decimal32_t {0.1L} == decimal32_t {1U, -1}, "0.1L rounds to 0.1");
+    static_assert(decimal128_t {0.1L} == decimal128_t {1U, -1}, "the shortest digits of 0.1L are 0.1");
+    static_assert(decimal_fast64_t {1e-4950L} == decimal_fast64_t {}, "a subnormal x87 number underflows");
+    #endif
+
+    #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
+    BOOST_TEST(isinf(decimal64_t {static_cast<__float128>(1e4094L)}));
+    BOOST_TEST_EQ(decimal128_t {static_cast<__float128>(1e4094L)}, "9.999999999999999999841829784820949e4093"_DL);
+    #endif
+    #endif
+}
+
 template <typename T>
 void test_generic_binary_to_decimal()
 {
@@ -747,6 +828,8 @@ int main()
     test_narrow_round_trip<std::bfloat16_t>();
     test_narrow_nearest_shortest<std::bfloat16_t>(7, 127);
     #endif
+    test_x87_shortest();
+    test_static_member();
 
     test_parser();
     test_push_eight<std::uint64_t>(0U);

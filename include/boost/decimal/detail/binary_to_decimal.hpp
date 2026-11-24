@@ -8,6 +8,7 @@
 #include <boost/decimal/detail/config.hpp>
 #include <boost/decimal/detail/add_impl.hpp>
 #include <boost/decimal/detail/attributes.hpp>
+#include <boost/decimal/detail/binary_bits.hpp>
 #include <boost/decimal/detail/bit_cast.hpp>
 #include <boost/decimal/detail/countl.hpp>
 #include <boost/decimal/detail/dragonbox/dragonbox.hpp>
@@ -29,6 +30,9 @@ namespace boost {
 namespace decimal {
 namespace detail {
 namespace binary_to_decimal {
+
+// Selects the constructor of a decimal type that has the code of the conversion
+struct by_reference {};
 
 #ifdef _MSC_VER
 #  pragma warning(push)
@@ -328,6 +332,26 @@ constexpr auto last_digit(const int128::uint128_t value) noexcept -> std::uint64
     return (value.low % 10U + 6U * (value.high % 10U)) % 10U;
 }
 
+// Shortest digits that fit: a fast type keeps all its digits, so they move up to the precision, and the others lose
+// their trailing zeros
+template <typename DecimalType, typename UInt>
+constexpr auto pack_fitting(const UInt digits, const int exponent, const bool sign) noexcept -> DecimalType
+{
+    if (is_fast_type_v<DecimalType>)
+    {
+        const auto room {precision_v<DecimalType> - num_digits(digits)};
+        return pack_in_range<DecimalType>(int128::uint128_t {digits} * pow10(static_cast<int128::uint128_t>(room)),
+                                          exponent - room, sign);
+    }
+    if (last_digit(int128::uint128_t {digits}) != 0U)
+    {
+        return pack_in_range<DecimalType>(digits, exponent, sign);
+    }
+    const auto trimmed {remove_trailing_zeros(digits)};
+    return pack_in_range<DecimalType>(trimmed.trimmed_number,
+                                      exponent + static_cast<int>(trimmed.number_of_removed_zeros), sign);
+}
+
 // The wider types take the side of the exact value from Ryu
 template <typename DecimalType, typename Float>
 constexpr auto from_shortest(const Float, const ryu::floating_decimal_128& components) noexcept -> DecimalType
@@ -408,11 +432,167 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_double_narrow(const Float val) noexcept 
     return from_shortest<DecimalType>(val, floating_point_to_fd(val));
 }
 
+// The binary exponents whose 10^k is in cache_128, which also keep floor_log10_pow2 in the range of int
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int min_cached_binary_exponent {-1080};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int max_cached_binary_exponent {1130};
+
+static_assert(dragonbox::floor_log10_pow2(-max_cached_binary_exponent) >= fast_float::significand_table_min_power &&
+              dragonbox::floor_log10_pow2(-min_cached_binary_exponent) <= fast_float::significand_table_max_power,
+              "The cached binary exponents need 10^k in the table");
+
+// The products of a significand and cache_128 below are off by less than this many units of their fraction
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t product_error {4U};
+
+struct next_digit_result
+{
+    std::uint64_t digit;
+    std::uint64_t distance;
+    bool rounded_up;
+};
+
+// The digit after the integer part of x * 10^k, rounded to nearest, from the fraction in units of 2^-fraction_bits.
+// The distance is from 10 times the fraction to the digit, and is off by less than 10 * product_error.
+template <unsigned fraction_bits>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto next_digit(const std::uint64_t fraction) noexcept -> next_digit_result
+{
+    constexpr auto one {UINT64_C(1) << fraction_bits};
+    const auto tenths {dragonbox::umul128(fraction, 10U)};
+    const auto rest {static_cast<std::uint64_t>(tenths) & (one - 1U)};
+    const auto rounded_up {rest >= one / 2U};
+    return {static_cast<std::uint64_t>(tenths >> fraction_bits) + static_cast<std::uint64_t>(rounded_up),
+            rounded_up ? one - rest : rest, rounded_up};
+}
+
+// x * 10^k * 2^63 from the significand of an x87 or binary128 number and 10^k rounded up, within 4 units, for
+// 18 to 20 digits. The interval of x holds at most one decimal of 16 digits, and its half width is a shift of 10^k.
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -> DecimalType
+{
+    constexpr bool x87 {std::numeric_limits<Float>::digits == 64};
+    constexpr int bottom_bits {x87 ? 0 : 49};
+    const auto bits {wide_bits(val)};
+    const auto biased {wide_biased_exponent<Float>(bits)};
+    const auto sign {wide_sign<Float>(bits)};
+    const auto top {x87 ? bits.low : (UINT64_C(1) << 63U) | (bits.high << 15U) | (bits.low >> 49U)};
+    const auto bottom {x87 ? UINT64_C(0) : bits.low & ((UINT64_C(1) << 49U) - 1U)};
+    const auto binary_exponent {biased - wide_exponent_bias - 63};
+    // The bits rebuild x where Dragonbox or Ryu decides, as GCC else keeps an x87 copy of x for them, and the reads of
+    // the bits above wait on that store
+    if (biased == 0 || top < (UINT64_C(1) << 63U) ||
+        binary_exponent < min_cached_binary_exponent || binary_exponent > max_cached_binary_exponent)
+    {
+        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+    }
+    const bool power_of_two {top == (UINT64_C(1) << 63U) && bottom == 0U};
+    const auto k {dragonbox::floor_log10_pow2(-binary_exponent)};
+
+    // The 192-bit product (top + bottom / 2^49) * 10^k, without its lowest word, shifted right by 64 to 68 bits
+    const auto cache {dragonbox::cache_128(k)};
+    const auto shift {127 - dragonbox::floor_log2_pow10(k) - binary_exponent};
+    BOOST_DECIMAL_ASSERT(shift >= 127 && shift <= 131);
+    const auto high {dragonbox::umul128(top, cache.high)};
+    const auto middle {dragonbox::umul128(top, cache.low).high};
+    const auto extra {(dragonbox::umul128(bottom, cache.high) << 15U) + (dragonbox::umul128(bottom, cache.low) >> 49U)};
+    int128::uint128_t product {high.high, high.low + middle};
+    product.high += static_cast<std::uint64_t>(product.low < middle);
+    product += extra.high;
+    const auto value {product >> (shift - 127)};
+    const auto scaled {static_cast<std::uint64_t>(value >> 63U)};
+    const auto fraction {static_cast<std::uint64_t>(value) & ((UINT64_C(1) << 63U) - 1U)};
+    const std::uint64_t half_width {cache.high >> (shift - 126 + bottom_bits)};
+
+    constexpr bool keep_shortest {precision_v<DecimalType> > 20};
+    // scaled has 18 to 20 digits, so constant divisors split them
+    constexpr int short_dropped {keep_shortest ? 0 : 18 - precision_v<DecimalType>};
+    constexpr auto short_unit {pow10(static_cast<std::uint64_t>(short_dropped))};
+    constexpr auto top_digits {pow10(static_cast<std::uint64_t>(keep_shortest ? 0 : precision_v<DecimalType>))};
+    const auto truncated {scaled / short_unit};
+    const auto more {keep_shortest ? 0 : truncated >= top_digits * 10U ? 2 : truncated >= top_digits ? 1 : 0};
+    const auto dropped {short_dropped + more};
+    const auto unit {more == 2 ? short_unit * 100U : more == 1 ? short_unit * 10U : short_unit};
+    const auto digits {more == 2 ? truncated / 100U : more == 1 ? truncated / 10U : truncated};
+    const auto remainder {scaled - digits * unit};
+    const auto exponent {dropped - k};
+    if (exponent < std::numeric_limits<DecimalType>::min_exponent10 ||
+        exponent + precision_v<DecimalType> - 1 > std::numeric_limits<DecimalType>::max_exponent10)
+    {
+        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+    }
+
+    // Distances below 2^63 to the decimal below, the one above and the midpoint, each within product_error
+    constexpr auto one {UINT64_C(1) << 63U};
+    // The interval of a power of two is half as wide below x, so the distance below counts double. This x has one
+    // truncation and the error of 10^k, each below 1 unit, so the doubled distance stays within product_error.
+    const auto below {remainder != 0U ? one : !power_of_two ? fraction : fraction < one / 2U ? fraction * 2U : one};
+    const auto above {remainder == unit - 1U ? one - fraction : one};
+    const auto midpoint {remainder == unit / 2U ? fraction : remainder == unit / 2U - 1U ? one - fraction : one};
+    // One test of the nearer distance, as a short decimal is on either side of x with equal chance
+    if ((above < below ? above : below) + product_error < half_width)
+    {
+        // A fast type keeps all its digits. A carry to 10^precision has one digit more, which its constructor takes.
+        const auto inside {digits + static_cast<std::uint64_t>(above < below)};
+        if (is_fast_type_v<DecimalType> && !keep_shortest)
+        {
+            return pack_in_range<DecimalType>(inside, exponent, sign);
+        }
+        const auto carry {!keep_shortest && inside == top_digits};
+        return pack_fitting<DecimalType>(carry ? inside / 10U : inside, exponent + static_cast<int>(carry), sign);
+    }
+    if (keep_shortest && below > half_width + product_error && above > half_width + product_error)
+    {
+        // No integer is inside, so the shortest digits have one digit more and are the nearest to x. The half width,
+        // rounded down, is off by less than 1 unit, which is 10 units more of error next to 10 times the fraction.
+        const auto next {next_digit<63>(fraction)};
+        if (next.distance + 10U * product_error < one / 2U &&
+            (half_width > one / 8U || next.distance + 10U * (product_error + 1U) <
+                                      half_width * (power_of_two && !next.rounded_up ? 5U : 10U)))
+        {
+            // A fast type counts the digits of scaled, as GCC calls the count of 128 bits out of line
+            BOOST_DECIMAL_IF_CONSTEXPR (is_fast_type_v<DecimalType>)
+            {
+                const auto room {precision_v<DecimalType> - 1 - num_digits(scaled)};
+                return pack_in_range<DecimalType>((int128::uint128_t {scaled} * 10U + next.digit) *
+                                                  pow10(static_cast<int128::uint128_t>(room)), -k - 1 - room, sign);
+            }
+            return pack_fitting<DecimalType>(int128::uint128_t {scaled} * 10U + next.digit, -k - 1, sign);
+        }
+    }
+    if (keep_shortest || below <= half_width + product_error || above <= half_width + product_error)
+    {
+        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+    }
+    // The digits and the one after them round with a sticky fraction, as to_decimal_type does. Next to the midpoint,
+    // an exact compare gives the side of x: the digit 4 rounds as below it, and the 5 without the sticky bit as on it.
+    constexpr auto tenth_unit {keep_shortest ? UINT64_C(1) : short_unit / 10U};
+    auto rounded {more == 2 ? truncated / 10U : more == 1 ? truncated : scaled / tenth_unit};
+    auto sticky {true};
+    if (midpoint <= product_error)
+    {
+        rounded = digits * 10U + 5U;
+        const auto significand {(int128::uint128_t {top} << bottom_bits) | bottom};
+        const auto order {fast_float::compare_exact(exponent - 1, rounded, significand, binary_exponent - bottom_bits)};
+        rounded -= static_cast<std::uint64_t>(order > 0);
+        sticky = order != 0;
+    }
+    const auto rounded_exponent {exponent - 1 + fenv_round<DecimalType>(rounded, sign, sticky)};
+    return pack_in_range<DecimalType>(rounded, rounded_exponent, sign);
+}
+
+// The significand bits, which numeric_limits does not give for __float128 on the libstdc++ of GCC 15 and before
+template <typename Float>
+struct significand_digits : std::integral_constant<int, std::numeric_limits<Float>::digits> {};
+
+#ifdef BOOST_DECIMAL_HAS_FLOAT128
+template <>
+struct significand_digits<__float128> : std::integral_constant<int, 113> {};
+#endif
+
 // The conversion that from_float picks for a binary type and a decimal type
 enum class float_path
 {
     shortest,
     narrow,
+    wide,
     fast_shortest
 };
 
@@ -433,6 +613,13 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<fl
     return from_double_narrow<DecimalType>(val);
 }
 
+// An x87 number to 7, 16 or 34 digits, or a binary128 number to 7 or 16 digits
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val, float_path_tag<float_path::wide>) noexcept -> DecimalType
+{
+    return from_wide_scaled<DecimalType>(val);
+}
+
 // A fast type keeps all its digits, so Dragonbox can leave the trailing zeros
 template <typename DecimalType>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const float val, float_path_tag<float_path::fast_shortest>) noexcept -> DecimalType
@@ -446,18 +633,23 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const double val, float_path_tag<f
     return from_shortest<DecimalType>(val, dragonbox::floating_point_to_fd64<false>(val));
 }
 
-// A float or double to 7 digits rounds once unless near a decimal
+// A float or double to 7 digits, or 64 or 113 significand bits to 7 or 16 digits, rounds once unless near a decimal.
+// To 34 digits, an x87 number keeps its shortest digits: the integer in its interval, or one digit more.
 template <typename DecimalType, typename Float>
-BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val) noexcept -> DecimalType
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> DecimalType
 {
     using components = decltype(floating_point_to_fd(val));
-    constexpr int digits {std::numeric_limits<Float>::digits};
+    constexpr int digits {significand_digits<Float>::value};
+    constexpr bool wide {std::is_same<components, ryu::floating_decimal_128>::value && sizeof(Float) == 16 &&
+                         (digits == 64 || digits == 113)};
     constexpr bool narrow {std::is_same<components, dragonbox::floating_decimal<std::uint64_t>>::value ||
                            (std::is_same<components, dragonbox::floating_decimal<std::uint32_t>>::value &&
                             digits == 24)};
     constexpr bool plain {std::is_same<Float, float>::value || std::is_same<Float, double>::value};
     constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow :
                                is_fast_type_v<DecimalType> && plain ? float_path::fast_shortest :
+                               wide && precision_v<DecimalType> <= 16 ? float_path::wide :
+                               wide && precision_v<DecimalType> > 20 && digits == 64 ? float_path::wide :
                                float_path::shortest};
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }

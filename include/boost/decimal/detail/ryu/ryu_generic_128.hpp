@@ -9,6 +9,7 @@
 #include <boost/decimal/detail/ryu/generic_128.hpp>
 #include <boost/decimal/detail/integer_search_trees.hpp>
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/binary_bits.hpp>
 #include <boost/decimal/detail/bit_layouts.hpp>
 #include <boost/decimal/detail/bit_cast.hpp>
 
@@ -323,17 +324,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd128(T val) noexcept -> fl
 template <>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto floating_point_to_fd128<long double>(long double val) noexcept -> floating_decimal_128
 {
-    auto bits = bit_cast<unsigned_128_type>(val);
-
-    #ifdef BOOST_DECIMAL_DEBUG_RYU
-    // For some odd reason, this ends up with noise in the top 48 bits. We can
-    // clear out those bits with the following line; this is not required, the
-    // conversion routine should ignore those bits, but the debug output can be
-    // confusing if they aren't 0s.
-    bits &= (one << 80) - 1;
-    #endif
-
-    return generic_binary_to_decimal(bits, 64, 15, true);
+    return generic_binary_to_decimal(wide_bits(val), 64, 15, true);
 }
 
 #elif BOOST_DECIMAL_LDBL_BITS == 128

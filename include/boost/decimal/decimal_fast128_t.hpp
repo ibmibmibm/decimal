@@ -304,6 +304,12 @@ public:
     #endif
     BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(Float val) noexcept;
 
+private:
+    // By value above for a static constant member, which has no definition before C++17. GCC inlines this form only.
+    template <typename Float>
+    BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept;
+
+public:
     #ifdef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
     explicit BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t(long double val) noexcept = delete;
     #endif
@@ -635,6 +641,12 @@ template <BOOST_DECIMAL_REAL Float>
 template <typename Float, std::enable_if_t<detail::is_floating_point_v<Float>, bool>>
 #endif
 BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t::decimal_fast128_t(const Float val) noexcept
+    : decimal_fast128_t {detail::binary_to_decimal::by_reference {}, val}
+{
+}
+
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR decimal_fast128_t::decimal_fast128_t(detail::binary_to_decimal::by_reference, const Float& val) noexcept
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
     // Neither test raises an exception of the binary environment, nor draws -Wfloat-equal
