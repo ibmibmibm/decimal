@@ -326,10 +326,32 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_shortest(const Float val,
     return DecimalType {components.mantissa, components.exponent, components.sign};
 }
 
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t ten_33 {UINT64_C(0x3159FC9E26C9), UINT64_C(0x5B6A4B4BF9480000)};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t ten_34 {UINT64_C(0x1ED09BEAD87C0), UINT64_C(0x378D8E6400000000)};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int128::uint128_t ten_35 {UINT64_C(0x13426172C74D82), UINT64_C(0x2B878FE800000000)};
+
 // 2^64 is 6 modulo 10, so the last digit needs no division of 128 bits
 constexpr auto last_digit(const int128::uint128_t value) noexcept -> std::uint64_t
 {
     return (value.low % 10U + 6U * (value.high % 10U)) % 10U;
+}
+
+// Digits below 10^36 split at 10^17 into two words, whose trailing zeros are cheaper to remove than those of 128 bits
+constexpr auto remove_trailing_zeros_split(const int128::uint128_t value) noexcept
+    -> remove_trailing_zeros_return<int128::uint128_t>
+{
+    const auto split {impl::divmod_pow10_uint128(value, 17)};
+    const auto high {static_cast<std::uint64_t>(split.quotient)};
+    const auto low {static_cast<std::uint64_t>(split.remainder)};
+    if (low == 0U)
+    {
+        const auto trimmed {remove_trailing_zeros(high)};
+        return {int128::uint128_t {trimmed.trimmed_number}, trimmed.number_of_removed_zeros + 17U};
+    }
+    const auto trimmed {remove_trailing_zeros(low)};
+    const std::uint64_t kept_zeros {17U - trimmed.number_of_removed_zeros};
+    const auto scale {pow10(kept_zeros)};
+    return {dragonbox::umul128(high, scale) + trimmed.trimmed_number, trimmed.number_of_removed_zeros};
 }
 
 // Shortest digits that fit: a fast type keeps all its digits, so they move up to the precision, and the others lose
@@ -356,6 +378,24 @@ constexpr auto pack_fitting(const UInt digits, const int exponent, const bool si
 template <typename DecimalType, typename Float>
 constexpr auto from_shortest(const Float, const ryu::floating_decimal_128& components) noexcept -> DecimalType
 {
+    // To 34 digits, binary128 has one or two digits more. If x is below them, it is above them less 1, so the digits
+    // round with a sticky bit, which also breaks a tie.
+    if (precision_v<DecimalType> == 34 && components.mantissa >= ten_34)
+    {
+        auto digits {components.direction < 0 ? components.mantissa - 1U : components.mantissa};
+        auto sticky {components.direction != 0};
+        auto exponent {components.exponent};
+        if (components.mantissa > ten_35)
+        {
+            const auto split {impl::divmod10(digits)};
+            digits = split.quotient;
+            sticky = sticky || split.remainder != 0U;
+            ++exponent;
+        }
+        exponent += fenv_round<DecimalType>(digits, components.sign, sticky);
+        return pack_in_range<DecimalType>(digits, exponent, components.sign);
+    }
+
     if (components.direction != 0 && last_digit(components.mantissa) == 5U &&
         num_digits(components.mantissa) == precision_v<DecimalType> + 1)
     {
@@ -578,6 +618,88 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -
     return pack_in_range<DecimalType>(rounded, rounded_exponent, sign);
 }
 
+// x * 10^k * 2^14 from the 113 significand bits of a binary128 number and 10^k rounded up, within 4 units, for 33 to
+// 35 digits. As for x87, the shortest digits are the integer in the interval, or else the nearest with one digit more.
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_quad_scaled(const Float val) noexcept -> DecimalType
+{
+    const auto bits {bit_cast<int128::uint128_t>(val)};
+    const auto biased {wide_biased_exponent<Float>(bits)};
+    const auto sign {wide_sign<Float>(bits)};
+    const auto top {(bits.high & ((UINT64_C(1) << 48U) - 1U)) | (UINT64_C(1) << 48U)};
+    const auto binary_exponent {biased - wide_exponent_bias - 112};
+    if (biased == 0 || binary_exponent < min_cached_binary_exponent || binary_exponent > max_cached_binary_exponent)
+    {
+        return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+    }
+    const bool power_of_two {top == (UINT64_C(1) << 48U) && bits.low == 0U};
+    const auto k {dragonbox::floor_log10_pow2(-binary_exponent)};
+
+    // The 241-bit product of the significand and 10^k, without its lowest word, shifted right by 49 to 55 bits
+    const auto cache {dragonbox::cache_128(k)};
+    const auto shift {127 - dragonbox::floor_log2_pow10(k) - binary_exponent - 78};
+    BOOST_DECIMAL_ASSERT(shift >= 49 && shift <= 53);
+    const auto cross {dragonbox::umul128(top, cache.low) + dragonbox::umul128(bits.low, cache.low).high};
+    const auto middle {dragonbox::umul128(bits.low, cache.high) + cross};
+    const auto carry {static_cast<std::uint64_t>(middle < cross)};
+    const auto high {dragonbox::umul128(top, cache.high) + int128::uint128_t {carry, 0U}};
+    const auto value {(high << (64 - shift)) + (middle >> shift)};
+    const auto scaled {value >> 14U};
+    const auto fraction {static_cast<std::uint64_t>(value) & ((UINT64_C(1) << 14U) - 1U)};
+    const std::uint64_t half_width {cache.high >> (shift + 1)};
+
+    constexpr auto one {UINT64_C(1) << 14U};
+    const auto below {!power_of_two ? fraction : fraction < one / 2U ? fraction * 2U : one};
+    const auto above {one - fraction};
+    if (below + product_error < half_width || above + product_error < half_width)
+    {
+        // 34 digits fit, and the digits of a fast type need no trailing zeros removed
+        const auto integer {scaled + static_cast<std::uint64_t>(above < below)};
+        if (integer < ten_34)
+        {
+            if (is_fast_type_v<DecimalType> || last_digit(integer) != 0U)
+            {
+                return pack_in_range<DecimalType>(integer, -k, sign);
+            }
+            const auto trimmed {remove_trailing_zeros_split(integer)};
+            return pack_in_range<DecimalType>(trimmed.trimmed_number,
+                                              static_cast<int>(trimmed.number_of_removed_zeros) - k, sign);
+        }
+
+        // A tie of 35 digits needs the side of x, which the error hides if x is close to the integer
+        if ((above < below ? above : below) <= product_error && last_digit(integer) == 5U)
+        {
+            return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+        }
+        const auto trimmed {remove_trailing_zeros_split(integer)};
+        const auto exponent {static_cast<std::int32_t>(trimmed.number_of_removed_zeros) - k};
+        return from_shortest<DecimalType>(val, ryu::floating_decimal_128 {trimmed.trimmed_number, exponent, sign,
+                                                                          above < below ? -1 : 1});
+    }
+    if (below > half_width + product_error && above > half_width + product_error)
+    {
+        // The nearest decimal with one digit more, as for x87, and the side of x as above
+        const auto next {next_digit<14>(fraction)};
+        if (next.distance + 10U * product_error < one / 2U &&
+            next.distance + 10U * (product_error + 1U) < half_width * (power_of_two && !next.rounded_up ? 5U : 10U) &&
+            (next.distance > 10U * product_error || next.digit != 5U))
+        {
+            // With 34 digits, x rounds once from the truncated next digit and a sticky bit. fenv_round needs only the
+            // parity of the digits, so it rounds a stand-in of two digits; one below 10^34 - 1 cannot carry.
+            if (scaled >= ten_33 && scaled < ten_34 - 1U)
+            {
+                const auto parity {scaled.low & 1U};
+                auto stand_in {parity * 10U + next.digit - static_cast<std::uint64_t>(next.rounded_up)};
+                fenv_round<DecimalType>(stand_in, sign, true);
+                return pack_in_range<DecimalType>(scaled + (stand_in - parity), -k, sign);
+            }
+            return from_shortest<DecimalType>(val, ryu::floating_decimal_128 {scaled * 10U + next.digit, -k - 1, sign,
+                                                                              next.rounded_up ? -1 : 1});
+        }
+    }
+    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+}
+
 // The significand bits, which numeric_limits does not give for __float128 on the libstdc++ of GCC 15 and before
 template <typename Float>
 struct significand_digits : std::integral_constant<int, std::numeric_limits<Float>::digits> {};
@@ -593,6 +715,7 @@ enum class float_path
     shortest,
     narrow,
     wide,
+    quad,
     fast_shortest
 };
 
@@ -620,6 +743,13 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val, float_path_tag<f
     return from_wide_scaled<DecimalType>(val);
 }
 
+// A binary128 number to 34 digits
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<float_path::quad>) noexcept -> DecimalType
+{
+    return from_quad_scaled<DecimalType>(val);
+}
+
 // A fast type keeps all its digits, so Dragonbox can leave the trailing zeros
 template <typename DecimalType>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const float val, float_path_tag<float_path::fast_shortest>) noexcept -> DecimalType
@@ -634,7 +764,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const double val, float_path_tag<f
 }
 
 // A float or double to 7 digits, or 64 or 113 significand bits to 7 or 16 digits, rounds once unless near a decimal.
-// To 34 digits, an x87 number keeps its shortest digits: the integer in its interval, or one digit more.
+// To 34 digits, an x87 or binary128 number keeps its shortest digits: the integer in its interval, or one digit more.
 template <typename DecimalType, typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> DecimalType
 {
@@ -649,8 +779,8 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> Deci
     constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow :
                                is_fast_type_v<DecimalType> && plain ? float_path::fast_shortest :
                                wide && precision_v<DecimalType> <= 16 ? float_path::wide :
-                               wide && precision_v<DecimalType> > 20 && digits == 64 ? float_path::wide :
-                               float_path::shortest};
+                               wide && precision_v<DecimalType> > 20 ?
+                                   (digits == 64 ? float_path::wide : float_path::quad) : float_path::shortest};
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }
 

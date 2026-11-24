@@ -390,6 +390,94 @@ void test_static_member()
     #endif
 }
 
+// A binary128 number to decimal128_t: the integer in its interval, one digit more, a tie, and a fallback to Ryu
+template <typename T>
+void test_wide_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    const T one {1};
+    BOOST_TEST_EQ(decimal128_t {one / 10}, 0.1_DL);
+    BOOST_TEST_EQ(decimal128_t {one / 3}, "0.3333333333333333333333333333333333"_DL);
+    BOOST_TEST_EQ(decimal128_t {one / 11}, "0.09090909090909090909090909090909091"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one / 3}, "0.3333333333333333333333333333333333"_DLF);
+    BOOST_TEST_EQ(decimal128_t {one / 7}, "0.1428571428571428571428571428571429"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one / 7}, "0.1428571428571428571428571428571429"_DLF);
+    const auto e34 {static_cast<T>(1e17) * static_cast<T>(1e17)};
+    BOOST_TEST_EQ(decimal128_t {e34 + 5}, "1e34"_DL);
+    BOOST_TEST_EQ(decimal128_t {e34 + 15}, "1.000000000000000000000000000000002e34"_DL);
+    BOOST_TEST_EQ(decimal128_t {e34 + 7}, "1.000000000000000000000000000000001e34"_DL);
+    // 2119202603282.8149807453155517578125 from integers, as a long double literal can be a double
+    const auto wide_value {static_cast<T>(UINT64_C(8888579955759524005)) / static_cast<T>(UINT64_C(1) << 22U)};
+    BOOST_TEST_EQ(decimal128_t {wide_value}, "2119202603282.814980745315551757812"_DL);
+    // A double variable drops the extra precision of an x87 constant
+    const double double_e300 {1e300};
+    const auto e300 {static_cast<T>(double_e300)};
+    BOOST_TEST_EQ(decimal128_t {e300 * e300}, "1.000000000000000105009520510408843e600"_DL);
+    BOOST_TEST_EQ(decimal128_t {one * 1024}, 1024_DL);
+
+    // Powers of two, whose interval is half as wide below them
+    BOOST_TEST_EQ(decimal128_t {one / 2}, 0.5_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {one}, 1_DLF);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -199))}, "1.244603055572228341428812810756025e-60"_DL);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -183))}, "8.156630584998155658387867636570685e-56"_DL);
+    BOOST_TEST_EQ(decimal128_t {static_cast<T>(std::ldexp(1.0, -137))}, "5.739718509874450722503596373155497e-42"_DL);
+
+    // The lower end of the interval has trailing zeros, which the removal of digits follows
+    const boost::int128::uint128_t lower_end_zeros {UINT64_C(0x4076EF04619EC6BB), UINT64_C(0xAEE6A66D214E1EF4)};
+    BOOST_TEST_EQ(decimal128_t {boost::decimal::detail::bit_cast<T>(lower_end_zeros)},
+                  "1.28513790444190166969355619731292e36"_DL);
+
+    // 36 shortest digits, which x is below, at and above
+    const auto e31 {static_cast<T>(1e16) * static_cast<T>(1e15)};
+    BOOST_TEST_EQ(decimal128_t {e31 + one * 107 / 1024}, "10000000000000000000000000000000.10"_DL);
+    BOOST_TEST_EQ(decimal128_t {e31 + one * 5 / 16}, "10000000000000000000000000000000.31"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {e31 + one / 48}, "10000000000000000000000000000000.02"_DLF);
+
+    // Short digits and 34 digits inside the interval, 35 digits that end in 5, and one digit past decimal32_t
+    const auto from_words {[](const std::uint64_t high, const std::uint64_t low)
+                           { return boost::decimal::detail::bit_cast<T>(boost::int128::uint128_t {high, low}); }};
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x449D3F982015378D), UINT64_C(0xDDAA26AD90FA0058))}, "8.2e355"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x3E4F168A417D87F9), UINT64_C(0x748A09EE92545DE0))}, "9.8104646104e-131"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x416C214E81F13FA6), UINT64_C(0x30E6EC601E34C410))},
+                  "8.493112932424174000000000000000001e109"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x5B1817B89C67D9ED), UINT64_C(0xA71724B38976C5C7))},
+                  "1.921167538761822365609817058982414e2088"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x5691BAF94C168387), UINT64_C(0x27D9CC708E2E2CE4))}, "3.8855548e1739"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x4157889AEAD4D19B), UINT64_C(0x2E66B6C70E14B74A))},
+                  "5.49584569329226239e103"_DL);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x40894B63BCD546FC), UINT64_C(0x2985E908EE9FD700))}, "4.510642e41"_DF);
+
+    // More such numbers, with a negative sign, 36 digits, and results from 0 to the infinity of decimal32_t
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x3D7064E004D4FCA3), UINT64_C(0x104B1EBABF01B914))},
+                  "9.324575937149923561564318654477999e-198"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x406C27CA95F0C1FA), UINT64_C(0x221C1B80A8804BC2))},
+                  "7.499201657787268917833227346927282e32"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x415B51510DEE8716), UINT64_C(0xA5ABC3673B38A8BE))},
+                  "7.555031234773064421e104"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0x7CEE0F2F04F780F3), UINT64_C(0xFC5DBB54DEE53577))},
+                  "6.193354372301216850365903573917055e4695"_DL);
+    BOOST_TEST_EQ(decimal128_t {from_words(UINT64_C(0xC114C00074CB5DB5), UINT64_C(0x5DE80044741CCF66))},
+                  "-4.249605106578067737514456073011247e83"_DL);
+    BOOST_TEST_EQ(decimal_fast128_t {from_words(UINT64_C(0x40763885D614C624), UINT64_C(0xCCB595F377914D1A))},
+                  "8.11355570798085617480274569933e35"_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {from_words(UINT64_C(0xBDC6F8B2DAC97B1E), UINT64_C(0x6904F443F2559CC7))},
+                  "-1.020292386053676321312554828666958e-171"_DLF);
+    BOOST_TEST_EQ(decimal64_t {from_words(UINT64_C(0x3DC94174BACC9E2C), UINT64_C(0xE2E50644FE4C0B2C))}, "5.19881055327357e-171"_DD);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x3FEE7107F8C77A71), UINT64_C(0x1607F638ECDEA2A7))}, "1.099799e-5"_DF);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0xC052018EB707D4D2), UINT64_C(0x8561400000000000))}, "-9.730246e24"_DF);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x8013D8EB0F22639A), UINT64_C(0x1119D062F616A287))}, "0"_DF);
+    BOOST_TEST(isinf(decimal32_t {from_words(UINT64_C(0x41412BA095DC7701), UINT64_C(0xD9CB7743E3A2B0E6))}));
+
+    // One digit past decimal32_t rounds up in the upward mode. fesetround needs the detection of constant evaluation.
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(decimal32_t {from_words(UINT64_C(0x3F3B011C2EAABE7D), UINT64_C(0x7E23C577B1177DC9))}, "1.000001e-59"_DF);
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+}
+
 // An x87 number gives its shortest digits to decimal128_t, and a number past the cache of 10^k gives the right decimal
 void test_x87_shortest()
 {
@@ -830,6 +918,13 @@ int main()
     #endif
     test_x87_shortest();
     test_static_member();
+
+    #if defined(BOOST_DECIMAL_HAS_FLOAT128) && (!defined(__clang_major__) || __clang_major__ >= 13)
+    test_wide_shortest<__float128>();
+    #endif
+    #if BOOST_DECIMAL_LDBL_BITS == 128
+    test_wide_shortest<long double>();
+    #endif
 
     test_parser();
     test_push_eight<std::uint64_t>(0U);
