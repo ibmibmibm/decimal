@@ -164,7 +164,10 @@ BOOST_int128EST_EXPORT using builtin_u128 = std::_Unsigned128;
 #ifdef __x86_64__
 
 #ifndef BOOST_DECIMAL_DETAIL_INT128_BUILD_MODULE
-#  include <x86intrin.h>
+// The _M_AMD64 paths call the carry and popcount intrinsics. clang-cl defines _M_AMD64, and so do the MinGW headers
+#  ifdef _M_AMD64
+#    include <x86intrin.h>
+#  endif
 #  include <emmintrin.h>
 #endif
 
