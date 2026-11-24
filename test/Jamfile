@@ -415,3 +415,6 @@ compile compile_tests/string_compile.cpp
   : <pch>off ;
 compile compile_tests/uint128.cpp
   : <pch>off ;
+
+# Boost.Build only: CMake reads this file and would register the AVX2 test without its flags
+build-project avx2 ;

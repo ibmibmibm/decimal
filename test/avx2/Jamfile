@@ -1,0 +1,13 @@
+# Copyright 2026 Shen-Ta Hsieh
+# Distributed under the Boost Software License, Version 1.0.
+# https://www.boost.org/LICENSE_1_0.txt
+
+import configure ;
+
+# No CI job enables AVX2, so compile its path where the compiler can target it. The check result is cached without
+# cxxflags, so a target change through cxxflags needs --reconfigure
+local avx2-flags = <toolset>gcc:<cxxflags>-mavx2 <toolset>clang:<cxxflags>-mavx2 "<toolset>msvc:<cxxflags>/arch:AVX2" ;
+obj avx2_target : avx2_target.cpp : <pch>off $(avx2-flags) ;
+explicit avx2_target ;
+compile avx2_compile.cpp
+  : <pch>off $(avx2-flags) [ check-target-builds avx2_target "AVX2" : : <build>no ] ;

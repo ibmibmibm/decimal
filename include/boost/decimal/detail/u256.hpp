@@ -21,6 +21,10 @@
 #include <ostream>
 #endif
 
+#if !defined(BOOST_DECIMAL_NO_CONSTEVAL_DETECTION) && defined(__AVX2__)
+#include <immintrin.h>
+#endif
+
 #endif
 
 // The vendored int128 exposes a single instruction 128/64 divide (udiv_2by1) on x86-64: divq
