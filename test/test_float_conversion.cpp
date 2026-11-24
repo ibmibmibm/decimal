@@ -189,6 +189,53 @@ void test_shortest_tie()
     #endif
 }
 
+// A float that is a power of two, or has a decimal of 7 digits at an end of its interval, keeps its shortest digits
+void test_float_shortest()
+{
+    using namespace boost::decimal;
+    using namespace boost::decimal::literals;
+
+    BOOST_TEST_EQ(decimal32_t {268435456.0F}, 2.684355e8_DF);
+    BOOST_TEST_EQ(decimal32_t {1.2621775e-29F}, 1.262177e-29_DF);
+    BOOST_TEST_EQ(decimal32_t {100000104.0F}, 1.000001e8_DF);
+    BOOST_TEST_EQ(decimal_fast32_t {100000104.0F}, 1.000001e8_DFF);
+    BOOST_TEST_EQ(decimal32_t {8999999488.0F}, 9e9_DF);
+    BOOST_TEST_EQ(decimal32_t {9.9999995e-33F}, 1e-32_DF);
+    BOOST_TEST_EQ(decimal32_t {2.8564349981927813e-96}, "2.85643e-96"_DF);
+    BOOST_TEST_EQ(decimal32_t {-1.9858402e21F}, -1.98584e21_DF);
+    BOOST_TEST_EQ(decimal32_t {-6.9e-39F}, "-6.9e-39"_DF);
+    BOOST_TEST_EQ(decimal32_t {-8.92e9F}, -8.92e9_DF);
+    BOOST_TEST_EQ(decimal32_t {-9.311e15F}, -9.311e15_DF);
+    BOOST_TEST(isinf(decimal32_t {9.9999996e96}));
+
+    // The digits past the precision round in the current mode. fesetround needs the detection of constant evaluation.
+    #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
+    fesetround(rounding_mode::fe_dec_upward);
+    BOOST_TEST_EQ(decimal32_t {-1e23}, -1e23_DF);
+    BOOST_TEST_EQ(decimal32_t {-5.268e9F}, -5.268e9_DF);
+    BOOST_TEST_EQ(decimal32_t {-2.9999999e10F}, -2.999999e10_DF);
+    BOOST_TEST_EQ(decimal32_t {2.5060001e9F}, 2.506001e9_DF);
+    #if BOOST_DECIMAL_LDBL_BITS == 80
+    fesetround(rounding_mode::fe_dec_downward);
+    BOOST_TEST_EQ(decimal32_t {-4.80000000000000000021e28L}, -4.8e28_DF);
+    BOOST_TEST_EQ(decimal32_t {2.1554419999999999999e25L}, 2.155442e25_DF);
+    #endif
+    fesetround(rounding_mode::fe_dec_to_nearest);
+    #endif
+
+    // A fast type keeps the digits of a short value, and the digits below a power of ten carry to it
+    BOOST_TEST_EQ(decimal_fast32_t {19.99F}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {19.99}, 19.99_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e-2F}, 1e-2_DFF);
+    BOOST_TEST_EQ(decimal_fast32_t {1e23}, 1e23_DFF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99F}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast64_t {19.99}, 19.99_DDF);
+    BOOST_TEST_EQ(decimal_fast64_t {1e23}, 1e23_DDF);
+    BOOST_TEST_EQ(decimal_fast128_t {19.99F}, 19.99_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {19.99}, 19.99_DLF);
+    BOOST_TEST_EQ(decimal_fast128_t {1e23}, 1e23_DLF);
+}
+
 // A value beside a midpoint of a type narrower than float rounds toward it, also when float rounds it onto the midpoint
 void test_narrow_midpoint()
 {
@@ -689,6 +736,7 @@ int main()
     #endif
 
     test_shortest_tie();
+    test_float_shortest();
     test_narrow_midpoint();
     test_narrow_shortest();
     #ifdef BOOST_DECIMAL_HAS_FLOAT16

@@ -46,7 +46,8 @@ struct scaled_value
 {
     UInt significand;
     int exponent;
-    bool inexact;
+    // A word, as GCC returned a bool through the stack: it cleared the padding bytewise, and the word load stalled
+    std::uint32_t inexact;
 };
 
 #ifdef __GNUC__
@@ -57,9 +58,9 @@ struct scaled_value
 #  pragma warning(pop)
 #endif
 
-// x * 10^k for Dragonbox's k, 18 or 19 digits for a normal double; both results are exact, as they come from the
-// product and integer check of Dragonbox's compute_mul_parity, whose cache precision is proven for every double
-constexpr auto dragonbox_scaled(const std::uint64_t two_fc, const int binary_exponent) noexcept
+// x * 10^k for Dragonbox's k, 18 or 19 digits for a normal double, exact as Dragonbox proves its cache precision.
+// It is forced inline, as GCC keeps it out of line in from_double_narrow.
+BOOST_DECIMAL_FORCE_INLINE constexpr auto dragonbox_scaled(const std::uint64_t two_fc, const int binary_exponent) noexcept
     -> scaled_value<std::uint64_t>
 {
     using binary64 = dragonbox::binary64_format;
@@ -75,7 +76,40 @@ constexpr auto dragonbox_scaled(const std::uint64_t two_fc, const int binary_exp
 
     const auto integer_part {(top << beta) | (middle >> (64 - beta))};
     const auto is_integer {((middle << beta) | (low.low >> (64 - beta))) == 0U};
-    return {integer_part, minus_k, !is_integer};
+    return {integer_part, minus_k, static_cast<std::uint32_t>(!is_integer)};
+}
+
+// The same for a float from the float table, with 8 to 10 digits for a normal float
+BOOST_DECIMAL_FORCE_INLINE constexpr auto dragonbox_scaled(const std::uint32_t two_fc, const int binary_exponent) noexcept
+    -> scaled_value<std::uint64_t>
+{
+    using binary32 = dragonbox::binary32_format;
+
+    const auto minus_k {dragonbox::floor_log10_pow2(binary_exponent) - binary32::kappa};
+    const auto beta {binary_exponent + dragonbox::floor_log2_pow10(-minus_k)};
+    const auto product {dragonbox::umul128(two_fc, binary32::get_cache(minus_k))};
+    return {static_cast<std::uint64_t>(product >> (64 - beta)), minus_k,
+            static_cast<std::uint32_t>(static_cast<std::uint32_t>(product.low >> (32 - beta)) != 0U)};
+}
+
+// The binary type whose table converts Float: float for 24 significand bits, else double
+template <typename Float>
+using narrow_binary = std::conditional_t<std::numeric_limits<Float>::digits == 24, float, double>;
+
+template <typename Binary>
+using binary_uint = std::conditional_t<sizeof(Binary) == 4, std::uint32_t, std::uint64_t>;
+
+// dragonbox_scaled of the bits of a float or a double
+template <typename Binary>
+BOOST_DECIMAL_FORCE_INLINE constexpr auto scaled_bits(const binary_uint<Binary> bits) noexcept
+    -> scaled_value<std::uint64_t>
+{
+    constexpr int fraction_bits {std::numeric_limits<Binary>::digits - 1};
+    constexpr int offset {std::numeric_limits<Binary>::max_exponent - 2 + std::numeric_limits<Binary>::digits};
+    const auto exponent_bits {static_cast<int>(bits >> fraction_bits) & (2 * std::numeric_limits<Binary>::max_exponent - 1)};
+    const auto fraction {bits & ((binary_uint<Binary> {1U} << fraction_bits) - 1U)};
+    const auto significand {exponent_bits == 0 ? fraction : fraction | (binary_uint<Binary> {1U} << fraction_bits)};
+    return dragonbox_scaled(significand * 2U, exponent_bits == 0 ? 1 - offset : exponent_bits - offset);
 }
 
 // x * 10^k exactly with 37 or 38 digits (log10 x is in [estimate, estimate + 1.31)), for decimal128_t and subnormals
@@ -232,11 +266,11 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_binary64(const double val) noexcept -> D
     const auto scaled {dragonbox_scaled(significand * 2U, binary_exponent)};
     if (!scaled.inexact || scaled.significand >= enough_digits)
     {
-        return to_decimal_type<DecimalType>(scaled.significand, scaled.exponent, scaled.inexact, sign);
+        return to_decimal_type<DecimalType>(scaled.significand, scaled.exponent, scaled.inexact != 0U, sign);
     }
 
     const auto exact {exact_scaled(significand, binary_exponent)};
-    return to_decimal_type<DecimalType>(exact.significand, exact.exponent, exact.inexact, sign);
+    return to_decimal_type<DecimalType>(exact.significand, exact.exponent, exact.inexact != 0U, sign);
 }
 
 // Shortest digits one past the precision that end in 5 are a tie, which the exact value of the binary number breaks:
@@ -251,12 +285,9 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_shortest(const Float val,
                                     pow10(static_cast<UInt>(precision_v<DecimalType>)) : UInt {}};
     if (components.mantissa - pow10_precision < pow10_precision * 9U && components.mantissa % 10U == 5U)
     {
-        // A subnormal double has fewer digits, but Dragonbox takes its shortest digits from the same scale
-        const auto bits {bit_cast<std::uint64_t>(static_cast<double>(val))};
-        const auto exponent_bits {static_cast<int>((bits >> 52U) & 0x7FFU)};
-        const auto fraction {bits & ((UINT64_C(1) << 52U) - 1U)};
-        const auto significand {exponent_bits == 0 ? fraction : fraction | (UINT64_C(1) << 52U)};
-        const auto scaled {dragonbox_scaled(significand * 2U, exponent_bits == 0 ? -1074 : exponent_bits - 1075)};
+        // A subnormal number has fewer digits, but Dragonbox takes its shortest digits from the same scale
+        using binary = narrow_binary<Float>;
+        const auto scaled {scaled_bits<binary>(bit_cast<binary_uint<binary>>(static_cast<binary>(val)))};
         const auto shortest {static_cast<std::uint64_t>(components.mantissa) *
                              pow10(static_cast<std::uint64_t>(components.exponent - scaled.exponent))};
         if (shortest != scaled.significand || scaled.inexact)
@@ -289,11 +320,108 @@ constexpr auto from_shortest(const Float, const ryu::floating_decimal_128& compo
     return DecimalType {components.mantissa, components.exponent, components.sign};
 }
 
+// The interval of a double holds at most one 7-digit decimal, and of a float two. If no 7-digit neighbor of x is in it,
+// the shortest digits are longer and x rounds once; if one alone is in it, it is the shortest. Else Dragonbox decides.
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_double_narrow(const Float val) noexcept -> DecimalType
+{
+    // A float takes the float table and a double the double table
+    using binary = narrow_binary<Float>;
+    using format = std::conditional_t<sizeof(binary) == 4, dragonbox::binary32_format, dragonbox::binary64_format>;
+    constexpr int fraction_bits {std::numeric_limits<binary>::digits - 1};
+    const auto bits {bit_cast<binary_uint<binary>>(static_cast<binary>(val))};
+    const auto exponent_bits {static_cast<int>(bits >> fraction_bits) & (2 * std::numeric_limits<binary>::max_exponent - 1)};
+    const auto sign {(bits >> (sizeof(binary) * 8U - 1U)) != 0U};
+    if (exponent_bits == 0 || (bits & ((binary_uint<binary> {1U} << fraction_bits) - 1U)) == 0U)
+    {
+        return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+    }
+
+    // 8 to 10 digits for a float, 18 or 19 for a double, and the interval width in the same unit
+    const auto scaled {scaled_bits<binary>(bits)};
+    const auto beta {exponent_bits - (std::numeric_limits<binary>::max_exponent - 2 + std::numeric_limits<binary>::digits) +
+                     dragonbox::floor_log2_pow10(-scaled.exponent)};
+    const auto delta {format::compute_delta(format::get_cache(scaled.exponent), beta)};
+
+    // Each division names its constant divisor, so that the compiler multiplies instead
+    constexpr int fewest_digits {sizeof(binary) == 4 ? 8 : 18};
+    constexpr auto short_unit {pow10(static_cast<std::uint64_t>(fewest_digits - precision_v<DecimalType>))};
+    const int form {scaled.significand >= pow10(static_cast<std::uint64_t>(fewest_digits + 1)) ? 2 :
+                    scaled.significand >= pow10(static_cast<std::uint64_t>(fewest_digits)) ? 1 : 0};
+    const auto unit {form == 2 ? short_unit * 100U : form == 1 ? short_unit * 10U : short_unit};
+    const auto digits {form == 2 ? scaled.significand / (short_unit * 100U) :
+                       form == 1 ? scaled.significand / (short_unit * 10U) : scaled.significand / short_unit};
+    const auto remainder {scaled.significand - digits * unit};
+    const auto exponent {scaled.exponent + fewest_digits + form - precision_v<DecimalType>};
+    if (exponent + precision_v<DecimalType> - 1 < std::numeric_limits<DecimalType>::min_exponent10)
+    {
+        return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+    }
+
+    // The fraction below the last digit is less than 1, and delta is the width rounded down
+    const auto below_outside {2U * remainder > delta + 1U};
+    const auto above_outside {2U * (unit - remainder - 1U) >= delta + 1U};
+    const auto inside {2U * (remainder + 1U) <= delta && above_outside ? digits :
+                       2U * (unit - remainder) < delta && below_outside ? digits + 1U : 0U};
+    if (inside != 0U)
+    {
+        // A fast type keeps all its digits
+        if (is_fast_type_v<DecimalType>)
+        {
+            return pack_in_range<DecimalType>(inside, exponent, sign);
+        }
+        const auto trimmed {remove_trailing_zeros(static_cast<std::uint32_t>(inside))};
+        return pack_in_range<DecimalType>(trimmed.trimmed_number,
+                                          exponent + static_cast<int>(trimmed.number_of_removed_zeros), sign);
+    }
+    if (below_outside && above_outside)
+    {
+        // The digits and the one after them round with the sticky rest, as to_decimal_type does
+        const auto tenth {unit / 10U};
+        auto rounded {form == 2 ? scaled.significand / (short_unit * 10U) :
+                      form == 1 ? scaled.significand / short_unit : scaled.significand / (short_unit / 10U)};
+        const auto sticky {scaled.inexact || rounded * tenth != scaled.significand};
+        const auto rounded_exponent {exponent - 1 + fenv_round<DecimalType>(rounded, sign, sticky)};
+        return pack_in_range<DecimalType>(rounded, rounded_exponent, sign);
+    }
+    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+}
+
+// The conversion that from_float picks for a binary type and a decimal type
+enum class float_path
+{
+    shortest,
+    narrow
+};
+
+template <float_path path>
+using float_path_tag = std::integral_constant<float_path, path>;
+
 // Dragonbox or Ryu gives the shortest digits
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<float_path::shortest>) noexcept -> DecimalType
+{
+    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+}
+
+// A float or a double to 7 digits
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<float_path::narrow>) noexcept -> DecimalType
+{
+    return from_double_narrow<DecimalType>(val);
+}
+
+// A float or double to 7 digits rounds once unless near a decimal
 template <typename DecimalType, typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val) noexcept -> DecimalType
 {
-    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+    using components = decltype(floating_point_to_fd(val));
+    constexpr int digits {std::numeric_limits<Float>::digits};
+    constexpr bool narrow {std::is_same<components, dragonbox::floating_decimal<std::uint64_t>>::value ||
+                           (std::is_same<components, dragonbox::floating_decimal<std::uint32_t>>::value &&
+                            digits == 24)};
+    constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow : float_path::shortest};
+    return from_float<DecimalType>(val, float_path_tag<path> {});
 }
 
 } // namespace binary_to_decimal
