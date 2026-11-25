@@ -157,6 +157,15 @@ void test_inverse_table()
 
 #endif
 
+// The rules use an integer operand after its conversion, which rounds a wide integer
+void test_wide_integer_operand()
+{
+    BOOST_TEST_EQ(quantexp(decimal32_t{1234567, 1} - 12345670), 1);
+    BOOST_TEST_EQ(quantexp(decimal32_t{0, 5} * 12345670), 6);
+    BOOST_TEST_EQ(quantexp(decimal64_t{1234567890123456, 1} - 12345678901234560), 1);
+    BOOST_TEST_EQ(quantexp(decimal64_t{0, 5} * 12345678901234560), 6);
+}
+
 int main()
 {
     test_zero_operand<decimal32_t>();
@@ -175,6 +184,7 @@ int main()
     test_exact_quotient<decimal32_t>();
     test_exact_quotient<decimal64_t>();
     test_exact_quotient<decimal128_t>();
+    test_wide_integer_operand();
     #if !defined(__CUDACC__) || !defined(BOOST_DECIMAL_ENABLE_CUDA)
     test_inverse_table();
     #endif
