@@ -171,6 +171,7 @@ run github_issue_1561_tanh.cpp ;
 run github_issue_1561_expm1.cpp ;
 run github_issue_1561_exp2.cpp ;
 run github_issue_to_float.cpp ;
+run github_issue_to_float.cpp : : : <define>BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS <pch>off : github_issue_to_float_size ;
 run github_issue_long_double.cpp ;
 
 run link_1.cpp link_2.cpp link_3.cpp ;
@@ -261,6 +262,7 @@ run test_fixed_point.cpp ;
 run test_first_try_bounds.cpp ;
 run test_fixed_width_trunc.cpp ;
 run test_float_conversion.cpp ;
+run test_float_conversion.cpp : : : <define>BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS <pch>off : test_float_conversion_size ;
 run test_fma.cpp ;
 run test_format.cpp ;
 run test_format_fmtlib.cpp ;

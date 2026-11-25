@@ -361,6 +361,41 @@ void test_narrow_nearest_shortest(const int fraction_bits, const int bias)
     }
 }
 
+// The scaled paths and the shortest digits, which BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS selects, give the same bits
+template <typename DecimalType, typename Float>
+void test_same_routes(std::mt19937_64& gen, const int count)
+{
+    using boost::decimal::detail::binary_to_decimal::from_float;
+    for (int i {}; i < count; ++i)
+    {
+        unsigned char bytes[16] {};
+        const std::uint64_t words[2] {gen(), gen()};
+        std::memcpy(bytes, words, sizeof(bytes));
+        Float x {};
+        std::memcpy(&x, bytes, sizeof(Float) < 10U ? sizeof(Float) : 10U);
+        if (!std::isfinite(x))
+        {
+            continue;
+        }
+        const auto scaled {from_float<DecimalType, Float, true>(x)};
+        const auto shortest {from_float<DecimalType, Float, false>(x)};
+        BOOST_TEST_EQ(std::memcmp(&scaled, &shortest, sizeof(DecimalType)), 0);
+    }
+}
+
+template <typename Float>
+void test_same_routes()
+{
+    using namespace boost::decimal;
+    std::mt19937_64 gen {42};
+    test_same_routes<decimal32_t, Float>(gen, 20000);
+    test_same_routes<decimal64_t, Float>(gen, 20000);
+    test_same_routes<decimal128_t, Float>(gen, 20000);
+    test_same_routes<decimal_fast32_t, Float>(gen, 20000);
+    test_same_routes<decimal_fast64_t, Float>(gen, 20000);
+    test_same_routes<decimal_fast128_t, Float>(gen, 20000);
+}
+
 // A constructor that binds a reference needs a definition of this member before C++17, which it does not have
 struct static_value
 {
@@ -984,6 +1019,11 @@ int main()
     test_float_shortest();
     test_narrow_midpoint();
     test_narrow_shortest();
+    test_same_routes<float>();
+    test_same_routes<double>();
+    #ifndef BOOST_DECIMAL_UNSUPPORTED_LONG_DOUBLE
+    test_same_routes<long double>();
+    #endif
     #ifdef BOOST_DECIMAL_HAS_FLOAT16
     test_narrow_round_trip<std::float16_t>();
     test_narrow_nearest_shortest<std::float16_t>(10, 15);

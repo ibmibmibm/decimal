@@ -50,6 +50,10 @@ Again, it must be defined before inclusion of decimal headers like so:
 #include <boost/decimal.hpp>
 ----
 
+- `BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS`: The constructors from a binary floating-point type use less code, but run slower.
+They give the same results.
+Define it the same way in each source file of a program, as for the other macros on this page.
+
 - `BOOST_DECIMAL_DEC_EVAL_METHOD`: See xref:cfloat.adoc[`<cfloat>`] section for explanation
 
 [#enable_cuda]

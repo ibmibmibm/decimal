@@ -783,12 +783,20 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto is_finite_value(const Float val, std::true_ty
     return wide_biased_exponent<Float>(bit_cast<int128::uint128_t>(val)) != wide_max_biased_exponent;
 }
 
+// The scaled paths are faster but larger, so BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS takes the shortest digits. It is
+// a macro of the whole program, as the constructors must agree. The template argument lets a test try both.
+#ifdef BOOST_DECIMAL_SIZE_OPTIMIZED_CONVERSIONS
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE bool scaled_paths {false};
+#else
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE bool scaled_paths {true};
+#endif
+
 // Whether a constructor gives val to from_float: a finite value, or each x87 number, as from_float picks
 // from_wide_scaled for it, which tests the number itself. Clang reads its bits through the stack, and each read waits.
-template <typename Float>
+template <typename Float, bool scaled = scaled_paths>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto takes_from_float(const Float val) noexcept -> bool
 {
-    if (constant_test<sizeof(Float) == 16 && significand_digits<Float>::value == 64>())
+    if (constant_test<scaled && sizeof(Float) == 16 && significand_digits<Float>::value == 64>())
     {
         return true;
     }
@@ -877,7 +885,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const double val, float_path_tag<f
 
 // A float or double to 7 digits, or 64 or 113 significand bits to 7 or 16 digits, rounds once unless near a decimal.
 // To 34 digits, an x87 or binary128 number keeps its shortest digits: the integer in its interval, or one digit more.
-template <typename DecimalType, typename Float>
+template <typename DecimalType, typename Float, bool scaled = scaled_paths>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> DecimalType
 {
     using components = decltype(floating_point_to_fd(val));
@@ -888,14 +896,15 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> Deci
                            (std::is_same<components, dragonbox::floating_decimal<std::uint32_t>>::value &&
                             digits == 24)};
     constexpr bool plain {std::is_same<Float, float>::value || std::is_same<Float, double>::value};
-    constexpr float_path path {precision_v<DecimalType> == 7 && narrow ? float_path::narrow :
-                               is_fast_type_v<DecimalType> && plain ? float_path::fast_shortest :
-                               wide && precision_v<DecimalType> <= 16 ? float_path::wide :
-                               wide && precision_v<DecimalType> > 20 ?
+    constexpr float_path path {scaled && precision_v<DecimalType> == 7 && narrow ? float_path::narrow :
+                               is_fast_type_v<DecimalType> && plain && precision_v<DecimalType> > 7 ?
+                                   float_path::fast_shortest :
+                               scaled && wide && precision_v<DecimalType> <= 16 ? float_path::wide :
+                               scaled && wide && precision_v<DecimalType> > 20 ?
                                    (digits == 64 ? float_path::wide : float_path::quad) :
                                std::is_same<components, ryu::floating_decimal_128>::value ? float_path::ryu :
                                                                                             float_path::shortest};
-    static_assert(path == float_path::wide || sizeof(Float) != 16 || digits != 64,
+    static_assert(!scaled || path == float_path::wide || sizeof(Float) != 16 || digits != 64,
                   "takes_from_float leaves the test of an x87 number to from_wide_scaled");
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }
