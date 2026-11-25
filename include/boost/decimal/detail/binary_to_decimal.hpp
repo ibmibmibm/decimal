@@ -375,8 +375,8 @@ constexpr auto pack_fitting(const UInt digits, const int exponent, const bool si
 }
 
 // The wider types take the side of the exact value from Ryu
-template <typename DecimalType, typename Float>
-constexpr auto from_shortest(const Float, const ryu::floating_decimal_128& components) noexcept -> DecimalType
+template <typename DecimalType>
+constexpr auto from_shortest(const ryu::floating_decimal_128& components) noexcept -> DecimalType
 {
     // To 34 digits, binary128 has one or two digits more. If x is below them, it is above them less 1, so the digits
     // round with a sticky bit, which also breaks a tie.
@@ -503,6 +503,14 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto next_digit(const std::uint64_t fraction) noex
             rounded_up ? one - rest : rest, rounded_up};
 }
 
+// The shortest digits of an x87 or binary128 number from its bits, in the format of Float
+template <typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto wide_shortest(const int128::uint128_t& bits) noexcept -> ryu::floating_decimal_128
+{
+    constexpr bool x87 {std::numeric_limits<Float>::digits == 64};
+    return ryu::generic_binary_to_decimal(bits, x87 ? 64U : 112U, 15U, x87);
+}
+
 // x * 10^k * 2^63 from the significand of an x87 or binary128 number and 10^k rounded up, within 4 units, for
 // 18 to 20 digits. The interval of x holds at most one decimal of 16 digits, and its half width is a shift of 10^k.
 template <typename DecimalType, typename Float>
@@ -516,12 +524,12 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -
     const auto top {x87 ? bits.low : (UINT64_C(1) << 63U) | (bits.high << 15U) | (bits.low >> 49U)};
     const auto bottom {x87 ? UINT64_C(0) : bits.low & ((UINT64_C(1) << 49U) - 1U)};
     const auto binary_exponent {biased - wide_exponent_bias - 63};
-    // The bits rebuild x where Dragonbox or Ryu decides, as GCC else keeps an x87 copy of x for them, and the reads of
-    // the bits above wait on that store
+    // Ryu takes the bits where it decides, as GCC else keeps an x87 copy of x for it, and the reads of the bits above
+    // wait on that store
     if (biased == 0 || top < (UINT64_C(1) << 63U) ||
         binary_exponent < min_cached_binary_exponent || binary_exponent > max_cached_binary_exponent)
     {
-        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+        return from_shortest<DecimalType>(wide_shortest<Float>(bits));
     }
     const bool power_of_two {top == (UINT64_C(1) << 63U) && bottom == 0U};
     const auto k {dragonbox::floor_log10_pow2(-binary_exponent)};
@@ -556,7 +564,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -
     if (exponent < std::numeric_limits<DecimalType>::min_exponent10 ||
         exponent + precision_v<DecimalType> - 1 > std::numeric_limits<DecimalType>::max_exponent10)
     {
-        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+        return from_shortest<DecimalType>(wide_shortest<Float>(bits));
     }
 
     // Distances below 2^63 to the decimal below, the one above and the midpoint, each within product_error
@@ -599,7 +607,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_wide_scaled(const Float& val) noexcept -
     }
     if (keep_shortest || below <= half_width + product_error || above <= half_width + product_error)
     {
-        return from_shortest<DecimalType>(bit_cast<Float>(bits), floating_point_to_fd(bit_cast<Float>(bits)));
+        return from_shortest<DecimalType>(wide_shortest<Float>(bits));
     }
     // The digits and the one after them round with a sticky fraction, as to_decimal_type does. Next to the midpoint,
     // an exact compare gives the side of x: the digit 4 rounds as below it, and the 5 without the sticky bit as on it.
@@ -630,7 +638,7 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_quad_scaled(const Float val) noexcept ->
     const auto binary_exponent {biased - wide_exponent_bias - 112};
     if (biased == 0 || binary_exponent < min_cached_binary_exponent || binary_exponent > max_cached_binary_exponent)
     {
-        return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+        return from_shortest<DecimalType>(wide_shortest<Float>(bits));
     }
     const bool power_of_two {top == (UINT64_C(1) << 48U) && bits.low == 0U};
     const auto k {dragonbox::floor_log10_pow2(-binary_exponent)};
@@ -669,11 +677,11 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_quad_scaled(const Float val) noexcept ->
         // A tie of 35 digits needs the side of x, which the error hides if x is close to the integer
         if ((above < below ? above : below) <= product_error && last_digit(integer) == 5U)
         {
-            return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+            return from_shortest<DecimalType>(wide_shortest<Float>(bits));
         }
         const auto trimmed {remove_trailing_zeros_split(integer)};
         const auto exponent {static_cast<std::int32_t>(trimmed.number_of_removed_zeros) - k};
-        return from_shortest<DecimalType>(val, ryu::floating_decimal_128 {trimmed.trimmed_number, exponent, sign,
+        return from_shortest<DecimalType>(ryu::floating_decimal_128 {trimmed.trimmed_number, exponent, sign,
                                                                           above < below ? -1 : 1});
     }
     if (below > half_width + product_error && above > half_width + product_error)
@@ -693,11 +701,11 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_quad_scaled(const Float val) noexcept ->
                 fenv_round<DecimalType>(stand_in, sign, true);
                 return pack_in_range<DecimalType>(scaled + (stand_in - parity), -k, sign);
             }
-            return from_shortest<DecimalType>(val, ryu::floating_decimal_128 {scaled * 10U + next.digit, -k - 1, sign,
+            return from_shortest<DecimalType>(ryu::floating_decimal_128 {scaled * 10U + next.digit, -k - 1, sign,
                                                                               next.rounded_up ? -1 : 1});
         }
     }
-    return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+    return from_shortest<DecimalType>(wide_shortest<Float>(bits));
 }
 
 // The significand bits, which numeric_limits does not give for __float128 on the libstdc++ of GCC 15 and before
@@ -713,6 +721,7 @@ struct significand_digits<__float128> : std::integral_constant<int, 113> {};
 enum class float_path
 {
     shortest,
+    ryu,
     narrow,
     wide,
     quad,
@@ -722,11 +731,18 @@ enum class float_path
 template <float_path path>
 using float_path_tag = std::integral_constant<float_path, path>;
 
-// Dragonbox or Ryu gives the shortest digits
+// Dragonbox gives the shortest digits
 template <typename DecimalType, typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<float_path::shortest>) noexcept -> DecimalType
 {
     return from_shortest<DecimalType>(val, floating_point_to_fd(val));
+}
+
+// Ryu gives the shortest digits and their side of the exact value
+template <typename DecimalType, typename Float>
+BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float val, float_path_tag<float_path::ryu>) noexcept -> DecimalType
+{
+    return from_shortest<DecimalType>(floating_point_to_fd(val));
 }
 
 // A float or a double to 7 digits
@@ -780,7 +796,9 @@ BOOST_DECIMAL_CXX20_CONSTEXPR auto from_float(const Float& val) noexcept -> Deci
                                is_fast_type_v<DecimalType> && plain ? float_path::fast_shortest :
                                wide && precision_v<DecimalType> <= 16 ? float_path::wide :
                                wide && precision_v<DecimalType> > 20 ?
-                                   (digits == 64 ? float_path::wide : float_path::quad) : float_path::shortest};
+                                   (digits == 64 ? float_path::wide : float_path::quad) :
+                               std::is_same<components, ryu::floating_decimal_128>::value ? float_path::ryu :
+                                                                                            float_path::shortest};
     return from_float<DecimalType>(val, float_path_tag<path> {});
 }
 
