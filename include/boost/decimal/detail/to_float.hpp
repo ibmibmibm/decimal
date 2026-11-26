@@ -7,6 +7,7 @@
 #define BOOST_DECIMAL_DETAIL_TO_FLOAT_HPP
 
 #include <boost/decimal/detail/config.hpp>
+#include <boost/decimal/detail/binary_bits.hpp>
 #include <boost/decimal/detail/fast_float/compute_float64.hpp>
 #include <boost/decimal/detail/fast_float/compute_float80_128.hpp>
 #include <boost/decimal/detail/concepts.hpp>
@@ -46,13 +47,14 @@ constexpr auto round_to_narrow(const double value, const std::int64_t q, const i
     constexpr std::uint64_t infinity_bits {static_cast<std::uint64_t>(2 * max_exponent + 1) << (binary_digits - 1)};
 
     const auto bits {bit_cast<std::uint64_t>(value)};
-    const auto exponent_bits {static_cast<int>((bits >> 52U) & 0x7FFU)};
-    const auto exponent {exponent_bits - 1023};
-    const auto significand {(bits & ((UINT64_C(1) << 52U) - 1U)) | (UINT64_C(1) << 52U)};
+    const auto exponent_bits {static_cast<int>((bits >> binary64_fraction_bits) & binary64_max_biased_exponent)};
+    const auto exponent {exponent_bits - binary64_exponent_bias};
+    constexpr auto leading_bit {UINT64_C(1) << binary64_fraction_bits};
+    const auto significand {(bits & (leading_bit - 1U)) | leading_bit};
 
     // The bits of the double below the last place of TargetType, more for its subnormal values
     const auto low_exponent {exponent > min_exponent ? exponent : min_exponent};
-    const auto dropped {low_exponent - (binary_digits - 1) - (exponent - 52)};
+    const auto dropped {low_exponent - (binary_digits - 1) - (exponent - binary64_fraction_bits)};
     std::uint64_t magnitude {};
     if (exponent > max_exponent)
     {
@@ -64,7 +66,7 @@ constexpr auto round_to_narrow(const double value, const std::int64_t q, const i
         const auto rest {significand & ((half << 1U) - 1U)};
         auto kept {significand >> dropped};
         const auto order {rest != half ? (rest > half ? 1 : -1) :
-                          fast_float::compare_exact(q, sig, significand, exponent - 52)};
+                          fast_float::compare_exact(q, sig, significand, exponent - binary64_fraction_bits)};
         if (order > 0 || (order == 0 && (kept & 1U) != 0U))
         {
             ++kept;

@@ -105,6 +105,24 @@ constexpr auto decode_wide(const int128::uint128_t& bits) noexcept -> wide_field
     return {significand, exponent, wide_sign<Float>(bits), infinite, not_finite && !infinite};
 }
 
+// binary64 has 52 fraction bits and an 11-bit biased exponent with bias 1023, whose largest value marks a NaN or an
+// infinity. decode_binary64 gives its fields as decode_wide does for the wider formats.
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int binary64_fraction_bits {52};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE int binary64_exponent_bias {1023};
+BOOST_DECIMAL_INLINE_CONSTEXPR_VARIABLE std::uint64_t binary64_max_biased_exponent {0x7FF};
+
+constexpr auto decode_binary64(const std::uint64_t bits) noexcept -> wide_fields
+{
+    const auto biased {(bits >> binary64_fraction_bits) & binary64_max_biased_exponent};
+    const auto fraction {bits & ((UINT64_C(1) << binary64_fraction_bits) - 1U)};
+    const auto significand {biased == 0U ? fraction : fraction | (UINT64_C(1) << binary64_fraction_bits)};
+    const auto unbiased {(biased == 0U ? 1 : static_cast<int>(biased)) - binary64_exponent_bias};
+    const auto exponent {unbiased - binary64_fraction_bits};
+    const bool special {biased == binary64_max_biased_exponent};
+    return {int128::uint128_t {significand}, exponent, (bits >> 63U) != 0U, special && fraction == 0U,
+            special && fraction != 0U};
+}
+
 } // namespace detail
 } // namespace decimal
 } // namespace boost

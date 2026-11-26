@@ -35,13 +35,7 @@ template <typename Float>
 BOOST_DECIMAL_CXX20_CONSTEXPR auto split_long_double(const Float& val) noexcept -> long_double_split
 {
     #if BOOST_DECIMAL_LDBL_BITS == 64
-    const auto bits {bit_cast<std::uint64_t>(val)};
-    const auto biased {static_cast<int>((bits >> 52U) & 0x7FFU)};
-    const auto fraction {bits & ((UINT64_C(1) << 52U) - 1U)};
-    const auto mantissa {biased == 0 ? fraction : fraction | (UINT64_C(1) << 52U)};
-    const bool infinite {biased == 0x7FF && fraction == 0U};
-    return {int128::uint128_t {mantissa}, (biased == 0 ? 1 : biased) - 1075, (bits >> 63U) != 0U, infinite,
-            biased == 0x7FF && !infinite};
+    return decode_binary64(bit_cast<std::uint64_t>(val));
     #else
     return decode_wide<Float>(wide_bits(val));
     #endif
