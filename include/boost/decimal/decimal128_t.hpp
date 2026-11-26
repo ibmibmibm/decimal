@@ -266,6 +266,9 @@ private:
     template <typename T, typename SigType>
     friend BOOST_DECIMAL_CUDA_CONSTEXPR auto detail::far_operand(T larger, SigType sig) noexcept -> T;
 
+    friend BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs, int128::uint128_t lhs_sig, std::int32_t lhs_exp, bool lhs_sign,
+                                                           int128::uint128_t rhs_sig, std::int32_t rhs_exp, bool rhs_sign) noexcept -> decimal128_t;
+
 public:
     // 3.2.4.1 construct/copy/destroy
     constexpr decimal128_t() noexcept = default;
@@ -1617,6 +1620,45 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_div_impl(const decimal128_t& lhs, const d
 #  pragma warning(pop)
 #endif
 
+// The sum of finite operands. The parts must be those of lhs and rhs, and a difference passes
+// the negated right operand in both forms. Nonzero operands 0 to 3 exponents apart go to
+// aligned_add_kernel, and in the default mode operands over 75 apart give the larger one.
+// d128_add_impl_new does the rest, and the zero rules.
+BOOST_DECIMAL_FORCE_INLINE BOOST_DECIMAL_CUDA_CONSTEXPR auto d128_add_core(const decimal128_t& lhs, const decimal128_t& rhs,
+                                                                          const int128::uint128_t lhs_sig, const std::int32_t lhs_exp, const bool lhs_sign,
+                                                                          const int128::uint128_t rhs_sig, const std::int32_t rhs_exp, const bool rhs_sign) noexcept -> decimal128_t
+{
+    if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
+    {
+        const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
+        if (exp_diff > 75 || exp_diff <= 3)
+        {
+            if (BOOST_DECIMAL_LIKELY(detail::current_rounding_mode() == rounding_mode::fe_dec_to_nearest))
+            {
+                if (exp_diff > 75)
+                {
+                    return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
+                }
+                return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
+                    lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
+            }
+            // The other modes use the same kernel out of line
+            if (exp_diff <= 3)
+            {
+                return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
+                    lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff), lhs_sign, rhs_sign);
+            }
+        }
+    }
+
+    detail::decimal128_t_components lhs_components {lhs_sig, lhs_exp, lhs_sign};
+    detail::decimal128_t_components rhs_components {rhs_sig, rhs_exp, rhs_sign};
+    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
+    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
+
+    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+}
+
 BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decimal128_t& rhs) noexcept -> decimal128_t
 {
     #ifndef BOOST_DECIMAL_FAST_MATH
@@ -1631,53 +1673,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator+(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Two fast paths (see decimal64_t.hpp:operator+ for full explanation).
-    // Both gated on non-zero operands so zero short-circuit logic is preserved
-    // by falling through to d128_add_impl_new.
-    {
-        const auto lhs_sig {lhs.full_significand()};
-        const auto rhs_sig {rhs.full_significand()};
-        if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
-        {
-            const auto lhs_exp {lhs.biased_exponent()};
-            const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
-            if (exp_diff > 75 || exp_diff <= 3)
-            {
-                auto round {_boost_decimal_global_rounding_mode};
-                #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
-                if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
-                {
-                    round = _boost_decimal_global_runtime_rounding_mode;
-                }
-                #endif
-                if (BOOST_DECIMAL_LIKELY(round == rounding_mode::fe_dec_to_nearest))
-                {
-                    if (exp_diff > 75)
-                    {
-                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
-                    }
-                    return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), rhs.isneg());
-                }
-                // The other modes use the same kernel out of line
-                if (exp_diff <= 3)
-                {
-                    return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), rhs.isneg());
-                }
-            }
-        }
-    }
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    return d128_add_core(lhs, rhs, lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                         rhs.full_significand(), rhs.biased_exponent(), rhs.isneg());
 }
 
 template <typename Integer>
@@ -1715,54 +1712,8 @@ BOOST_DECIMAL_CUDA_CONSTEXPR auto operator-(const decimal128_t& lhs, const decim
     }
     #endif
 
-    // Two fast paths; see operator+ above. Both gated on non-zero operands so
-    // zero short-circuit logic is preserved by falling through. For operator-,
-    // rhs sign is flipped before kernel dispatch.
-    {
-        const auto lhs_sig {lhs.full_significand()};
-        const auto rhs_sig {rhs.full_significand()};
-        if (BOOST_DECIMAL_LIKELY(lhs_sig != 0U && rhs_sig != 0U))
-        {
-            const auto lhs_exp {lhs.biased_exponent()};
-            const auto rhs_exp {rhs.biased_exponent()};
-            const auto exp_diff {lhs_exp > rhs_exp ? lhs_exp - rhs_exp : rhs_exp - lhs_exp};
-            if (exp_diff > 75 || exp_diff <= 3)
-            {
-                auto round {_boost_decimal_global_rounding_mode};
-                #ifndef BOOST_DECIMAL_NO_CONSTEVAL_DETECTION
-                if (!BOOST_DECIMAL_IS_CONSTANT_EVALUATED(lhs))
-                {
-                    round = _boost_decimal_global_runtime_rounding_mode;
-                }
-                #endif
-                if (BOOST_DECIMAL_LIKELY(round == rounding_mode::fe_dec_to_nearest))
-                {
-                    if (exp_diff > 75)
-                    {
-                        return detail::far_operand(lhs_exp > rhs_exp ? lhs : -rhs, lhs_exp > rhs_exp ? lhs_sig : rhs_sig);
-                    }
-                    return detail::aligned_add_kernel<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), !rhs.isneg());
-                }
-                // The other modes use the same kernel out of line
-                if (exp_diff <= 3)
-                {
-                    return detail::aligned_add_in_mode<decimal128_t, int128::uint128_t>(
-                        lhs_sig, rhs_sig, lhs_exp, rhs_exp, static_cast<unsigned>(exp_diff),
-                        lhs.isneg(), !rhs.isneg());
-                }
-            }
-        }
-    }
-
-    auto lhs_components {lhs.to_components()};
-    detail::expand_significand<decimal128_t>(lhs_components.sig, lhs_components.exp);
-    auto rhs_components {rhs.to_components()};
-    detail::expand_significand<decimal128_t>(rhs_components.sig, rhs_components.exp);
-    rhs_components.sign = !rhs_components.sign;
-
-    return detail::d128_add_impl_new<decimal128_t>(lhs_components, rhs_components);
+    return d128_add_core(lhs, -rhs, lhs.full_significand(), lhs.biased_exponent(), lhs.isneg(),
+                         rhs.full_significand(), rhs.biased_exponent(), !rhs.isneg());
 }
 
 template <typename Integer>
